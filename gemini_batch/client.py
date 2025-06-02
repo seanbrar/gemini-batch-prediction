@@ -7,6 +7,8 @@ from typing import List
 
 from google import genai
 
+from .exceptions import APIError
+
 
 class GeminiClient:
     """Gemini API client with batch processing capabilities"""
@@ -32,10 +34,13 @@ class GeminiClient:
 
     def generate_content(self, prompt: str) -> str:
         """Generate content from a single prompt"""
-        response = self.client.models.generate_content(
-            model=self.model_name, contents=prompt
-        )
-        return response.text
+        try:
+            response = self.client.models.generate_content(
+                model=self.model_name, contents=prompt
+            )
+            return response.text
+        except Exception as e:
+            raise APIError(f"API call failed: {e}") from e
 
     def generate_batch(self, content: str, questions: List[str]) -> str:
         """Generate batch response for multiple questions about content"""

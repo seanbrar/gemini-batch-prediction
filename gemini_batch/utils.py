@@ -19,3 +19,14 @@ def extract_answers(response_text: str, question_count: int) -> List[str]:
     # TODO: Implement robust answer extraction
     # Placeholder: simple split
     return [f"Answer {i + 1}" for i in range(question_count)]
+
+
+def validate_api_key(api_key: str) -> bool:
+    """Basic API key format validation"""
+    if not api_key or not isinstance(api_key, str):
+        return False
+
+    # Basic length check
+    api_key = api_key.strip()
+    if len(api_key) < 30:  # Too short
+        return False
