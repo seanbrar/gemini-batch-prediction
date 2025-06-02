@@ -32,6 +32,9 @@ This project develops a framework for efficiently analyzing educational video co
 git clone https://github.com/seanbrar/gemini-batch-prediction.git
 cd gemini-batch-prediction
 pip install -r requirements.txt
+
+# Install the package in development mode
+pip install -e .
 ```
 
 ### Setup API Key
