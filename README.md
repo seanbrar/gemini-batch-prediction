@@ -42,6 +42,21 @@ pip install -e .
 2. Create a `.env` file:
 ```bash
 GEMINI_API_KEY=your_api_key_here
+GEMINI_MODEL=gemini-2.0-flash  # Optional: defaults to gemini-2.0-flash
+```
+
+## 🔥 Quick Start
+
+### Basic Usage
+```python
+from gemini_batch import GeminiClient
+
+# Initialize client (reads from .env file)
+client = GeminiClient()
+
+# Basic content generation
+response = client.generate_content("Explain quantum computing in simple terms")
+print(response)
 ```
 
 ## 🛠️ Development Roadmap
