@@ -3,9 +3,10 @@ Gemini API client for batch processing experiments
 """
 
 import os
-from typing import List
+from typing import List, Optional
 
 from google import genai
+from google.genai import types
 
 from .exceptions import APIError
 
@@ -32,12 +33,23 @@ class GeminiClient:
         self.model_name = model_name
         self.enable_caching = enable_caching
 
-    def generate_content(self, prompt: str) -> str:
-        """Generate content from a single prompt"""
+    def generate_content(
+        self, prompt: str, system_instruction: Optional[str] = None
+    ) -> str:
+        """Generate content from a single prompt with optional system instruction"""
         try:
-            response = self.client.models.generate_content(
-                model=self.model_name, contents=prompt
-            )
+            if system_instruction:
+                response = self.client.models.generate_content(
+                    model=self.model_name,
+                    config=types.GenerateContentConfig(
+                        system_instruction=system_instruction
+                    ),
+                    contents=prompt,
+                )
+            else:
+                response = self.client.models.generate_content(
+                    model=self.model_name, contents=prompt
+                )
             return response.text
         except Exception as e:
             raise APIError(f"API call failed: {e}") from e

@@ -12,7 +12,11 @@ def main():
 
     client = GeminiClient()
 
-    print(client.generate_content("Hello, world!"))
+    print(
+        client.generate_content(
+            prompt="Hello, world!", system_instruction="You are a helpful assistant."
+        )
+    )
 
 
 if __name__ == "__main__":
