@@ -4,7 +4,7 @@ Gemini Batch Processing Framework
 
 from .batch_processor import BatchProcessor
 from .client import GeminiClient
-from .exceptions import APIError, GeminiBatchError
+from .exceptions import APIError, GeminiBatchError, MissingKeyError, NetworkError
 
 __version__ = "0.1.0"
 __all__ = [
@@ -13,4 +13,6 @@ __all__ = [
     # Exceptions
     "GeminiBatchError",
     "APIError",
+    "MissingKeyError",
+    "NetworkError",
 ]

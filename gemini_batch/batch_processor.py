@@ -4,14 +4,21 @@ Batch processor for text content analysis
 
 from typing import Any, Dict, List
 
+from .client import GeminiClient
+from .exceptions import MissingKeyError, NetworkError
+
 
 class BatchProcessor:
     """Process multiple questions efficiently using batch operations"""
 
     def __init__(self, api_key: str = None):
         """Initialize batch processor"""
-        # TODO: Initialize with GeminiClient
-        pass
+        try:
+            self.client = GeminiClient(api_key=api_key)
+        except MissingKeyError:
+            raise
+        except NetworkError:
+            raise
 
     def process_text_questions(
         self, content: str, questions: List[str]

@@ -8,7 +8,7 @@ from typing import List, Optional
 from google import genai
 from google.genai import types
 
-from .exceptions import APIError
+from .exceptions import APIError, MissingKeyError, NetworkError
 
 
 class GeminiClient:
@@ -22,7 +22,7 @@ class GeminiClient:
             api_key = os.getenv("GEMINI_API_KEY")
 
         if not api_key:
-            raise ValueError(
+            raise MissingKeyError(
                 "API key required. Set GEMINI_API_KEY environment variable."
             )
 
@@ -51,6 +51,8 @@ class GeminiClient:
                     model=self.model_name, contents=prompt
                 )
             return response.text
+        except (ConnectionError, TimeoutError) as e:
+            raise NetworkError(f"Network connection failed: {e}") from e
         except Exception as e:
             raise APIError(f"API call failed: {e}") from e
 
