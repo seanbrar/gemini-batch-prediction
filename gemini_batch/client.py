@@ -58,7 +58,20 @@ class GeminiClient:
 
     def generate_batch(self, content: str, questions: List[str]) -> str:
         """Generate batch response for multiple questions about content"""
-        # TODO: Implement optimized batch processing
-        # For now, simple concatenation
-        batch_prompt = f"Content: {content}\n\nQuestions: {', '.join(questions)}"
+        batch_prompt = self._create_batch_prompt(content, questions)
         return self.generate_content(batch_prompt)
+
+    def _create_batch_prompt(self, content: str, questions: List[str]) -> str:
+        """Create optimized batch prompt for multiple questions"""
+        prompt = (
+            f"Content: {content}\n\nPlease answer each of the following questions:\n\n"
+        )
+
+        for i, question in enumerate(questions, 1):
+            prompt += f"Question {i}: {question}\n"
+
+        prompt += "\nProvide numbered answers in this format:\n"
+        for i in range(1, len(questions) + 1):
+            prompt += f"Answer {i}: [Your response]\n"
+
+        return prompt

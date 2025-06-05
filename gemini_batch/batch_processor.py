@@ -2,10 +2,11 @@
 Batch processor for text content analysis
 """
 
-from typing import Any, Dict, List
+from typing import Any, Dict, List, Tuple
 
 from .client import GeminiClient
-from .exceptions import MissingKeyError, NetworkError
+from .exceptions import APIError, MissingKeyError, NetworkError
+from .utils import extract_answers
 
 
 class BatchProcessor:
@@ -18,6 +19,21 @@ class BatchProcessor:
         except MissingKeyError:
             raise
         except NetworkError:
+            raise
+
+    def process_batch(
+        self, content: str, questions: List[str]
+    ) -> Tuple[List[str], Dict[str, Any]]:
+        """Process all questions in a single batch call"""
+        try:
+            response = self.client.generate_batch(content, questions)
+
+            # Extract individual answers
+            answers = extract_answers(response, len(questions))
+
+            return answers
+
+        except (APIError, NetworkError):
             raise
 
     def process_text_questions(
