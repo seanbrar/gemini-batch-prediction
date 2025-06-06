@@ -24,33 +24,38 @@ def _calculate_efficiency_metrics(
 ) -> Dict[str, float]:
     """Calculate all efficiency metrics when comparison data is available"""
 
-    # Token efficiency for each approach
-    individual_efficiency = _calculate_token_efficiency(
+    # Calculate token efficiency for each approach (generated/total ratio)
+    individual_token_efficiency = _calculate_token_efficiency(
         individual_prompt_tokens, individual_output_tokens
     )
-    batch_efficiency = _calculate_token_efficiency(
+    batch_token_efficiency = _calculate_token_efficiency(
         batch_prompt_tokens, batch_output_tokens
     )
 
-    # How much better is batch at converting tokens to output?
-    token_efficiency_ratio = batch_efficiency / max(individual_efficiency, 1e-10)
+    # Total tokens used by each approach
+    individual_total = individual_prompt_tokens + individual_output_tokens
+    batch_total = batch_prompt_tokens + batch_output_tokens
 
-    # Time efficiency (optional metric)
+    # Key metric: How many times fewer tokens does batch use?
+    token_savings_ratio = individual_total / max(batch_total, 1)
+
     time_efficiency = individual_time / max(batch_time, 1) if batch_time > 0 else 1.0
 
-    # Overall efficiency focuses on token economics
-    overall_efficiency = token_efficiency_ratio
+    # Overall efficiency is the token savings ratio
+    overall_efficiency = token_savings_ratio
 
     # Target: 3x minimum efficiency improvement
-    meets_target = token_efficiency_ratio >= 3.0
+    meets_target = token_savings_ratio >= 3.0
 
     return {
-        "individual_token_efficiency": individual_efficiency,
-        "batch_token_efficiency": batch_efficiency,
-        "token_efficiency_ratio": token_efficiency_ratio,
+        "individual_token_efficiency": individual_token_efficiency,
+        "batch_token_efficiency": batch_token_efficiency,
+        "token_efficiency_ratio": token_savings_ratio,
         "time_efficiency": time_efficiency,
         "overall_efficiency": overall_efficiency,
         "meets_target": meets_target,
+        "individual_total_tokens": individual_total,
+        "batch_total_tokens": batch_total,
     }
 
 
