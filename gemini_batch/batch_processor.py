@@ -66,7 +66,7 @@ class BatchProcessor:
         self.individual_output_tokens += total_output_tokens
 
         return answers, {
-            "calls": self.individual_calls,
+            "calls": len(questions),
             "prompt_tokens": total_prompt_tokens,
             "output_tokens": total_output_tokens,
             "tokens": total_prompt_tokens + total_output_tokens,
