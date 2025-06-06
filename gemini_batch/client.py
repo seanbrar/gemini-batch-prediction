@@ -3,12 +3,13 @@ Gemini API client for batch processing experiments
 """
 
 import os
-from typing import List, Optional
+from typing import Any, Dict, List, Optional, Union
 
 from google import genai
 from google.genai import types
 
 from .exceptions import APIError, MissingKeyError, NetworkError
+from .utils import extract_usage_metrics
 
 
 class GeminiClient:
@@ -34,8 +35,11 @@ class GeminiClient:
         self.enable_caching = enable_caching
 
     def generate_content(
-        self, prompt: str, system_instruction: Optional[str] = None
-    ) -> str:
+        self,
+        prompt: str,
+        system_instruction: Optional[str] = None,
+        return_usage: bool = False,
+    ) -> Union[str, Dict[str, Any]]:
         """Generate content from a single prompt with optional system instruction"""
         try:
             if system_instruction:
@@ -50,16 +54,26 @@ class GeminiClient:
                 response = self.client.models.generate_content(
                     model=self.model_name, contents=prompt
                 )
-            return response.text
+
+            if return_usage:
+                return {
+                    "text": response.text,
+                    "usage": extract_usage_metrics(response),
+                }
+            else:
+                return response.text
+
         except (ConnectionError, TimeoutError) as e:
             raise NetworkError(f"Network connection failed: {e}") from e
         except Exception as e:
             raise APIError(f"API call failed: {e}") from e
 
-    def generate_batch(self, content: str, questions: List[str]) -> str:
+    def generate_batch(
+        self, content: str, questions: List[str], return_usage: bool = False
+    ) -> Union[str, Dict[str, Any]]:
         """Generate batch response for multiple questions about content"""
         batch_prompt = self._create_batch_prompt(content, questions)
-        return self.generate_content(batch_prompt)
+        return self.generate_content(batch_prompt, return_usage=return_usage)
 
     def _create_batch_prompt(self, content: str, questions: List[str]) -> str:
         """Create optimized batch prompt for multiple questions"""

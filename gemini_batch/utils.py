@@ -8,13 +8,136 @@ from typing import Dict, List
 from .exceptions import MissingKeyError
 
 
-def track_efficiency(individual_calls: int, batch_calls: int) -> Dict[str, float]:
-    """Calculate efficiency metrics for batch processing"""
-    # TODO: Add more sophisticated metrics
-    if batch_calls == 0:
-        return {"efficiency": 0}
+def _calculate_token_efficiency(prompt_tokens: int, output_tokens: int) -> float:
+    """Calculate token efficiency: output tokens / total tokens"""
+    total_tokens = prompt_tokens + output_tokens
+    return output_tokens / max(total_tokens, 1)
 
-    return {"efficiency": individual_calls / batch_calls}
+
+def _calculate_efficiency_metrics(
+    individual_prompt_tokens: int,
+    individual_output_tokens: int,
+    batch_prompt_tokens: int,
+    batch_output_tokens: int,
+    individual_time: float,
+    batch_time: float,
+) -> Dict[str, float]:
+    """Calculate all efficiency metrics when comparison data is available"""
+
+    # Token efficiency for each approach
+    individual_efficiency = _calculate_token_efficiency(
+        individual_prompt_tokens, individual_output_tokens
+    )
+    batch_efficiency = _calculate_token_efficiency(
+        batch_prompt_tokens, batch_output_tokens
+    )
+
+    # How much better is batch at converting tokens to output?
+    token_efficiency_ratio = batch_efficiency / max(individual_efficiency, 1e-10)
+
+    # Time efficiency (optional metric)
+    time_efficiency = individual_time / max(batch_time, 1) if batch_time > 0 else 1.0
+
+    # Overall efficiency focuses on token economics
+    overall_efficiency = token_efficiency_ratio
+
+    # Target: 3x minimum efficiency improvement
+    meets_target = token_efficiency_ratio >= 3.0
+
+    return {
+        "individual_token_efficiency": individual_efficiency,
+        "batch_token_efficiency": batch_efficiency,
+        "token_efficiency_ratio": token_efficiency_ratio,
+        "time_efficiency": time_efficiency,
+        "overall_efficiency": overall_efficiency,
+        "meets_target": meets_target,
+    }
+
+
+def track_efficiency(
+    individual_calls: int,
+    batch_calls: int,
+    individual_prompt_tokens: int = 0,
+    individual_output_tokens: int = 0,
+    batch_prompt_tokens: int = 0,
+    batch_output_tokens: int = 0,
+    individual_time: float = 0.0,
+    batch_time: float = 0.0,
+) -> Dict[str, float]:
+    """Calculate efficiency metrics for batch processing"""
+
+    # Determine if comparison data is available
+    comparison_available = individual_calls > 0 and batch_calls > 0
+
+    if (
+        comparison_available
+        and individual_prompt_tokens > 0
+        and batch_prompt_tokens > 0
+    ):
+        # Full comparison available
+        metrics = _calculate_efficiency_metrics(
+            individual_prompt_tokens,
+            individual_output_tokens,
+            batch_prompt_tokens,
+            batch_output_tokens,
+            individual_time,
+            batch_time,
+        )
+
+    else:
+        # Limited data - calculate what we can
+        batch_efficiency = None
+        individual_efficiency = None
+
+        if batch_prompt_tokens > 0 and batch_output_tokens > 0:
+            batch_efficiency = _calculate_token_efficiency(
+                batch_prompt_tokens, batch_output_tokens
+            )
+
+        if individual_prompt_tokens > 0 and individual_output_tokens > 0:
+            individual_efficiency = _calculate_token_efficiency(
+                individual_prompt_tokens, individual_output_tokens
+            )
+
+        metrics = {
+            "individual_token_efficiency": individual_efficiency
+            if comparison_available
+            else None,
+            "batch_token_efficiency": batch_efficiency
+            if comparison_available
+            else None,
+            "token_efficiency_ratio": None,
+            "time_efficiency": None,
+            "overall_efficiency": None,
+            "meets_target": batch_calls > 0,  # Success if batch processing worked
+        }
+
+    # Add comparison flag to all results
+    metrics["comparison_available"] = comparison_available
+    return metrics
+
+
+def extract_usage_metrics(response) -> Dict[str, int]:
+    """Extract token usage from API response"""
+    try:
+        usage = response.usage_metadata
+        prompt_tokens = getattr(usage, "prompt_token_count", 0) or 0
+        output_tokens = getattr(usage, "candidates_token_count", 0) or 0
+        cached_tokens = getattr(usage, "cached_content_token_count", 0) or 0
+
+        return {
+            "prompt_tokens": prompt_tokens,
+            "output_tokens": output_tokens,
+            "cached_tokens": cached_tokens,
+            "total_tokens": prompt_tokens + output_tokens,
+        }
+    except (AttributeError, TypeError):
+        return {
+            "prompt_tokens": 0,
+            "output_tokens": 0,
+            "cached_tokens": 0,
+            "total_tokens": 0,
+        }
 
 
 def extract_answers(response_text: str, question_count: int) -> List[str]:
@@ -43,6 +166,46 @@ def extract_answers(response_text: str, question_count: int) -> List[str]:
             answers.append(f"Answer {i}: (No answer found)")
 
     return answers
+
+
+def calculate_quality_score(
+    individual_answers: List[str], batch_answers: List[str]
+) -> float:
+    """Calculate quality comparison between individual and batch answers"""
+    # Handle case where individual answers aren't available
+    if not individual_answers or not batch_answers:
+        return None
+
+    if len(individual_answers) != len(batch_answers):
+        return 0.0
+
+    quality_scores = []
+
+    for ind, batch in zip(individual_answers, batch_answers):
+        # Completeness check (both answers should be substantive)
+        ind_complete = len(ind.strip()) > 10
+        batch_complete = len(batch.strip()) > 10
+        completeness = 1.0 if (ind_complete and batch_complete) else 0.5
+
+        # Word overlap similarity
+        ind_words = set(ind.lower().split())
+        batch_words = set(batch.lower().split())
+
+        if len(ind_words.union(batch_words)) > 0:
+            overlap = len(ind_words.intersection(batch_words)) / len(
+                ind_words.union(batch_words)
+            )
+        else:
+            overlap = 0.0
+
+        # Length similarity (with a preference for similar-length answers)
+        length_ratio = min(len(ind), len(batch)) / max(len(ind), len(batch), 1)
+
+        # Combined score
+        score = (completeness * 0.5) + (overlap * 0.3) + (length_ratio * 0.2)
+        quality_scores.append(score)
+
+    return sum(quality_scores) / len(quality_scores)
 
 
 def validate_api_key(api_key: str) -> bool:
