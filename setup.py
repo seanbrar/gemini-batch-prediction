@@ -14,7 +14,7 @@ with open("requirements.txt", encoding="utf-8") as fh:
 
 setup(
     name="gemini-batch",
-    version="0.1.0",
+    version="0.2.0",
     author="Sean Brar",
     author_email="hello@seanbrar.com",
     description="A framework for batch processing with Google's Gemini API",
