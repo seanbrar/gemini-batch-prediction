@@ -15,3 +15,6 @@ __pycache__/
 
 # VSCode settings
 .vscode/settings.json
+
+# Test coverage
+.coverage
