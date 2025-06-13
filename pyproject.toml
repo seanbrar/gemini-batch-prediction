@@ -1,0 +1,68 @@
+[build-system]
+requires = ["setuptools>=61.0", "wheel"]
+build-backend = "setuptools.build_meta"
+
+[project]
+name = "gemini-batch"
+version = "0.3.0"
+description = "A framework for batch processing with Google's Gemini API"
+readme = "README.md"
+license = "MIT"
+authors = [
+    {name = "Sean Brar", email = "hello@seanbrar.com"}
+]
+requires-python = ">=3.13"
+dependencies = [
+    "google-genai>=1.18.0",
+    "python-dotenv>=1.1.0",
+]
+
+[project.optional-dependencies]
+dev = [
+    "pytest>=8.0.0",
+    "pytest-cov>=4.0.0", 
+    "pytest-mock>=3.12.0",
+]
+viz = [
+    "matplotlib>=3.10.3",
+    "seaborn>=0.13.2",
+    "pandas>=2.3.0",
+]
+
+[project.urls]
+Homepage = "https://github.com/seanbrar/gemini-batch-prediction"
+Repository = "https://github.com/seanbrar/gemini-batch-prediction"
+
+[tool.setuptools.packages.find]
+exclude = ["notebooks*", "tests*", "examples*"]
+
+[tool.pytest.ini_options]
+testpaths = ["tests"]
+addopts = [
+    "--cov=gemini_batch",
+    "--cov-report=html:coverage_html_report", 
+    "--cov-report=term-missing",
+    "--cov-fail-under=80",
+    "-v"
+]
+
+[tool.coverage.run]
+source = ["gemini_batch"]
+omit = [
+    "tests/*",
+    "gemini_batch/__init__.py",
+    "gemini_batch/visualization.py",
+    "setup.py"
+]
+
+[tool.coverage.report]
+exclude_lines = [
+    "pragma: no cover",
+    "def __repr__",
+    "raise AssertionError", 
+    "raise NotImplementedError",
+    "if __name__ == .__main__.:"
+]
+
+[tool.coverage.html]
+directory = "coverage_html_report"

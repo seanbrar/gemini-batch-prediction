@@ -3,13 +3,14 @@ Gemini API client for batch processing experiments
 """
 
 from collections import deque
-import os
 import time
 from typing import Any, Dict, List, Optional, Union
+import warnings
 
 from google import genai
 from google.genai import types
 
+from .config import APITier, ConfigManager
 from .exceptions import APIError, MissingKeyError, NetworkError
 from .utils import extract_usage_metrics
 
@@ -18,28 +19,100 @@ class GeminiClient:
     """Gemini API client with batch processing capabilities"""
 
     def __init__(
-        self, api_key: str = None, model_name: str = None, enable_caching: bool = False
+        self,
+        api_key: str = None,
+        model_name: str = None,
+        enable_caching: bool = False,
+        config_manager: Optional[ConfigManager] = None,
+        tier: Optional[APITier] = None,
+        **kwargs,
     ):
-        """Initialize client with API key, model, and rate limiting"""
-        if api_key is None:
-            api_key = os.getenv("GEMINI_API_KEY")
+        """Initialize client with flexible configuration options
 
-        if not api_key:
+        Args:
+            api_key: Explicit API key (overrides config and environment)
+            model_name: Explicit model name (overrides config and environment)
+            enable_caching: Enable caching for requests
+            config_manager: Pre-configured ConfigManager instance
+            tier: API tier for rate limiting (creates config if manager not provided)
+            **kwargs: Additional arguments (for future extensibility)
+        """
+
+        # Configuration resolution with clean precedence
+        if config_manager is not None:
+            # Use provided config manager
+            self.config = config_manager
+
+            # Allow explicit parameters to override config values
+            self.api_key = api_key or config_manager.api_key
+            self.model_name = model_name or config_manager.model
+
+            # Warn if both config and parameters provided
+            if api_key or model_name or tier:
+                warnings.warn(
+                    "Explicit parameters override ConfigManager values. "
+                    "Consider using ConfigManager exclusively for cleaner configuration.",
+                    stacklevel=2,
+                )
+
+        else:
+            # Create config manager from parameters + environment
+            self.config = ConfigManager(tier=tier, model=model_name, api_key=api_key)
+            self.api_key = self.config.api_key
+            self.model_name = self.config.model
+
+        # Validate we have an API key
+        if not self.api_key:
             raise MissingKeyError(
-                "API key required. Set GEMINI_API_KEY environment variable."
+                "API key required. Provide via parameter, ConfigManager, or GEMINI_API_KEY environment variable."
             )
 
-        if model_name is None:
-            model_name = os.getenv("GEMINI_MODEL", "gemini-2.0-flash")
-
-        self.client = genai.Client(api_key=api_key)
-        self.model_name = model_name
+        # Client-specific configuration
         self.enable_caching = enable_caching
 
-        # Basic rate limiting for 2.0 Flash free tier (15 requests/minute)
-        self.rate_limit_requests = 15
+        # Set up Google AI client
+        self.client = genai.Client(api_key=self.api_key)
+
+        # Set up rate limiting using config
+        self._setup_rate_limiting()
+
+    @classmethod
+    def from_config(cls, config: ConfigManager, **kwargs) -> "GeminiClient":
+        """Factory method for creating client from ConfigManager"""
+        return cls(config_manager=config, **kwargs)
+
+    @classmethod
+    def from_env(cls, **kwargs) -> "GeminiClient":
+        """Factory method for environment-driven configuration"""
+        config = ConfigManager.from_env()
+        return cls(config_manager=config, **kwargs)
+
+    def _setup_rate_limiting(self):
+        """Set up rate limiting using configuration"""
+        try:
+            rate_config = self.config.get_rate_limiter_config(self.model_name)
+            self.rate_limit_requests = rate_config["requests_per_minute"]
+            self.rate_limit_tokens = rate_config["tokens_per_minute"]
+        except Exception:
+            # Fallback to conservative defaults if config fails
+            self.rate_limit_requests = 15
+            self.rate_limit_tokens = 250_000
+
         self.rate_limit_window = 60  # seconds
         self.request_timestamps = deque()
+
+    def get_config_summary(self) -> Dict[str, Any]:
+        """Get summary of current configuration for debugging"""
+        summary = self.config.get_config_summary()
+        summary.update(
+            {
+                "client_model_name": self.model_name,
+                "rate_limit_requests": self.rate_limit_requests,
+                "rate_limit_tokens": getattr(self, "rate_limit_tokens", "unknown"),
+                "enable_caching": self.enable_caching,
+            }
+        )
+        return summary
 
     def _wait_for_rate_limit(self):
         """Simple rate limiting: wait if we're approaching the limit"""
