@@ -3,7 +3,7 @@ from unittest.mock import Mock, patch
 import pytest
 
 from gemini_batch import BatchProcessor
-from gemini_batch.exceptions import APIError, NetworkError
+from gemini_batch.exceptions import APIError, MissingKeyError, NetworkError
 from tests.fixtures.api_responses import SAMPLE_RESPONSES
 
 
@@ -64,6 +64,91 @@ class TestBatchProcessorInitialization:
                 stacklevel=2,
             )
             assert processor.client is mock_client
+
+    @pytest.mark.parametrize(
+        "exception_type,api_key,expected_message",
+        [
+            (MissingKeyError, None, "API key required"),
+            (MissingKeyError, "", "API key must be a non-empty string"),
+            (
+                NetworkError,
+                "valid_key_123456789012345678901234567890",
+                "Unable to connect",
+            ),
+        ],
+    )
+    def test_initialization_error_propagation(
+        self, exception_type, api_key, expected_message
+    ):
+        """Should propagate appropriate errors from client initialization"""
+        with patch("gemini_batch.batch_processor.GeminiClient") as mock_client_class:
+            mock_client_class.side_effect = exception_type(expected_message)
+
+            with pytest.raises(exception_type, match=expected_message):
+                BatchProcessor(api_key=api_key)
+
+    def test_handles_missing_key_error_with_client_kwargs(self):
+        """Should propagate MissingKeyError even when additional client kwargs are provided"""
+        with patch("gemini_batch.batch_processor.GeminiClient") as mock_client_class:
+            mock_client_class.side_effect = MissingKeyError(
+                "API key must be a non-empty string"
+            )
+
+            with pytest.raises(
+                MissingKeyError, match="API key must be a non-empty string"
+            ):
+                BatchProcessor(
+                    api_key="",  # Empty API key
+                    model_name="gemini-2.0-flash",
+                    enable_caching=True,
+                )
+
+            # Verify the full parameter set was passed
+            mock_client_class.assert_called_once_with(
+                api_key="", model_name="gemini-2.0-flash", enable_caching=True
+            )
+
+    def test_handles_network_error_with_complex_initialization(self):
+        """Should propagate NetworkError from complex initialization scenarios"""
+        with patch("gemini_batch.batch_processor.GeminiClient") as mock_client_class:
+            mock_client_class.side_effect = NetworkError(
+                "Network connection timeout during client setup"
+            )
+
+            with pytest.raises(
+                NetworkError, match="Network connection timeout during client setup"
+            ):
+                BatchProcessor(
+                    api_key="test_key_123456789012345678901234567890",
+                    model_name="custom-model",
+                    enable_caching=True,
+                    additional_param="test_value",  # Extra kwargs
+                )
+
+            # Verify all parameters were passed correctly before the error occurred
+            mock_client_class.assert_called_once_with(
+                api_key="test_key_123456789012345678901234567890",
+                model_name="custom-model",
+                enable_caching=True,
+                additional_param="test_value",
+            )
+
+    def test_error_handling_does_not_interfere_with_provided_client(
+        self, mock_genai_client
+    ):
+        """Should not trigger error handling paths when using pre-configured client"""
+        from gemini_batch.client import GeminiClient
+
+        # Create a valid client instance
+        mock_client = GeminiClient(api_key="test_key_123456789012345678901234567890")
+
+        # This should work fine and not hit any error handling paths
+        processor = BatchProcessor(client=mock_client)
+
+        assert processor.client is mock_client
+        # Verify reset_metrics was called (indicating successful initialization)
+        assert hasattr(processor, "individual_calls")
+        assert processor.individual_calls == 0
 
 
 class TestBatchProcessorValidation:
@@ -184,6 +269,49 @@ class TestBatchProcessorErrorHandling:
         assert len(result["batch_answers"]) == 2
         # Metrics should reflect fallback to individual processing
         assert result["metrics"]["batch"]["calls"] == 2  # Fallback individual calls
+
+    def test_graceful_fallback_on_batch_failure(
+        self, batch_processor, mock_genai_client
+    ):
+        """Should fall back to individual processing when batch fails"""
+        # Setup: batch fails, individual succeeds
+        mock_genai_client.models.generate_content.side_effect = [
+            # Batch attempt with retries (3 total failures)
+            NetworkError("Batch failed"),
+            NetworkError("Batch failed"),
+            NetworkError("Batch failed"),
+            # Individual fallback calls succeed
+            SAMPLE_RESPONSES["simple_answer"],
+            SAMPLE_RESPONSES["simple_answer"],
+        ]
+
+        questions = ["Q1?", "Q2?"]
+        result = batch_processor.process_text_questions("Content", questions)
+
+        # Should have answers despite batch failure
+        assert len(result["batch_answers"]) == len(questions)
+        assert all("Error:" not in answer for answer in result["batch_answers"])
+
+        # Should reflect fallback in metrics
+        assert result["metrics"]["batch"]["calls"] == len(questions)  # Individual calls
+
+    def test_partial_failure_handling(self, batch_processor, mock_genai_client):
+        """Should handle scenarios where some operations fail"""
+        # Setup: batch fails, first individual succeeds, second fails
+        mock_genai_client.models.generate_content.side_effect = [
+            NetworkError("Batch failed"),
+            NetworkError("Retry 1"),
+            NetworkError("Retry 2"),
+            SAMPLE_RESPONSES["simple_answer"],  # First individual succeeds
+            APIError("Individual failed"),  # Second individual fails
+        ]
+
+        result = batch_processor.process_text_questions("Content", ["Q1?", "Q2?"])
+
+        # Should have both successful and error responses
+        assert len(result["batch_answers"]) == 2
+        assert "Error:" not in result["batch_answers"][0]  # Success
+        assert "Error:" in result["batch_answers"][1]  # Failure
 
     def test_complete_failure_returns_error_messages(
         self, batch_processor, mock_genai_client

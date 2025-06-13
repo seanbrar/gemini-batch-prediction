@@ -1,4 +1,4 @@
-from unittest.mock import Mock
+from unittest.mock import Mock, patch
 
 import pytest
 
@@ -9,9 +9,181 @@ from gemini_batch.utils import (
     calculate_quality_score,
     extract_answers,
     extract_usage_metrics,
+    get_env_with_fallback,
+    parse_env_bool,
     track_efficiency,
     validate_api_key,
+    validate_api_key_format,
 )
+
+
+class TestEnvironmentUtilities:
+    """Test environment variable utility functions"""
+
+    def test_parse_env_bool_true_values(self):
+        """Should return True for various true-like values"""
+        true_values = [
+            "true",
+            "True",
+            "TRUE",
+            "1",
+            "yes",
+            "Yes",
+            "YES",
+            "on",
+            "On",
+            "ON",
+        ]
+
+        for value in true_values:
+            with patch("os.getenv", return_value=value):
+                result = parse_env_bool("TEST_KEY")
+                assert result is True, f"Failed for value: {value}"
+
+    def test_parse_env_bool_false_values(self):
+        """Should return False for various false-like values"""
+        false_values = [
+            "false",
+            "False",
+            "FALSE",
+            "0",
+            "no",
+            "No",
+            "NO",
+            "off",
+            "Off",
+            "OFF",
+            "random",
+        ]
+
+        for value in false_values:
+            with patch("os.getenv", return_value=value):
+                result = parse_env_bool("TEST_KEY")
+                assert result is False, f"Failed for value: {value}"
+
+    def test_parse_env_bool_empty_and_missing(self):
+        """Should return default for empty or missing environment variables"""
+        # Empty string
+        with patch("os.getenv", return_value=""):
+            assert parse_env_bool("TEST_KEY") is False
+            assert parse_env_bool("TEST_KEY", default=True) is True
+
+        # None (missing) - need to patch the actual call differently since parse_env_bool
+        # calls os.getenv with a default empty string
+        with patch("os.getenv") as mock_getenv:
+            mock_getenv.return_value = (
+                ""  # os.getenv returns "" when key is missing and default is ""
+            )
+            assert parse_env_bool("TEST_KEY") is False
+            assert parse_env_bool("TEST_KEY", default=True) is True
+
+    def test_parse_env_bool_whitespace_handling(self):
+        """Should handle whitespace correctly"""
+        test_cases = [
+            ("  true  ", True),
+            ("\ttrue\n", True),
+            ("  false  ", False),
+            ("   ", False),  # Only whitespace
+        ]
+
+        for value, expected in test_cases:
+            with patch("os.getenv", return_value=value):
+                result = parse_env_bool("TEST_KEY")
+                assert result is expected, f"Failed for value: '{value}'"
+
+    def test_get_env_with_fallback_primary_found(self):
+        """Should return primary key value when available"""
+        with patch("os.getenv") as mock_getenv:
+            mock_getenv.side_effect = lambda key: {
+                "PRIMARY": "primary_value",
+                "FALLBACK": "fallback_value",
+            }.get(key)
+
+            result = get_env_with_fallback("PRIMARY", "FALLBACK")
+            assert result == "primary_value"
+
+    def test_get_env_with_fallback_uses_fallback(self):
+        """Should return fallback value when primary is not available"""
+        with patch("os.getenv") as mock_getenv:
+            mock_getenv.side_effect = lambda key: {"FALLBACK": "fallback_value"}.get(
+                key
+            )
+
+            result = get_env_with_fallback("PRIMARY", "FALLBACK")
+            assert result == "fallback_value"
+
+    def test_get_env_with_fallback_both_missing(self):
+        """Should return None when both keys are missing"""
+        with patch("os.getenv", return_value=None):
+            result = get_env_with_fallback("PRIMARY", "FALLBACK")
+            assert result is None
+
+    def test_get_env_with_fallback_empty_primary(self):
+        """Should use fallback when primary is empty"""
+        with patch("os.getenv") as mock_getenv:
+            mock_getenv.side_effect = lambda key: {
+                "PRIMARY": "",
+                "FALLBACK": "fallback_value",
+            }.get(key)
+
+            result = get_env_with_fallback("PRIMARY", "FALLBACK")
+            assert result == "fallback_value"
+
+
+class TestAPIKeyFormatValidation:
+    """Test API key format validation functionality"""
+
+    def test_validate_api_key_format_valid_keys(self):
+        """Should accept properly formatted API keys"""
+        valid_keys = [
+            "AIzaSyC8UYZpvA2eknNdcAaFeFbRe-PaWiDfD_M",  # Google format
+            "test_key_123456789012345678901234567890",  # Test format
+            "x" * 30,  # Minimum length
+            "x" * 100,  # Long key
+        ]
+
+        for key in valid_keys:
+            result = validate_api_key_format(key)
+            assert result is True
+
+    def test_validate_api_key_format_invalid_inputs(self):
+        """Should raise MissingKeyError for invalid inputs"""
+        with pytest.raises(MissingKeyError, match="API key must be a non-empty string"):
+            validate_api_key_format("")
+
+        with pytest.raises(MissingKeyError, match="API key must be a non-empty string"):
+            validate_api_key_format(None)
+
+        with pytest.raises(MissingKeyError, match="API key must be a non-empty string"):
+            validate_api_key_format(12345)
+
+    def test_validate_api_key_format_too_short(self):
+        """Should raise MissingKeyError for keys that are too short"""
+        with pytest.raises(
+            MissingKeyError, match="API key appears to be invalid \\(too short\\)"
+        ):
+            validate_api_key_format("short")
+
+        with pytest.raises(
+            MissingKeyError, match="API key appears to be invalid \\(too short\\)"
+        ):
+            validate_api_key_format("x" * 20)  # Just under minimum
+
+    def test_validate_api_key_format_whitespace_handling(self):
+        """Should handle whitespace correctly"""
+        # Key with surrounding whitespace should be accepted (after stripping)
+        valid_key = "  test_key_123456789012345678901234567890  "
+        result = validate_api_key_format(valid_key)
+        assert result is True
+
+    def test_validate_api_key_backward_compatibility(self):
+        """Should maintain backward compatibility through alias"""
+        # The validate_api_key function should be an alias for validate_api_key_format
+        assert validate_api_key is validate_api_key_format
+
+        # Test that the alias works
+        result = validate_api_key("test_key_123456789012345678901234567890")
+        assert result is True
 
 
 class TestTokenEfficiency:
