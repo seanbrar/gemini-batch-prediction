@@ -68,7 +68,8 @@ class TestEnvironmentUtilities:
             assert parse_env_bool("TEST_KEY") is False
             assert parse_env_bool("TEST_KEY", default=True) is True
 
-        # None (missing) - need to patch the actual call differently since parse_env_bool
+        # None (missing) - need to patch the actual call differently since
+        # parse_env_bool
         # calls os.getenv with a default empty string
         with patch("os.getenv") as mock_getenv:
             mock_getenv.return_value = (
@@ -511,7 +512,8 @@ class TestCalculateQualityScore:
         score = calculate_quality_score(individual, batch)
 
         assert score is not None
-        # Quality score algorithm weights completeness heavily (50%). Even different answers
+        # Quality score algorithm weights completeness heavily (50%). Even different
+        # answers
         # get 0.5 for completeness + some overlap for common words + length similarity.
         # Realistic expectation is 0.5-0.8 range for different but complete answers.
         assert 0.5 <= score <= 0.8  # Should be moderate due to completeness weighting

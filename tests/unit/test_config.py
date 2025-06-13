@@ -167,7 +167,8 @@ class TestConfigManagerFactoryMethods:
             assert config.tier == APITier.TIER_1
 
     def test_from_env_with_missing_environment_variables(self):
-        """Should create ConfigManager with defaults when environment variables are missing"""
+        """Should create ConfigManager with defaults when environment variables are
+        missing"""
         with (
             patch.dict("os.environ", {}, clear=True),
             patch.object(ConfigManager, "_detect_tier", return_value=APITier.FREE),

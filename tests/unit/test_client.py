@@ -69,19 +69,21 @@ class TestGeminiClientInitialization:
         config = ConfigManager.for_testing(tier=APITier.FREE, model="gemini-2.0-flash")
 
         with patch("warnings.warn") as mock_warn:
-            client = GeminiClient(
+            GeminiClient(
                 config_manager=config,
                 tier=APITier.TIER_1,  # This should trigger warning
             )
 
             mock_warn.assert_called_once_with(
                 "Explicit parameters override ConfigManager values. "
-                "Consider using ConfigManager exclusively for cleaner configuration.",
+                "Consider using ConfigManager exclusively for cleaner "
+                "configuration.",
                 stacklevel=2,
             )
 
     def test_no_warning_when_only_config_manager_provided(self, mock_genai_client):
-        """Should not warn when only ConfigManager is provided without explicit parameters"""
+        """Should not warn when only ConfigManager is provided without explicit
+        parameters"""
         config = ConfigManager.for_testing(tier=APITier.FREE, model="gemini-2.0-flash")
 
         with patch("warnings.warn") as mock_warn:
@@ -256,7 +258,7 @@ class TestGeminiClientContentGeneration:
             "simple_answer"
         ]
 
-        result = gemini_client.generate_content(
+        gemini_client.generate_content(
             "Test prompt", system_instruction="Be helpful and concise"
         )
 
@@ -365,7 +367,8 @@ class TestGeminiClientRetryLogic:
             result = gemini_client.generate_content("Test prompt")
 
             assert result == SAMPLE_RESPONSES["simple_answer"].text
-            # Should use shorter delay for non-rate-limit errors (1 second for first retry)
+            # Should use shorter delay for non-rate-limit errors
+            # (1 second for first retry)
             mock_sleep.assert_called_with(1)
 
     def test_retry_exhaustion_raises_final_error(
@@ -423,13 +426,15 @@ class TestGeminiClientRateLimiting:
         for _ in range(gemini_client.rate_limit_requests):
             gemini_client.request_timestamps.append(current_time)
 
-        with patch("time.time", return_value=current_time):
-            with patch("time.sleep") as mock_sleep:
-                gemini_client._wait_for_rate_limit()
-                mock_sleep.assert_called_once()
-                # Should sleep for approximately the rate limit window + 1
-                sleep_duration = mock_sleep.call_args[0][0]
-                assert sleep_duration > 60  # Should be rate_limit_window + 1
+        with (
+            patch("time.time", return_value=current_time),
+            patch("time.sleep") as mock_sleep,
+        ):
+            gemini_client._wait_for_rate_limit()
+            mock_sleep.assert_called_once()
+            # Should sleep for approximately the rate limit window + 1
+            sleep_duration = mock_sleep.call_args[0][0]
+            assert sleep_duration > 60  # Should be rate_limit_window + 1
 
     def test_cleans_old_timestamps(self, gemini_client):
         """Should remove timestamps older than rate limit window"""

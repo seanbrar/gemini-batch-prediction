@@ -36,7 +36,7 @@ class TestBatchProcessorInitialization:
             mock_client_instance = Mock()
             mock_client_class.return_value = mock_client_instance
 
-            processor = BatchProcessor(
+            BatchProcessor(
                 api_key="test_key_123456789012345678901234567890",
                 model_name="custom-model",
                 enable_caching=True,
@@ -88,7 +88,8 @@ class TestBatchProcessorInitialization:
                 BatchProcessor(api_key=api_key)
 
     def test_handles_missing_key_error_with_client_kwargs(self):
-        """Should propagate MissingKeyError even when additional client kwargs are provided"""
+        """Should propagate MissingKeyError even when additional client kwargs are
+        provided"""
         with patch("gemini_batch.batch_processor.GeminiClient") as mock_client_class:
             mock_client_class.side_effect = MissingKeyError(
                 "API key must be a non-empty string"
@@ -255,7 +256,8 @@ class TestBatchProcessorErrorHandling:
     ):
         """When batch processing fails, should fallback to individual processing"""
         # First call (batch) fails with retries, subsequent calls (individual) succeed
-        # Client retries up to 3 times total (1 + 2 retries) for batch, then individual calls
+        # Client retries up to 3 times total (1 + 2 retries) for batch,
+        # then individual calls
         mock_genai_client.models.generate_content.side_effect = [
             NetworkError("Batch processing failed"),  # Initial batch attempt
             NetworkError("Batch processing failed"),  # Retry 1
@@ -264,7 +266,8 @@ class TestBatchProcessorErrorHandling:
 
         result = batch_processor.process_text_questions("Content", ["Q1?", "Q2?"])
 
-        # Should make 5 calls: 3 failed batch attempts + 2 successful individual calls
+        # Should make 5 calls: 3 failed batch attempts + 2 successful individual
+        # calls
         assert mock_genai_client.models.generate_content.call_count == 5
         assert len(result["batch_answers"]) == 2
         # Metrics should reflect fallback to individual processing
@@ -316,7 +319,8 @@ class TestBatchProcessorErrorHandling:
     def test_complete_failure_returns_error_messages(
         self, batch_processor, mock_genai_client
     ):
-        """When both batch and individual processing fail, should return error messages"""
+        """When both batch and individual processing fail, should return error
+        messages"""
         mock_genai_client.models.generate_content.side_effect = APIError(
             "Complete failure"
         )
