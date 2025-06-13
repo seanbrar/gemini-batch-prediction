@@ -25,7 +25,7 @@ class TestBatchProcessorInitialization:
         """Should use the provided client instance"""
         from gemini_batch.client import GeminiClient
 
-        mock_client = GeminiClient(api_key="test_key")
+        mock_client = GeminiClient(api_key="test_key_123456789012345678901234567890")
         processor = BatchProcessor(client=mock_client)
 
         assert processor.client is mock_client
@@ -37,18 +37,22 @@ class TestBatchProcessorInitialization:
             mock_client_class.return_value = mock_client_instance
 
             processor = BatchProcessor(
-                api_key="test_key", model_name="custom-model", enable_caching=True
+                api_key="test_key_123456789012345678901234567890",
+                model_name="custom-model",
+                enable_caching=True,
             )
 
             mock_client_class.assert_called_once_with(
-                api_key="test_key", model_name="custom-model", enable_caching=True
+                api_key="test_key_123456789012345678901234567890",
+                model_name="custom-model",
+                enable_caching=True,
             )
 
     def test_warns_when_client_and_kwargs_both_provided(self, mock_genai_client):
         """Should warn user when both client and kwargs are provided (kwargs ignored)"""
         from gemini_batch.client import GeminiClient
 
-        mock_client = GeminiClient(api_key="test_key")
+        mock_client = GeminiClient(api_key="test_key_123456789012345678901234567890")
 
         with patch("warnings.warn") as mock_warn:
             processor = BatchProcessor(

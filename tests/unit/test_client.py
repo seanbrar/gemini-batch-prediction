@@ -12,7 +12,7 @@ class TestGeminiClientInitialization:
 
     def test_initializes_with_api_key(self, mock_genai_client):
         """Should initialize successfully with API key and set defaults"""
-        client = GeminiClient(api_key="test_key")
+        client = GeminiClient(api_key="test_key_123456789012345678901234567890")
         assert client.model_name == "gemini-2.0-flash"  # default
         assert client.enable_caching is False
         assert client.rate_limit_requests == 15
@@ -25,8 +25,12 @@ class TestGeminiClientInitialization:
 
     def test_custom_model_name(self, mock_genai_client):
         """Should accept custom model name"""
-        client = GeminiClient(api_key="test_key", model_name="custom-model")
-        assert client.model_name == "custom-model"
+        # Use a real model name that exists in the free tier
+        client = GeminiClient(
+            api_key="test_key_123456789012345678901234567890",
+            model_name="gemini-1.5-flash",
+        )
+        assert client.model_name == "gemini-1.5-flash"
 
     def test_raises_on_missing_api_key(self, monkeypatch):
         """Should raise MissingKeyError when no API key is provided"""

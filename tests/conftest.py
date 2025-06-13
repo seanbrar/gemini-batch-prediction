@@ -13,7 +13,7 @@ from .fixtures.api_responses import (
 @pytest.fixture
 def mock_api_key():
     """Provide test API key"""
-    return "test_api_key_12345"
+    return "test_api_key_12345_67890_abcdef_ghijkl"
 
 
 @pytest.fixture
