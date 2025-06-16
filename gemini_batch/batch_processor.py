@@ -13,10 +13,30 @@ from .utils import extract_answers, track_efficiency
 class BatchProcessor:
     """Process multiple questions efficiently using batch operations"""
 
-    def __init__(self, api_key: str = None):
-        """Initialize batch processor"""
+    def __init__(
+        self, api_key: str = None, client: GeminiClient = None, **client_kwargs
+    ):
+        """
+        Initialize batch processor
+
+        Args:
+            api_key: API key for GeminiClient (ignored if client provided)
+            client: Pre-configured GeminiClient instance
+            **client_kwargs: Additional arguments for GeminiClient
+                (model_name, enable_caching)
+        """
         try:
-            self.client = GeminiClient(api_key=api_key)
+            if client is not None:
+                if api_key is not None or client_kwargs:
+                    import warnings
+
+                    warnings.warn(
+                        "api_key and client_kwargs ignored when client is provided",
+                        stacklevel=2,
+                    )
+                self.client = client
+            else:
+                self.client = GeminiClient(api_key=api_key, **client_kwargs)
             self.reset_metrics()
         except MissingKeyError:
             raise
