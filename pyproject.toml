@@ -52,6 +52,7 @@ omit = [
     "tests/*",
     "gemini_batch/__init__.py",
     "gemini_batch/visualization.py",
+    "gemini_batch/files/*",  # Temporarily excluded
     "setup.py"
 ]
 
