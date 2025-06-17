@@ -15,6 +15,9 @@ requires-python = ">=3.13"
 dependencies = [
     "google-genai>=1.18.0",
     "python-dotenv>=1.1.0",
+    "PyPDF2>=3.0.1",
+    "Pillow>=11.2.1",
+    "python-magic>=0.4.27",
 ]
 
 [project.optional-dependencies]
