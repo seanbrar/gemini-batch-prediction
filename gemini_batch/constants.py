@@ -2,6 +2,10 @@
 Project-wide constants for Gemini Batch Processing Framework
 """
 
+# ==============================================================================
+# API and Network Configuration
+# ==============================================================================
+
 # Retry and timeout settings
 MAX_RETRIES = 2
 RETRY_BASE_DELAY = 1.0  # seconds
@@ -12,6 +16,10 @@ RATE_LIMIT_WINDOW = 60  # seconds
 # Conservative fallback rate limits (when config detection fails)
 FALLBACK_REQUESTS_PER_MINUTE = 15
 FALLBACK_TOKENS_PER_MINUTE = 250_000
+
+# ==============================================================================
+# File Processing Configuration
+# ==============================================================================
 
 # File lifecycle settings
 FILE_LIFETIME = 3600  # 1 hour in seconds
@@ -33,8 +41,16 @@ FILES_API_THRESHOLD = 20 * _MB  # Size threshold for Files API vs inline
 SCANNER_MAX_SIZE = MAX_FILE_SIZE  # Directory scanner file size limit
 PDF_PAGE_WARNING = 500  # Warn for large PDF documents
 
+# ==============================================================================
+# Batch Processing Configuration
+# ==============================================================================
+
 TARGET_EFFICIENCY_RATIO = 3.0  # Minimum efficiency improvement target
 MIN_QUALITY_SCORE = 0.8  # Minimum acceptable quality score
+
+# ==============================================================================
+# Visualization Configuration
+# ==============================================================================
 
 # Figure dimensions
 VIZ_FIGURE_SIZE = (15, 10)
