@@ -6,6 +6,7 @@ import os
 import re
 from typing import Dict, List, Optional
 
+from .constants import TARGET_EFFICIENCY_RATIO
 from .exceptions import MissingKeyError
 
 
@@ -70,7 +71,7 @@ def _calculate_efficiency_metrics(
     overall_efficiency = token_savings_ratio
 
     # Target: 3x minimum efficiency improvement
-    meets_target = token_savings_ratio >= 3.0
+    meets_target = token_savings_ratio >= TARGET_EFFICIENCY_RATIO
 
     return {
         "individual_token_efficiency": individual_token_efficiency,

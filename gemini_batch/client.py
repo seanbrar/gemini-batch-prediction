@@ -11,6 +11,14 @@ from google import genai
 from google.genai import types
 
 from .config import APITier, ConfigManager
+from .constants import (
+    DEFAULT_MAX_RETRIES,
+    DEFAULT_RETRY_BASE_DELAY,
+    FALLBACK_REQUESTS_PER_MINUTE,
+    FALLBACK_TOKENS_PER_MINUTE,
+    RATE_LIMIT_RETRY_BASE_DELAY,
+    RATE_LIMIT_WINDOW,
+)
 from .exceptions import APIError, MissingKeyError, NetworkError
 from .utils import extract_usage_metrics
 
@@ -95,10 +103,10 @@ class GeminiClient:
             self.rate_limit_tokens = rate_config["tokens_per_minute"]
         except Exception:
             # Fallback to conservative defaults if config fails
-            self.rate_limit_requests = 15
-            self.rate_limit_tokens = 250_000
+            self.rate_limit_requests = FALLBACK_REQUESTS_PER_MINUTE
+            self.rate_limit_tokens = FALLBACK_TOKENS_PER_MINUTE
 
-        self.rate_limit_window = 60  # seconds
+        self.rate_limit_window = RATE_LIMIT_WINDOW  # seconds
         self.request_timestamps = deque()
 
     def get_config_summary(self) -> Dict[str, Any]:
@@ -142,7 +150,9 @@ class GeminiClient:
         # Record this request
         self.request_timestamps.append(now)
 
-    def _api_call_with_retry(self, api_call_func, max_retries: int = 2):
+    def _api_call_with_retry(
+        self, api_call_func, max_retries: int = DEFAULT_MAX_RETRIES
+    ):
         """Execute API call with basic retry logic"""
         for attempt in range(max_retries + 1):
             try:
@@ -162,7 +172,7 @@ class GeminiClient:
                     or "429" in error_str
                 ):
                     if attempt < max_retries:
-                        wait_time = (2**attempt) * 5  # Exponential backoff
+                        wait_time = (2**attempt) * RATE_LIMIT_RETRY_BASE_DELAY
                         print(
                             f"Rate limit hit. Retrying in {wait_time}s... "
                             f"(attempt {attempt + 1}/{max_retries + 1})"
@@ -172,7 +182,7 @@ class GeminiClient:
 
                 # For other errors, retry with shorter delay
                 elif attempt < max_retries:
-                    wait_time = 2**attempt
+                    wait_time = (2**attempt) * DEFAULT_RETRY_BASE_DELAY
                     print(
                         f"API error. Retrying in {wait_time}s... "
                         f"(attempt {attempt + 1}/{max_retries + 1})"

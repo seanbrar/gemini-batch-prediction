@@ -7,22 +7,25 @@ from typing import Any, Dict, List, Tuple
 import matplotlib.pyplot as plt
 import pandas as pd
 
-from gemini_batch.utils import calculate_quality_score
+from .constants import (
+    TARGET_EFFICIENCY_RATIO,
+    VIZ_ALPHA,
+    VIZ_BAR_WIDTH,
+    VIZ_COLORS,
+    VIZ_FIGURE_SIZE,
+    VIZ_SCALING_FIGURE_SIZE,
+)
+from .utils import calculate_quality_score
 
 # Constants for consistent styling
-COLORS = {
-    "individual": "#ff7f7f",
-    "batch": "#7fbf7f",
-    "improvements": ["#4CAF50", "#2196F3", "#FF9800"],
-    "line": "#2E7D32",
-}
+COLORS = VIZ_COLORS
 
 PLOT_CONFIG = {
-    "alpha": 0.8,
-    "bar_width": 0.35,
-    "figure_size": (15, 10),
-    "scaling_figure_size": (15, 6),
-    "target_efficiency": 3.0,
+    "alpha": VIZ_ALPHA,
+    "bar_width": VIZ_BAR_WIDTH,
+    "figure_size": VIZ_FIGURE_SIZE,
+    "scaling_figure_size": VIZ_SCALING_FIGURE_SIZE,
+    "target_efficiency": TARGET_EFFICIENCY_RATIO,
 }
 
 
