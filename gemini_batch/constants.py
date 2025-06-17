@@ -30,6 +30,11 @@ GEMINI_PDF_MAX_SIZE = 20 * 1024 * 1024  # 20MB
 GEMINI_PDF_MAX_PAGES = 1000
 GEMINI_FILES_API_MAX_SIZE = 2 * 1024 * 1024 * 1024  # 2GB
 
+# File Processing Thresholds
+FILE_PROCESSING_TIMEOUT = 300  # seconds
+FILE_PROCESSING_POLL_INTERVAL = 2.0  # seconds
+INLINE_FILE_SIZE_THRESHOLD = 20 * 1024 * 1024  # 20MB - Files API threshold
+
 # Batch Processing Constants
 TARGET_EFFICIENCY_RATIO = 3.0  # Minimum efficiency improvement target
 MIN_QUALITY_SCORE = 0.8  # Minimum acceptable quality score
