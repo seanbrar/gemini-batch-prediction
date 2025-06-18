@@ -10,6 +10,7 @@ import sys
 from typing import Optional, Set, Tuple
 
 from ..constants import (
+    FILES_API_THRESHOLD,
     MAX_FILE_SIZE,
     MAX_FILES_API_SIZE,
     MAX_PDF_SIZE,
@@ -196,8 +197,6 @@ def _get_extension_to_mime_mapping():
 @lru_cache(maxsize=1)
 def _get_gemini_native_text_constants():
     """Generate Gemini-native text constants from file type info"""
-    text_info = _FILE_TYPE_INFO[FileType.TEXT]
-
     # Define Gemini-native subsets
     native_mime_types = {
         "text/plain",
@@ -239,27 +238,7 @@ def _get_gemini_native_mime_types():
     }
 
 
-# Dynamic properties using lazy evaluation
-@property
-def EXTENSION_TO_MIME():
-    return _get_extension_to_mime_mapping()
-
-
-@property
-def GEMINI_NATIVE_TEXT_MIME_TYPES():
-    return _get_gemini_native_text_constants()[0]
-
-
-@property
-def GEMINI_NATIVE_TEXT_EXTENSIONS():
-    return _get_gemini_native_text_constants()[1]
-
-
-@property
-def GEMINI_NATIVE_MIME_TYPES():
-    return _get_gemini_native_mime_types()
-
-
+# Initialize module-level constants using lazy evaluation
 current_module = sys.modules[__name__]
 current_module.EXTENSION_TO_MIME = _get_extension_to_mime_mapping()
 current_module.GEMINI_NATIVE_TEXT_MIME_TYPES = _get_gemini_native_text_constants()[0]
@@ -389,7 +368,7 @@ def is_text_file(file_type: FileType, mime_type: Optional[str] = None) -> bool:
 
 def requires_files_api(file_size: int) -> bool:
     """Check if file size requires Files API (>20MB) vs inline submission"""
-    return file_size > 20 * 1024 * 1024
+    return file_size > FILES_API_THRESHOLD
 
 
 def is_supported_file(

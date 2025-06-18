@@ -141,16 +141,16 @@ class DirectoryScanner:
     def _passes_pattern_filters(self, file_path: Path) -> bool:
         """Check if file passes include/exclude pattern filters"""
         # If include patterns exist, file must match at least one
-        if self.include_patterns:
-            if not self._matches_patterns(file_path, self.include_patterns):
-                return False
+        if self.include_patterns and not self._matches_patterns(
+            file_path, self.include_patterns
+        ):
+            return False
 
         # If exclude patterns exist, file must not match any
-        if self.exclude_patterns:
-            if self._matches_patterns(file_path, self.exclude_patterns):
-                return False
-
-        return True
+        return not (
+            self.exclude_patterns
+            and self._matches_patterns(file_path, self.exclude_patterns)
+        )
 
     def _matches_patterns(self, file_path: Path, patterns: List[str]) -> bool:
         """Check if file matches any of the given patterns"""
@@ -185,9 +185,9 @@ class DirectoryScanner:
             )
             scanner_method(directory, directory, categorized_files)
         except PermissionError as e:
-            raise GeminiBatchError(f"Permission denied accessing directory: {e}")
+            raise GeminiBatchError(f"Permission denied accessing directory: {e}") from e
         except OSError as e:
-            raise GeminiBatchError(f"Error scanning directory: {e}")
+            raise GeminiBatchError(f"Error scanning directory: {e}") from e
 
         # Remove empty categories
         return {k: v for k, v in categorized_files.items() if v}
