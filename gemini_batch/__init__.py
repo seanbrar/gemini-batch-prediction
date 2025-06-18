@@ -8,6 +8,7 @@ from .batch_processor import BatchProcessor
 from .client import GeminiClient
 from .config import ConfigManager
 from .exceptions import APIError, GeminiBatchError, MissingKeyError, NetworkError
+from .files import FileOperations, FileType
 
 try:
     __version__ = importlib.metadata.version("gemini-batch")
@@ -17,6 +18,9 @@ __all__ = [
     "GeminiClient",
     "BatchProcessor",
     "ConfigManager",
+    # Files processing
+    "FileOperations",
+    "FileType",
     # Exceptions
     "GeminiBatchError",
     "APIError",
