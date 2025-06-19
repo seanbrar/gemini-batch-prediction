@@ -7,7 +7,11 @@ from .extractors import (
     ContentExtractorManager,
     ExtractedContent,
     MediaExtractor,
+    PDFURLExtractor,
+    TextContentExtractor,
     TextExtractor,
+    URLExtractor,
+    YouTubeExtractor,
 )
 from .operations import FileOperations
 from .scanner import (
@@ -23,7 +27,11 @@ __all__ = [
     "ContentExtractorManager",
     "ExtractedContent",
     "MediaExtractor",
+    "PDFURLExtractor",
     "TextExtractor",
+    "TextContentExtractor",
+    "URLExtractor",
+    "YouTubeExtractor",
     "FileOperations",
     "utils",
 ]

@@ -7,7 +7,7 @@ from functools import lru_cache
 import mimetypes
 from pathlib import Path
 import sys
-from typing import Optional, Set, Tuple
+from typing import Optional, Set, Tuple, Union
 
 from ..constants import (
     FILES_API_THRESHOLD,
@@ -438,3 +438,46 @@ def validate_file_size(
             return False, message
 
     return True, None
+
+
+def is_youtube_url(url: str) -> bool:
+    """Check if URL is a YouTube URL"""
+    youtube_patterns = [
+        "youtube.com/watch?v=",
+        "youtu.be/",
+        "youtube.com/embed/",
+        "youtube.com/v=",
+    ]
+    url_lower = url.lower()
+    return url_lower.startswith(("http://", "https://")) and any(
+        pattern in url_lower for pattern in youtube_patterns
+    )
+
+
+def is_url(text: str) -> bool:
+    """Check if string is a URL"""
+    return text.startswith(("http://", "https://"))
+
+
+def is_text_content(text: str, original_source: Union[str, Path]) -> bool:
+    """Determine if string is text content vs URL/path"""
+    # If it's a Path object, it's definitely a file path
+    if isinstance(original_source, Path):
+        return False
+
+    # Heuristic: if it has newlines or is long, likely text content
+    if "\n" in text or len(text) > 200:
+        return True
+
+    if is_url(text):
+        return False
+
+    # Check if it looks like a file path
+    try:
+        path = Path(text)
+        if path.exists():
+            return False
+    except (OSError, ValueError):
+        pass
+
+    return True  # Default to text content

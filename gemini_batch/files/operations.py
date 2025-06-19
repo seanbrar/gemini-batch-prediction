@@ -45,6 +45,10 @@ class FileOperations:
         # Extract content using the manager
         return self.extractor_manager.extract_content(file_info)
 
+    def extract_from_url(self, url: str) -> ExtractedContent:
+        """Extract content from URL using URLExtractor"""
+        return self.extractor_manager.extract_from_url(url)
+
     def validate_file(self, file_path: Union[str, Path]) -> Dict[str, Any]:
         """Validate a file and return metadata"""
         path = self._validate_path(file_path, must_be_file=True)
@@ -98,3 +102,7 @@ class FileOperations:
         """Get a summary of files in a directory"""
         scan_results = self.scan_directory(directory_path, **kwargs)
         return self.scanner.get_summary(scan_results)
+
+    def process_source(self, source: Union[str, Path]) -> ExtractedContent:
+        """Process any source type (text, URLs, files, directories) using appropriate extractors"""
+        return self.extractor_manager.process_source(source)
