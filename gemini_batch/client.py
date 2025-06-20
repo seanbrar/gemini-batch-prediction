@@ -23,9 +23,10 @@ from .constants import (
     RATE_LIMIT_WINDOW,
     RETRY_BASE_DELAY,
 )
+from .efficiency import extract_usage_metrics
 from .exceptions import APIError, MissingKeyError
 from .files import FileOperations
-from .utils import extract_usage_metrics
+from .response import validate_structured_response
 
 
 class ContentSource:
@@ -451,21 +452,30 @@ class GeminiClient:
     ) -> Union[str, Dict[str, Any]]:
         """Unified response processing with consistent usage tracking"""
 
-        # Handle structured output
+        # Handle structured output with validation
         if response_schema:
+            validation_result = validate_structured_response(response, response_schema)
+
             if return_usage:
                 result = {
                     "text": response.text,
-                    "parsed": getattr(response, "parsed", None),
+                    "parsed": validation_result.parsed_data,
+                    "structured_success": validation_result.success,
+                    "structured_confidence": validation_result.confidence,
+                    "validation_method": validation_result.validation_method,
+                    "validation_errors": validation_result.errors,
                     "usage": extract_usage_metrics(response),
                 }
                 if extra_metadata:
                     result.update(extra_metadata)
                 return result
             else:
-                # For structured output, prefer parsed over text
-                parsed = getattr(response, "parsed", None)
-                return parsed if parsed is not None else response.text
+                # Return best available data based on validation success
+                return (
+                    validation_result.parsed_data
+                    if validation_result.success
+                    else response.text
+                )
 
         # Standard text response processing
         if return_usage:

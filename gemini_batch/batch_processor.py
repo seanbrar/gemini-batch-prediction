@@ -8,7 +8,8 @@ from typing import Any, Dict, List, Optional, Union
 import warnings
 
 from .client import GeminiClient
-from .utils import extract_answers, track_efficiency
+from .efficiency import track_efficiency
+from .response import extract_answers
 
 
 class BatchProcessor:
@@ -30,12 +31,20 @@ class BatchProcessor:
         compare_methods: bool = False,
         return_usage: bool = False,
         response_schema: Optional[Any] = None,
+        response_processor=None,
         **options,
     ) -> Dict[str, Any]:
         """Unified method to process questions about any content type"""
         if not questions:
             raise ValueError("Questions are required")
 
+        # If response_processor is provided, delegate all response processing to it
+        if response_processor is not None:
+            return self._process_with_response_processor(
+                content, questions, response_processor, response_schema, **options
+            )
+
+        # Standard processing path (existing logic)
         self.reset_metrics()
 
         # Process batch first (unified for all content types)
@@ -122,13 +131,38 @@ class BatchProcessor:
                     "usage", {"prompt_tokens": 0, "output_tokens": 0, "total_tokens": 0}
                 )
 
-                if response_schema and "parsed" in response:
-                    # Structured output - use parsed data
-                    answers = extract_answers(
-                        response, len(questions), is_structured=True
-                    )
+                structured_quality = None  # Initialize for all paths
+
+                if response_schema:
+                    if (
+                        "structured_success" in response
+                        and response["structured_success"]
+                    ):
+                        # High-quality structured output - use parsed data
+                        answers = extract_answers(
+                            response, len(questions), is_structured=True
+                        )
+                        # Add structured output metadata to metrics
+                        structured_quality = {
+                            "confidence": response.get("structured_confidence", 0.0),
+                            "method": response.get("validation_method", "unknown"),
+                            "errors": response.get("validation_errors", []),
+                        }
+                    else:
+                        # Fallback to text extraction with lower confidence
+                        response_text = response.get("text", "")
+                        answers = extract_answers(
+                            response_text, len(questions), is_structured=False
+                        )
+                        structured_quality = {
+                            "confidence": 0.3,  # Lower confidence for text fallback
+                            "method": "text_fallback",
+                            "errors": response.get(
+                                "validation_errors", ["Structured parsing failed"]
+                            ),
+                        }
                 else:
-                    # Text response - extract from text
+                    # Standard text response
                     response_text = response.get("text", "")
                     answers = extract_answers(
                         response_text, len(questions), is_structured=False
@@ -137,6 +171,7 @@ class BatchProcessor:
                 # Simple text response (no usage tracking)
                 usage = {"prompt_tokens": 0, "output_tokens": 0, "total_tokens": 0}
                 answers = extract_answers(response, len(questions), is_structured=False)
+                structured_quality = None
 
             duration = time.time() - start_time
 
@@ -147,6 +182,10 @@ class BatchProcessor:
                 "tokens": usage["total_tokens"],
                 "time": duration,
             }
+
+            # Add structured output quality metrics if applicable
+            if response_schema and structured_quality:
+                metrics["structured_output"] = structured_quality
 
             return answers, metrics
 

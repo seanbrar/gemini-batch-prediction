@@ -15,7 +15,7 @@ from .constants import (
     VIZ_FIGURE_SIZE,
     VIZ_SCALING_FIGURE_SIZE,
 )
-from .utils import calculate_quality_score
+from .response import calculate_quality_score
 
 # Constants for consistent styling
 COLORS = VIZ_COLORS
