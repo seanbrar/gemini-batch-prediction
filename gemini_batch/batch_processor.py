@@ -256,6 +256,106 @@ class BatchProcessor:
 
         return answers, metrics
 
+    def process_questions_multi_source(
+        self,
+        sources: List[Union[str, Path, List[Union[str, Path]]]],
+        questions: List[str],
+        response_schema: Optional[Any] = None,
+        response_processor=None,
+        **kwargs,
+    ) -> Dict[str, Any]:
+        """Process multiple sources in a single batch for maximum efficiency
+
+        Combines multiple distinct sources (files, URLs, text, directories) and
+        processes all questions against all sources simultaneously.
+
+        See docs/SOURCE_HANDLING.md for detailed usage examples.
+        """
+        if not sources:
+            raise ValueError("At least one source is required")
+        if not questions:
+            raise ValueError("Questions are required")
+
+        # Flatten the sources list to create a single combined content input
+        # The unified client can handle mixed content types in a single call
+        combined_content = sources
+
+        # Use the main process_questions method (which now handles response_processor)
+        result = self.process_questions(
+            combined_content,
+            questions,
+            response_schema=response_schema,
+            response_processor=response_processor,
+            **kwargs,
+        )
+
+        # Enhance result with multi-source metadata
+        result["source_count"] = len(sources)
+        result["processing_mode"] = "multi_source_batch"
+
+        return result
+
+    def _process_with_response_processor(
+        self,
+        content: Union[str, Path, List[Union[str, Path]]],
+        questions: List[str],
+        response_processor,
+        response_schema: Optional[Any] = None,
+        **kwargs,
+    ) -> Dict[str, Any]:
+        """Process questions with integrated ResponseProcessor for unified handling
+
+        This method provides clean separation of concerns:
+        - BatchProcessor handles content processing and API calls
+        - ResponseProcessor handles all response processing and result packaging
+
+        Args:
+            content: Content to process (any supported type)
+            questions: List of questions
+            response_processor: ResponseProcessor instance (required for integration)
+            response_schema: Optional schema for structured output
+            **kwargs: Additional options
+
+        Returns:
+            Complete result dict from ResponseProcessor
+        """
+        try:
+            # Get the raw API response - this is BatchProcessor's responsibility
+            raw_response = self.client.generate_batch(
+                content=content,
+                questions=questions,
+                return_usage=True,
+                response_schema=response_schema,
+                **kwargs,
+            )
+
+            # Delegate ALL response processing to ResponseProcessor
+            return response_processor.process_batch_response(
+                raw_response=raw_response,
+                questions=questions,
+                response_schema=response_schema,
+                return_usage=True,
+            )
+
+        except Exception as e:
+            # Simple fallback - let ResponseProcessor handle error responses too
+            error_response = type(
+                "ErrorResponse", (), {"text": f"Error: {str(e)}", "parsed": None}
+            )()
+
+            result = response_processor.process_batch_response(
+                raw_response=error_response,
+                questions=questions,
+                response_schema=response_schema,
+                return_usage=True,
+            )
+            result["processing_error"] = str(e)
+            return result
+
+    def reset_metrics(self):
+        """Reset tracking metrics"""
+        pass  # Simplified - metrics now handled per-call
+
     # Backward compatibility methods
     def process_text_questions(self, content: str, questions: List[str], **kwargs):
         """Deprecated: use process_questions() instead"""
@@ -309,7 +409,3 @@ class BatchProcessor:
             stacklevel=2,
         )
         return self.process_questions(mixed_content, questions, **kwargs)
-
-    def reset_metrics(self):
-        """Reset tracking metrics"""
-        pass  # Simplified - metrics now handled per-call
