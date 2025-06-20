@@ -145,7 +145,7 @@ class MediaExtractor(BaseExtractor):
 
 
 class URLExtractor(BaseExtractor):
-    """Extract content from URLs by downloading and processing"""
+    """Extract content from URLs by downloading and processing, including PDF URLs"""
 
     def __init__(self, timeout: int = 30, max_size: int = utils.MAX_FILE_SIZE):
         super().__init__(max_size)
@@ -160,6 +160,142 @@ class URLExtractor(BaseExtractor):
         # Exclude YouTube URLs - they're handled separately
         return not utils.is_youtube_url(source)
 
+    def can_extract_source(self, source: Union[str, Path]) -> bool:
+        """Check if source is a URL (non-YouTube) - includes PDF URLs"""
+        return self.can_extract(str(source))
+
+    def _is_pdf_url(self, url: str) -> bool:
+        """Check if URL is a PDF based on extension and content patterns"""
+        url_lower = url.lower()
+
+        # Quick check for obvious PDF URLs
+        if url_lower.endswith(".pdf"):
+            return True
+
+        # Check for common PDF hosting patterns
+        pdf_indicators = ["arxiv.org/pdf", "/pdf/", ".pdf"]
+        return any(indicator in url_lower for indicator in pdf_indicators)
+
+    def _create_http_client(self) -> httpx.Client:
+        """Create a configured HTTP client - centralized configuration"""
+        return httpx.Client(timeout=self.timeout)
+
+    def _cache_content(self, url: str, content: bytes) -> None:
+        """Cache content for a URL - centralized caching logic"""
+        self._content_cache[url] = content
+
+    def _get_cached_content(self, url: str) -> Optional[bytes]:
+        """Get cached content if available"""
+        return self._content_cache.get(url)
+
+    def _make_http_request(self, url: str, method: str = "GET") -> httpx.Response:
+        """Make HTTP request with centralized error handling"""
+        try:
+            with self._create_http_client() as client:
+                if method.upper() == "HEAD":
+                    response = client.head(url, follow_redirects=True)
+                else:
+                    response = client.get(url, follow_redirects=True)
+
+                response.raise_for_status()
+                return response
+        except httpx.TimeoutException as e:
+            raise GeminiBatchError(f"URL request timeout: {url}") from e
+        except httpx.HTTPStatusError as e:
+            raise GeminiBatchError(f"HTTP error {e.response.status_code}: {url}") from e
+        except Exception as e:
+            raise GeminiBatchError(f"Failed to fetch URL {url}: {e}") from e
+
+    def _extract_mime_and_size_from_response(
+        self, response: httpx.Response
+    ) -> tuple[str, int]:
+        """Extract MIME type and content size from HTTP response"""
+        mime_type = response.headers.get("content-type", "").split(";")[0]
+        content_length = response.headers.get("content-length")
+
+        if hasattr(response, "content"):
+            # GET response - we have content
+            content_size = len(response.content)
+            return mime_type, content_size
+        elif content_length:
+            # HEAD response with content-length
+            return mime_type, int(content_length)
+        else:
+            # HEAD response without content-length - need to do GET
+            return None, None
+
+    def _get_content_metadata(self, url: str) -> tuple[str, int]:
+        """Get content metadata efficiently using HEAD request first, with GET fallback"""
+        # Check cache first
+        cached_content = self._get_cached_content(url)
+        if cached_content:
+            mime_type = self._determine_mime_type_from_url(url)
+            return mime_type, len(cached_content)
+
+        # Try HEAD request first
+        try:
+            head_response = self._make_http_request(url, "HEAD")
+            mime_type, content_size = self._extract_mime_and_size_from_response(
+                head_response
+            )
+
+            if mime_type and content_size is not None:
+                return mime_type or self._determine_mime_type_from_url(
+                    url
+                ), content_size
+        except GeminiBatchError as e:
+            # If HEAD fails with 405/501, fall back to GET
+            if "405" in str(e) or "501" in str(e):
+                pass  # Continue to GET request
+            else:
+                raise
+
+        # Fallback to GET request
+        get_response = self._make_http_request(url, "GET")
+        mime_type, content_size = self._extract_mime_and_size_from_response(
+            get_response
+        )
+
+        # Cache the content since we downloaded it
+        if hasattr(get_response, "content"):
+            self._cache_content(url, get_response.content)
+
+        return mime_type or self._determine_mime_type_from_url(url), content_size
+
+    def _determine_mime_type_from_url(self, url: str) -> str:
+        """Determine MIME type from URL using centralized utilities with minimal fallback"""
+        try:
+            url_path = Path(url)
+            extension = url_path.suffix.lower()
+            if extension in utils.EXTENSION_TO_MIME:
+                return utils.EXTENSION_TO_MIME[extension]
+        except Exception:
+            pass
+
+        # Minimal fallback for common cases not in utils
+        return "application/octet-stream"
+
+    def _is_large_pdf_url(self, url: str) -> bool:
+        """Check if PDF URL is large enough to warrant direct API handling"""
+        if not self._is_pdf_url(url):
+            return False
+
+        try:
+            head_response = self._make_http_request(url, "HEAD")
+            content_length = head_response.headers.get("content-length")
+
+            if content_length:
+                size = int(content_length)
+                return size > utils.FILES_API_THRESHOLD
+
+            # If no content-length header, assume it might be large
+            # ArXiv papers often don't include content-length
+            return True
+
+        except Exception:
+            # If HEAD request fails, assume not large for safety
+            return False
+
     def _validate_video_url(self, url: str):
         """Reject non-YouTube video URLs with helpful message"""
         video_indicators = ["video", "watch", "embed", "player"]
@@ -171,166 +307,112 @@ class URLExtractor(BaseExtractor):
                 f"For other platforms, please download: {url}"
             )
 
-    def _get_content_metadata_with_head(self, url: str) -> tuple[str, int]:
-        """Use HEAD request to get content metadata without downloading"""
-        try:
-            with httpx.Client(timeout=self.timeout) as client:
-                response = client.head(url, follow_redirects=True)
-                response.raise_for_status()
-
-                # Get MIME type and content length
-                mime_type = response.headers.get("content-type", "").split(";")[0]
-                content_length = response.headers.get("content-length")
-
-                if content_length:
-                    size = int(content_length)
-                else:
-                    # Fallback: do a GET request to determine size
-                    get_response = client.get(url)
-                    get_response.raise_for_status()
-                    content_data = get_response.content
-                    size = len(content_data)
-                    mime_type = (
-                        get_response.headers.get("content-type", "").split(";")[0]
-                        or mime_type
-                    )
-
-                    # Cache the content since we downloaded it
-                    self._content_cache[url] = content_data
-
-                return mime_type or self._guess_mime_type_from_url(url), size
-
-        except httpx.HTTPStatusError as e:
-            # Fallback to GET if HEAD fails
-            if e.response.status_code in [
-                405,
-                501,
-            ]:  # Method not allowed/not implemented
-                return self._fallback_to_get_request(url)
-            raise
-
-    def _fallback_to_get_request(self, url: str) -> tuple[str, int]:
-        """Fallback to GET request when HEAD is not supported"""
-        with httpx.Client(timeout=self.timeout) as client:
-            response = client.get(url)
-            response.raise_for_status()
-            content_data = response.content
-
-            # Cache the content
-            self._content_cache[url] = content_data
-
-            mime_type = response.headers.get("content-type", "").split(";")[0]
-            return mime_type or self._guess_mime_type_from_url(url), len(content_data)
-
     def extract_from_url(self, url: str) -> ExtractedContent:
         """Extract content from URL using efficient HEAD request first"""
-        try:
-            # Validate video URLs early
-            self._validate_video_url(url)
+        # Validate video URLs early
+        self._validate_video_url(url)
 
-            # Get metadata efficiently (HEAD request or cached GET)
-            mime_type, content_size = self._get_content_metadata_with_head(url)
+        # Check if this is a large PDF that should use special API handling
+        if self._is_large_pdf_url(url):
+            return self._extract_large_pdf_url(url)
 
-            # Validate size
-            if content_size > self.max_size:
-                raise GeminiBatchError(
-                    f"URL content too large: {content_size / (1024**2):.1f}MB "
-                    f"(max: {self.max_size / (1024**2):.1f}MB)"
-                )
+        # Regular URL processing (including small PDFs)
+        mime_type, content_size = self._get_content_metadata(url)
 
-            # Determine file type from MIME type
-            file_type, detected_mime = utils.determine_file_type(Path(url), mime_type)
-
-            # Create synthetic FileInfo for URL content
-            url_path = Path(url)
-            file_info = FileInfo(
-                path=url_path,
-                file_type=file_type,
-                size=content_size,
-                extension=self._get_extension_from_url(url),
-                name=url_path.name or "downloaded_content",
-                relative_path=url_path,
-                mime_type=detected_mime or mime_type,
+        # Validate size
+        if content_size > self.max_size:
+            raise GeminiBatchError(
+                f"URL content too large: {content_size / (1024**2):.1f}MB "
+                f"(max: {self.max_size / (1024**2):.1f}MB)"
             )
 
-            # Create metadata
-            metadata = {
+        # Determine file type from MIME type
+        file_type, detected_mime = utils.determine_file_type(Path(url), mime_type)
+
+        # Create synthetic FileInfo for URL content
+        url_path = Path(url)
+        file_info = FileInfo(
+            path=url_path,
+            file_type=file_type,
+            size=content_size,
+            extension=self._get_extension_from_url(url),
+            name=url_path.name or "downloaded_content",
+            relative_path=url_path,
+            mime_type=detected_mime or mime_type,
+        )
+
+        # Create metadata with PDF-aware source type
+        source_type = "pdf_url_small" if self._is_pdf_url(url) else "url"
+
+        metadata = {
+            "url": url,
+            "file_size": content_size,
+            "file_size_mb": round(content_size / (1024 * 1024), 2),
+            "mime_type": detected_mime or mime_type,
+            "requires_api_upload": utils.requires_files_api(content_size),
+            "processing_method": "files_api"
+            if utils.requires_files_api(content_size)
+            else "inline",
+            "source_type": source_type,
+            "download_method": "httpx",
+            "content_cached": url in self._content_cache,
+        }
+
+        return ExtractedContent(
+            content="",  # No text content - raw bytes will be used
+            metadata=metadata,
+            file_info=file_info,
+            file_path=None,  # No local file path for URLs
+            extraction_method="url_download",
+        )
+
+    def _extract_large_pdf_url(self, url: str) -> ExtractedContent:
+        """Handle large PDF URLs that should be passed directly to API"""
+        from .scanner import FileInfo, FileType
+
+        return ExtractedContent(
+            content="",  # No content - will be handled by API
+            metadata={
+                "source_type": "pdf_url",
+                "processing_method": "pdf_url_api",
                 "url": url,
-                "file_size": content_size,
-                "file_size_mb": round(content_size / (1024 * 1024), 2),
-                "mime_type": detected_mime or mime_type,
-                "requires_api_upload": utils.requires_files_api(content_size),
-                "processing_method": "files_api"
-                if utils.requires_files_api(content_size)
-                else "inline",
-                "source_type": "url",
-                "download_method": "httpx",
-                "content_cached": url
-                in self._content_cache,  # Track if we have cached content
-            }
+            },
+            file_info=FileInfo(
+                path=Path(url),
+                file_type=FileType.PDF,
+                size=0,
+                extension=".pdf",
+                name="pdf_from_url",
+                relative_path=Path(url),
+                mime_type="application/pdf",
+            ),
+            extraction_method="pdf_url_api",
+        )
 
-            return ExtractedContent(
-                content="",  # No text content - raw bytes will be used
-                metadata=metadata,
-                file_info=file_info,
-                file_path=None,  # No local file path for URLs
-                extraction_method="url_download",
-            )
-
-        except httpx.TimeoutException as e:
-            raise GeminiBatchError(f"URL request timeout: {url}") from e
-        except httpx.HTTPStatusError as e:
-            raise GeminiBatchError(f"HTTP error {e.response.status_code}: {url}") from e
-        except Exception as e:
-            raise GeminiBatchError(f"Failed to fetch URL {url}: {e}") from e
+    def extract_source(self, source: Union[str, Path]) -> ExtractedContent:
+        """Extract content from URL source"""
+        return self.extract_from_url(str(source))
 
     def get_cached_content(self, url: str) -> Optional[bytes]:
         """Get cached content for a URL to avoid re-downloading"""
-        return self._content_cache.get(url)
+        return self._get_cached_content(url)
 
     def download_content_if_needed(self, url: str) -> bytes:
         """Download content only if not already cached"""
-        if url in self._content_cache:
-            return self._content_cache[url]
+        cached_content = self._get_cached_content(url)
+        if cached_content:
+            return cached_content
 
         # Download and cache
-        with httpx.Client(timeout=self.timeout) as client:
-            response = client.get(url)
-            response.raise_for_status()
-            content_data = response.content
-            self._content_cache[url] = content_data
-            return content_data
+        response = self._make_http_request(url, "GET")
+        content_data = response.content
+        self._cache_content(url, content_data)
+        return content_data
 
     def extract(self, file_info: FileInfo) -> ExtractedContent:
         """Extract method for compatibility with BaseExtractor interface"""
         # This shouldn't be called directly for URLs, but provide fallback
         return self.extract_from_url(str(file_info.path))
-
-    def _guess_mime_type_from_url(self, url: str) -> str:
-        """Guess MIME type from URL extension using centralized utilities"""
-        # Try to use the centralized MIME detection
-        try:
-            url_path = Path(url)
-            extension = url_path.suffix.lower()
-            if extension in utils.EXTENSION_TO_MIME:
-                return utils.EXTENSION_TO_MIME[extension]
-        except Exception:
-            pass
-
-        # Fallback to simple guessing
-        url_lower = url.lower()
-        if url_lower.endswith(".pdf"):
-            return "application/pdf"
-        elif url_lower.endswith((".jpg", ".jpeg")):
-            return "image/jpeg"
-        elif url_lower.endswith(".png"):
-            return "image/png"
-        elif url_lower.endswith(".mp4"):
-            return "video/mp4"
-        elif url_lower.endswith(".mp3"):
-            return "audio/mpeg"
-        else:
-            return "application/octet-stream"
 
     def _get_extension_from_url(self, url: str) -> str:
         """Extract file extension from URL"""
@@ -348,11 +430,10 @@ class ContentExtractorManager:
         """Initialize with default extractors and optional custom ones"""
         self.extractors = [
             TextContentExtractor(),
-            PDFURLExtractor(),  # Priority: handle large PDF URLs first
             YouTubeExtractor(),
             TextExtractor(),
             MediaExtractor(),
-            URLExtractor(),  # Fallback: handle remaining URLs
+            URLExtractor(),
         ]
 
         if custom_extractors:
@@ -476,90 +557,6 @@ class TextContentExtractor(BaseExtractor):
                 mime_type="text/plain",
             ),
             extraction_method="direct_text",
-        )
-
-    def extract(self, file_info: FileInfo) -> ExtractedContent:
-        """Not used - this extractor works with sources directly"""
-        raise NotImplementedError("Use extract_source() instead")
-
-
-class PDFURLExtractor(BaseExtractor):
-    """Handle large PDF URLs that should be passed directly to Gemini API"""
-
-    def __init__(self, timeout: int = 30):
-        super().__init__()
-        self.timeout = timeout
-
-    def can_extract(self, file_info: FileInfo) -> bool:
-        """This extractor doesn't work with FileInfo"""
-        return False
-
-    def can_extract_source(self, source: Union[str, Path]) -> bool:
-        """Check if source is a large PDF URL"""
-        if not utils.is_url(str(source)):
-            return False
-
-        url = str(source)
-
-        # Quick check for obvious PDF URLs
-        if url.lower().endswith(".pdf"):
-            return self._is_large_pdf_url(url)
-
-        # Check for common PDF hosting patterns
-        pdf_indicators = ["arxiv.org/pdf", "pdf", ".pdf"]
-        if any(indicator in url.lower() for indicator in pdf_indicators):
-            return self._is_large_pdf_url(url)
-
-        return False
-
-    def _is_large_pdf_url(self, url: str) -> bool:
-        """Check if PDF URL is large enough to warrant direct API handling"""
-        try:
-            with httpx.Client(timeout=self.timeout) as client:
-                response = client.head(url, follow_redirects=True)
-                response.raise_for_status()
-
-                # Check content type
-                content_type = response.headers.get("content-type", "").split(";")[0]
-                if content_type != "application/pdf":
-                    return False
-
-                # Check size - if >20MB, handle directly via API
-                content_length = response.headers.get("content-length")
-                if content_length:
-                    size = int(content_length)
-                    return size > utils.FILES_API_THRESHOLD
-
-                # If no content-length header, assume it might be large
-                # ArXiv papers often don't include content-length
-                return True
-
-        except Exception:
-            # If HEAD request fails, fall back to regular URL processing
-            return False
-
-    def extract_source(self, source: Union[str, Path]) -> ExtractedContent:
-        """Extract large PDF URL for direct API processing"""
-        url = str(source)
-        from .scanner import FileInfo, FileType
-
-        return ExtractedContent(
-            content="",  # No content - will be handled by API
-            metadata={
-                "source_type": "pdf_url",
-                "processing_method": "pdf_url_api",
-                "url": url,
-            },
-            file_info=FileInfo(
-                path=Path(url),
-                file_type=FileType.PDF,
-                size=0,
-                extension=".pdf",
-                name="pdf_from_url",
-                relative_path=Path(url),
-                mime_type="application/pdf",
-            ),
-            extraction_method="pdf_url_api",
         )
 
     def extract(self, file_info: FileInfo) -> ExtractedContent:
