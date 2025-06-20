@@ -90,6 +90,12 @@ class BatchProcessor:
             },
         }
 
+        # Add structured data if available for easy access
+        if batch_metrics.get("structured_output", {}).get("structured_data"):
+            result["structured_data"] = batch_metrics["structured_output"][
+                "structured_data"
+            ]
+
         if compare_methods and individual_answers:
             result["individual_answers"] = individual_answers
 
@@ -138,15 +144,23 @@ class BatchProcessor:
                         "structured_success" in response
                         and response["structured_success"]
                     ):
-                        # High-quality structured output - use parsed data
-                        answers = extract_answers(
-                            response, len(questions), is_structured=True
+                        # High-quality structured output - preserve structured data
+                        parsed_data = response.get("parsed")
+
+                        # For structured output, provide minimal text representation for
+                        # compatibility but also preserve the actual structured object
+                        answers = (
+                            [str(parsed_data)]
+                            if parsed_data
+                            else ["No structured data"]
                         )
-                        # Add structured output metadata to metrics
+
+                        # Add structured output metadata with actual structured object
                         structured_quality = {
                             "confidence": response.get("structured_confidence", 0.0),
                             "method": response.get("validation_method", "unknown"),
                             "errors": response.get("validation_errors", []),
+                            "structured_data": parsed_data,
                         }
                     else:
                         # Fallback to text extraction with lower confidence
@@ -222,7 +236,7 @@ class BatchProcessor:
 
                 if isinstance(response, dict):
                     if response_schema and "parsed" in response:
-                        # Structured output - convert parsed object to string representation
+                        # Structured output - convert parsed object to string
                         parsed_data = response["parsed"]
                         if parsed_data is not None:
                             answers.append(str(parsed_data))
@@ -320,7 +334,6 @@ class BatchProcessor:
             Complete result dict from ResponseProcessor
         """
         try:
-            # Get the raw API response - this is BatchProcessor's responsibility
             raw_response = self.client.generate_batch(
                 content=content,
                 questions=questions,
@@ -329,7 +342,6 @@ class BatchProcessor:
                 **kwargs,
             )
 
-            # Delegate ALL response processing to ResponseProcessor
             return response_processor.process_batch_response(
                 raw_response=raw_response,
                 questions=questions,
@@ -338,7 +350,6 @@ class BatchProcessor:
             )
 
         except Exception as e:
-            # Simple fallback - let ResponseProcessor handle error responses too
             error_response = type(
                 "ErrorResponse", (), {"text": f"Error: {str(e)}", "parsed": None}
             )()

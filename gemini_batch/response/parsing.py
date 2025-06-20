@@ -26,6 +26,8 @@ def parse_text_with_schema_awareness(text: str, expected_schema) -> ParsingResul
     if pattern_result.success:
         return pattern_result
 
+    # TODO: Add Pydantic string extraction if complex schema support needed
+
     # Strategy 3: Basic fallback
     return ParsingResult(
         success=False,
