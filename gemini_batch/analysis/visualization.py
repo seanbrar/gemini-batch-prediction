@@ -7,7 +7,7 @@ from typing import Any, Dict, List, Tuple
 import matplotlib.pyplot as plt
 import pandas as pd
 
-from .constants import (
+from ..constants import (
     TARGET_EFFICIENCY_RATIO,
     VIZ_ALPHA,
     VIZ_BAR_WIDTH,
@@ -15,7 +15,7 @@ from .constants import (
     VIZ_FIGURE_SIZE,
     VIZ_SCALING_FIGURE_SIZE,
 )
-from .response import calculate_quality_score
+from ..response import calculate_quality_score
 
 # Constants for consistent styling
 COLORS = VIZ_COLORS
