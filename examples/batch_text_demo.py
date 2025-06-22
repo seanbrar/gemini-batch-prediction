@@ -193,7 +193,7 @@ def run_demo_with_content(name, content, questions, processor, compare_methods=T
     print(f"{'=' * 60}")
 
     # Process the questions
-    results = processor.process_text_questions(
+    results = processor.process_questions(
         content, questions, compare_methods=compare_methods
     )
 
