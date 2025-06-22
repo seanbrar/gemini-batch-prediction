@@ -25,6 +25,7 @@ class ResponseProcessor:
         response_schema: Optional[Any] = None,
         return_usage: bool = True,
         comparison_answers: Optional[List[str]] = None,
+        api_call_time: Optional[float] = None,
     ) -> Dict[str, Any]:
         """
         Process a raw batch API response with complete integration handling
@@ -38,6 +39,7 @@ class ResponseProcessor:
             response_schema: Optional schema for structured output
             return_usage: Whether to include usage metrics
             comparison_answers: Optional answers for quality comparison
+            api_call_time: Total time for API call (if provided, used instead of processing time)
 
         Returns:
             Complete result dict with processed response and all metadata
@@ -65,6 +67,11 @@ class ResponseProcessor:
                 )
             # For non-dict responses, usage extraction could be enhanced here
 
+        # Use API call time if provided, otherwise use processing time
+        processing_time = (
+            api_call_time if api_call_time is not None else (time.time() - start_time)
+        )
+
         # Package complete result
         return {
             "processed_response": processed_response,
@@ -75,7 +82,7 @@ class ResponseProcessor:
             "processing_method": processed_response.processing_method,
             "confidence": processed_response.confidence,
             "structured_data": processed_response.structured_data,
-            "processing_time": time.time() - start_time,
+            "processing_time": processing_time,
             "has_structured_data": processed_response.has_structured_data,
             "question_count": len(questions),
             "schema_provided": response_schema is not None,

@@ -326,6 +326,7 @@ class BatchProcessor:
         questions: List[str],
         response_processor,
         response_schema: Optional[Any] = None,
+        compare_methods: bool = False,
         **kwargs,
     ) -> Dict[str, Any]:
         """Process questions with integrated ResponseProcessor for unified handling
@@ -339,12 +340,18 @@ class BatchProcessor:
             questions: List of questions
             response_processor: ResponseProcessor instance (required for integration)
             response_schema: Optional schema for structured output
+            compare_methods: Whether to run both batch and individual for comparison
             **kwargs: Additional options
 
         Returns:
-            Complete result dict from ResponseProcessor
+            Complete result dict from ResponseProcessor, enhanced with efficiency metrics if compare_methods=True
         """
+
         try:
+            # Measure total time including API call
+            total_start_time = time.time()
+
+            # Always run batch processing
             raw_response = self.client.generate_batch(
                 content=content,
                 questions=questions,
@@ -353,12 +360,62 @@ class BatchProcessor:
                 **kwargs,
             )
 
-            return response_processor.process_batch_response(
+            # Calculate total time including API call
+            total_duration = time.time() - total_start_time
+
+            # Get the primary result from ResponseProcessor with API call timing
+            result = response_processor.process_batch_response(
                 raw_response=raw_response,
                 questions=questions,
                 response_schema=response_schema,
                 return_usage=True,
+                api_call_time=total_duration,
             )
+
+            # If comparison is requested, run individual processing and add efficiency metrics
+            if compare_methods:
+                # Extract batch metrics from the ResponseProcessor result
+                batch_usage = result.get("usage", {})
+                batch_time = result.get("processing_time", 0.0)
+
+                batch_metrics = {
+                    "calls": 1,
+                    "prompt_tokens": batch_usage.get("prompt_tokens", 0),
+                    "output_tokens": batch_usage.get("output_tokens", 0),
+                    "tokens": batch_usage.get("total_tokens", 0),
+                    "time": batch_time,
+                }
+
+                # Run individual processing for comparison
+                individual_answers, individual_metrics = self._process_individual(
+                    content,
+                    questions,
+                    return_usage=True,
+                    response_schema=response_schema,
+                    **kwargs,
+                )
+
+                # Calculate efficiency metrics
+                efficiency = track_efficiency(
+                    individual_calls=individual_metrics["calls"],
+                    batch_calls=batch_metrics["calls"],
+                    individual_prompt_tokens=individual_metrics.get("prompt_tokens", 0),
+                    individual_output_tokens=individual_metrics.get("output_tokens", 0),
+                    batch_prompt_tokens=batch_metrics.get("prompt_tokens", 0),
+                    batch_output_tokens=batch_metrics.get("output_tokens", 0),
+                    individual_time=individual_metrics["time"],
+                    batch_time=batch_metrics["time"],
+                )
+
+                # Add efficiency data to the result
+                result["efficiency"] = efficiency
+                result["metrics"] = {
+                    "batch": batch_metrics,
+                    "individual": individual_metrics,
+                }
+                result["individual_answers"] = individual_answers
+
+            return result
 
         except Exception as e:
             error_response = type(
