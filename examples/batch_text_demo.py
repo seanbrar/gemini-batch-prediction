@@ -8,7 +8,7 @@ import time
 import requests
 
 from gemini_batch import BatchProcessor
-from gemini_batch.utils import calculate_quality_score
+from gemini_batch.response import calculate_quality_score
 
 
 def get_short_ai_content():
