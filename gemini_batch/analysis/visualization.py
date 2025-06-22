@@ -378,3 +378,92 @@ def run_efficiency_experiment(
         print(f"{'Quality Score':<25} {quality_score * 100:.1f}%")
 
     return results
+
+
+def create_focused_efficiency_visualization(
+    results: Dict[str, Any], show_summary: bool = False
+) -> None:
+    """Create focused 2-chart visualization for notebook demonstrations"""
+
+    if not _validate_results_data(results):
+        print("❌ Invalid results data structure")
+        return
+
+    individual_metrics = results["metrics"]["individual"]
+    batch_metrics = results["metrics"]["batch"]
+    efficiency = results["efficiency"]
+
+    # Create side-by-side layout
+    fig, (ax1, ax2) = plt.subplots(1, 2, figsize=(12, 5))
+    fig.suptitle("Batch Processing Efficiency Analysis", fontsize=16, fontweight="bold")
+
+    methods = ["Individual", "Batch"]
+
+    # 1. Token Usage Comparison (main value proposition)
+    tokens = [individual_metrics["tokens"], batch_metrics["tokens"]]
+    _create_comparison_subplot(
+        ax1,
+        "Total Token Usage",
+        "Tokens",
+        methods,
+        tokens,
+        format_func=_format_integer_with_commas,
+    )
+
+    # Add more headroom by extending y-axis limits
+    max_tokens = max(tokens)
+    ax1.set_ylim(0, max_tokens * 1.3)  # 30% more headroom
+
+    # 2. Processing Time Comparison (workflow benefit)
+    times = [individual_metrics["time"], batch_metrics["time"]]
+    _create_comparison_subplot(
+        ax2,
+        "Processing Time",
+        "Time (seconds)",
+        methods,
+        times,
+        format_func=_format_time_seconds,
+    )
+
+    # Add more headroom by extending y-axis limits
+    max_times = max(times)
+    ax2.set_ylim(0, max_times * 1.3)  # 30% more headroom
+
+    # Add efficiency annotations to make impact clear
+    token_efficiency = efficiency["token_efficiency_ratio"]
+    time_efficiency = efficiency["time_efficiency"]
+
+    # Add efficiency callout on token chart (moved higher up)
+    ax1.text(
+        0.5,
+        0.9,
+        f"{token_efficiency:.1f}× more efficient",
+        ha="center",
+        transform=ax1.transAxes,
+        fontsize=12,
+        fontweight="bold",
+        bbox={"boxstyle": "round,pad=0.3", "facecolor": "lightgreen", "alpha": 0.7},
+    )
+
+    # Add time savings callout (moved higher up)
+    ax2.text(
+        0.5,
+        0.9,
+        f"{time_efficiency:.1f}× faster",
+        ha="center",
+        transform=ax2.transAxes,
+        fontsize=12,
+        fontweight="bold",
+        bbox={"boxstyle": "round,pad=0.3", "facecolor": "lightblue", "alpha": 0.7},
+    )
+
+    plt.tight_layout()
+    plt.show()
+
+    # Optional summary (concise version)
+    if show_summary:
+        tokens_saved = individual_metrics["tokens"] - batch_metrics["tokens"]
+        cost_reduction = (tokens_saved / individual_metrics["tokens"]) * 100
+        print(f"\n💰 Cost reduction: {cost_reduction:.1f}%")
+        print(f"⚡ Time savings: {time_efficiency:.1f}× faster")
+        print(f"🎯 Target met: {'Yes' if efficiency['meets_target'] else 'No'}")
