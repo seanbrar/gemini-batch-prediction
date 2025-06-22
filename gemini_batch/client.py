@@ -454,28 +454,41 @@ class GeminiClient:
 
         # Handle structured output with validation
         if response_schema:
-            validation_result = validate_structured_response(response, response_schema)
+            # Try to use original parsed data from API first (highest fidelity)
+            if hasattr(response, "parsed") and response.parsed is not None:
+                # API provided structured data - use it directly
+                parsed_data = response.parsed
+                structured_success = True
+                structured_confidence = 1.0
+                validation_method = "api_native"
+                validation_errors = []
+            else:
+                # Fallback to validation logic for text parsing
+                validation_result = validate_structured_response(
+                    response, response_schema
+                )
+                parsed_data = validation_result.parsed_data
+                structured_success = validation_result.success
+                structured_confidence = validation_result.confidence
+                validation_method = validation_result.validation_method
+                validation_errors = validation_result.errors
 
             if return_usage:
                 result = {
                     "text": response.text,
-                    "parsed": validation_result.parsed_data,
-                    "structured_success": validation_result.success,
-                    "structured_confidence": validation_result.confidence,
-                    "validation_method": validation_result.validation_method,
-                    "validation_errors": validation_result.errors,
+                    "parsed": parsed_data,
+                    "structured_success": structured_success,
+                    "structured_confidence": structured_confidence,
+                    "validation_method": validation_method,
+                    "validation_errors": validation_errors,
                     "usage": extract_usage_metrics(response),
                 }
                 if extra_metadata:
                     result.update(extra_metadata)
                 return result
             else:
-                # Return best available data based on validation success
-                return (
-                    validation_result.parsed_data
-                    if validation_result.success
-                    else response.text
-                )
+                # Return best available data
+                return parsed_data if structured_success else response.text
 
         # Standard text response processing
         if return_usage:

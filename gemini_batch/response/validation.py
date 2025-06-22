@@ -11,15 +11,36 @@ def validate_structured_response(response, expected_schema) -> ValidationResult:
     """Validate a structured response against a schema
 
     Args:
-        response: The API response object
+        response: The API response object or dict
         expected_schema: The expected schema for validation
     """
-    raw_text = getattr(response, "text", str(response))
+    # Handle both object responses and dict responses
+    if isinstance(response, dict):
+        raw_text = response.get("text", str(response))
+        parsed_data = response.get("parsed")
 
-    # Try to validate direct parsed response
-    if hasattr(response, "parsed") and response.parsed is not None:
+        # Check if we already have processed structured data
+        if parsed_data is not None and response.get("structured_success", False):
+            # Use already validated data from client processing
+            confidence = response.get("structured_confidence", 1.0)
+            method = response.get("validation_method", "client_processed")
+            return ValidationResult(
+                success=True,
+                parsed_data=parsed_data,
+                confidence=confidence,
+                validation_method=method,
+                errors=[],
+                raw_text=raw_text,
+            )
+    else:
+        # Original object-based logic
+        raw_text = getattr(response, "text", str(response))
+        parsed_data = getattr(response, "parsed", None)
+
+    # Try to validate parsed data if available
+    if parsed_data is not None:
         try:
-            validated_data = validate_against_schema(response.parsed, expected_schema)
+            validated_data = validate_against_schema(parsed_data, expected_schema)
             return ValidationResult(
                 success=True,
                 parsed_data=validated_data,

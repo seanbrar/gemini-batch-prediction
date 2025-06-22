@@ -38,10 +38,21 @@ class BatchProcessor:
         if not questions:
             raise ValueError("Questions are required")
 
+        # Auto-create ResponseProcessor when response_schema is provided but no processor
+        if response_schema is not None and response_processor is None:
+            from .response import ResponseProcessor
+
+            response_processor = ResponseProcessor()
+
         # If response_processor is provided, delegate all response processing to it
         if response_processor is not None:
             return self._process_with_response_processor(
-                content, questions, response_processor, response_schema, **options
+                content,
+                questions,
+                response_processor,
+                response_schema,
+                compare_methods,
+                **options,
             )
 
         # Standard processing path (existing logic)
