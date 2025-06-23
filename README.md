@@ -15,7 +15,7 @@ This project develops a framework for efficiently analyzing educational video co
 - **Batch Processing**: Group related questions to minimize redundant API calls
 - **Context Caching**: Leverage Gemini's caching capabilities for repeated analysis
 - **Conversation Memory**: Maintain coherent follow-up question handling
-- **Video Analysis**: Support YouTube URLs and uploaded video files
+- **Multimodal Analysis**: Support text, PDFs, videos, images, and mixed content sources
 
 ## 🚀 Current Status
 
@@ -35,10 +35,13 @@ This project develops a framework for efficiently analyzing educational video co
 - ✅ Modern packaging system with optional dependencies
 - ✅ Professional documentation and setup guides
 
-**Week 3 (June 16-22, 2025)**: File Processing & Multimodal Foundation 🟡 **STARTING**
-- 🚧 Files API integration and directory processing
-- 🚧 Video processing foundation (YouTube URLs)
-- ⚪ Advanced caching implementation (planned for Week 4-5)
+**Week 3 (June 16-22, 2025)**: Multimodal Processing & File Handling ✅ **COMPLETED**
+- ✅ Unified content processing interface for any source type
+- ✅ YouTube URL support with native Gemini integration
+- ✅ Files API integration for large content (PDFs, videos, images)
+- ✅ Multi-source analysis capabilities (directories, mixed content)
+- ✅ **Bonus**: Academic literature review demo with 12 sources
+- ✅ **Bonus**: Structured output support with Pydantic schemas
 
 ## 📦 Installation
 
@@ -79,23 +82,58 @@ processor = BatchProcessor()
 # See docs/SETUP.md for advanced configuration options
 ```
 
-### Basic Usage
+### Unified Content Processing
 ```python
-# Simple content generation
-response = client.generate_content("Explain quantum computing")
+# Works with any content type - text, files, URLs, directories, or mixed
+questions = ["What are the main points?", "What are the key insights?"]
 
-# Efficient batch processing
-content = "Educational content about AI..."
-questions = ["What is AI?", "How does it work?", "What are applications?"]
+# Text content
+results = processor.process_questions("Your text content here", questions)
 
-results = processor.process_text_questions(content, questions)
+# YouTube video
+results = processor.process_questions("https://youtube.com/watch?v=example", questions)
+
+# PDF file or directory
+results = processor.process_questions("document.pdf", questions)
+results = processor.process_questions("research_papers/", questions)
+
+# Mixed sources (text + files + URLs)
+sources = ["Background context", "paper.pdf", "https://example.com/article"]
+results = processor.process_questions(sources, questions)
+
+# Access results
 print(f"🚀 Efficiency: {results['efficiency']['token_efficiency_ratio']:.1f}x improvement")
-print(f"💰 API calls reduced: {len(questions)} → {results['metrics']['batch']['calls']}")
+print(f"💰 Token reduction: {results['metrics']['individual']['tokens']} → {results['metrics']['batch']['tokens']}")
 
-# Access answers
-for i, answer in enumerate(results['batch_answers'], 1):
-    print(f"Q{i}: {answer[:100]}...")
+for i, answer in enumerate(results['answers'], 1):
+    print(f"Q{i}: {answer}")
 ```
+
+### Multi-Source Research Analysis
+```python
+# Analyze multiple research sources simultaneously
+sources = [
+    "research_papers/",           # Directory of papers
+    "https://arxiv.org/pdf/...",  # arXiv paper
+    "https://youtube.com/watch?v=...",  # Educational video
+]
+
+research_questions = [
+    "What are the main research trends across all sources?",
+    "Which approaches show the most promise?",
+    "What gaps exist in current research?"
+]
+
+# Single API call processes all sources together
+results = processor.process_questions_multi_source(sources, research_questions)
+```
+
+## 📚 Documentation
+
+- **[Setup Guide](docs/SETUP.md)** - Installation and configuration options
+- **[Source Handling](docs/SOURCE_HANDLING.md)** - Working with different content types
+- **Examples** - See `examples/` directory for complete demos
+- **Notebooks** - Interactive demos in `notebooks/` directory
 
 ## 🛠️ Development Roadmap
 
@@ -103,9 +141,8 @@ for i, answer in enumerate(results['batch_answers'], 1):
 |------|-------|--------|
 | 1-2 | Text batch processing & API foundation | ✅ **Completed** |
 | 2 | Error handling, testing & configuration | ✅ **Completed** |
-| 3 | File processing & video foundation | 🟡 **Starting** |
-| 3-4 | YouTube integration & multimodal processing | ⚪ Planned |
-| 4-5 | Context caching implementation | ⚪ Planned |
+| 3 | Multimodal processing & file handling | ✅ **Completed** |
+| 4-5 | Context caching implementation | ⚪ **Next** |
 | 6-8 | Conversation memory & advanced features | ⚪ Planned |
 | 9-11 | Performance optimization & polish | ⚪ Planned |
 | 12-13 | Documentation & final delivery | ⚪ Planned |

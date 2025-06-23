@@ -25,3 +25,21 @@ class NetworkError(GeminiBatchError):
     """Raised when network issues occur"""
 
     pass
+
+
+class FileError(GeminiBatchError):
+    """Raised when file operations fail"""
+
+    pass
+
+
+class ValidationError(GeminiBatchError):
+    """Raised when input validation fails"""
+
+    pass
+
+
+class UnsupportedContentError(GeminiBatchError):
+    """Raised when content type is not supported"""
+
+    pass
