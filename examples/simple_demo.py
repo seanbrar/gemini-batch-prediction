@@ -1,23 +1,34 @@
 #!/usr/bin/env python3
 """
-Basic demonstration of the framework (under development)
+Minimal demonstration of the Gemini Batch Processing Framework
+
+Shows the core interface: ask multiple questions about content in a single call.
+This is the simplest possible example - see examples/ for advanced features,
+efficiency analysis, and multi-source processing capabilities.
+
+Perfect starting point for understanding how the framework works.
 """
 
-from gemini_batch import GeminiClient
+from gemini_batch import BatchProcessor
 
 
 def main():
-    print("Gemini Batch Processing Framework - Demo")
-    print("Week 1 goals: Basic API client and batch processing")
+    print("🚀 Gemini Batch Processing Framework - MVP Demo\n")
 
-    client = GeminiClient()
+    processor = BatchProcessor()
 
-    print(
-        client.generate_content(
-            prompt="Hello, world!", system_instruction="You are a helpful assistant."
-        )
-    )
+    # Show it just works
+    content = "Machine learning enables pattern recognition in data."
+    questions = ["What is machine learning?", "What does it enable?"]
 
+    results = processor.process_questions(content, questions)
+
+    print("📝 Results:")
+    for i, answer in enumerate(results['answers'], 1):
+        print(f"{i}. {answer}")
+
+    print("\n✨ Same interface works with files, URLs, videos, and more!")
+    print("See examples/ for advanced features and efficiency analysis.")
 
 if __name__ == "__main__":
     main()

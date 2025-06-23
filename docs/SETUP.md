@@ -46,7 +46,9 @@ Explicitly provide configuration:
 # Direct initialization
 client = GeminiClient(
     api_key="your_api_key_here",
-    model_name="gemini-2.0-flash"
+    model_name="gemini-2.0-flash",
+    enable_caching=False,        # Optional: enable response caching
+    tier=APITier.FREE           # Optional: explicit tier setting
 )
 
 processor = BatchProcessor(api_key="your_api_key_here")
@@ -127,10 +129,14 @@ processor = BatchProcessor()
 content = "Artificial intelligence is transforming technology..."
 questions = ["What is AI?", "How does it work?"]
 
-results = processor.process_text_questions(content, questions)
-for i, answer in enumerate(results['batch_answers'], 1):
+results = processor.process_questions(content, questions)
+for i, answer in enumerate(results['answers'], 1):
     print(f"Q{i}: {answer}")
 ```
+
+### Multiple Content Types
+
+The `process_questions()` method supports text, files, URLs, and mixed content. See [`SOURCE_HANDLING.md`](SOURCE_HANDLING.md) for detailed examples.
 
 ## Configuration Validation
 
