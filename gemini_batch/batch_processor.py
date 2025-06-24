@@ -5,7 +5,6 @@ Batch processor for text content analysis
 from pathlib import Path
 import time
 from typing import Any, Dict, List, Optional, Union
-import warnings
 
 from .client import GeminiClient
 from .efficiency import track_efficiency
@@ -92,8 +91,7 @@ class BatchProcessor:
 
         result = {
             "question_count": len(questions),
-            "answers": batch_answers,  # Primary result
-            "batch_answers": batch_answers,  # Backward compatibility
+            "answers": batch_answers,
             "efficiency": efficiency,
             "metrics": {
                 "batch": batch_metrics,
@@ -434,57 +432,3 @@ class BatchProcessor:
     def reset_metrics(self):
         """Reset tracking metrics"""
         pass  # Simplified - metrics now handled per-call
-
-    # Backward compatibility methods
-    def process_text_questions(self, content: str, questions: List[str], **kwargs):
-        """Deprecated: use process_questions() instead"""
-        warnings.warn(
-            "process_text_questions() is deprecated. Use process_questions() instead.",
-            DeprecationWarning,
-            stacklevel=2,
-        )
-        return self.process_questions(content, questions, **kwargs)
-
-    def process_file_questions(
-        self, file_path: Union[str, Path], questions: List[str], **kwargs
-    ):
-        """Deprecated: use process_questions() instead"""
-        warnings.warn(
-            "process_file_questions() is deprecated. Use process_questions() instead.",
-            DeprecationWarning,
-            stacklevel=2,
-        )
-        return self.process_questions(file_path, questions, **kwargs)
-
-    def process_youtube_questions(
-        self, youtube_url: str, questions: List[str], **kwargs
-    ):
-        """Deprecated: use process_questions() instead"""
-        warnings.warn(
-            "process_youtube_questions() is deprecated. Use process_questions() instead.",
-            DeprecationWarning,
-            stacklevel=2,
-        )
-        return self.process_questions(youtube_url, questions, **kwargs)
-
-    def process_directory_questions(
-        self, directory_path: Union[str, Path], questions: List[str], **kwargs
-    ):
-        """Deprecated: use process_questions() instead"""
-        warnings.warn(
-            "process_directory_questions() is deprecated. Use process_questions() instead.",
-            DeprecationWarning,
-            stacklevel=2,
-        )
-        return self.process_questions(directory_path, questions, **kwargs)
-
-    def process_mixed_content_questions(
-        self, mixed_content: List[Union[str, Path]], questions: List[str], **kwargs
-    ):
-        """Deprecated: use process_questions() instead"""
-        warnings.warn(
-            "process_mixed_content_questions() is deprecated. Use process_questions() instead.",
-            DeprecationWarning,
-            stacklevel=2,
-        )
-        return self.process_questions(mixed_content, questions, **kwargs)
