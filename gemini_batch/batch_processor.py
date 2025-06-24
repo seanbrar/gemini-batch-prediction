@@ -10,7 +10,7 @@ from typing import Any, Dict, List, Optional, Tuple, Union
 
 from .client import GeminiClient
 from .efficiency import track_efficiency
-from .response import extract_answers
+from .response import ResponseProcessor
 
 
 @dataclass
@@ -53,132 +53,7 @@ class ProcessingOptions:
     compare_methods: bool = False
     return_usage: bool = False
     response_schema: Optional[Any] = None
-    response_processor: Optional[Any] = None
     options: Dict[str, Any] = field(default_factory=dict)
-
-
-@dataclass
-class ExtractionResult:
-    """Result from unified response extraction"""
-
-    answers: Union[
-        List[str], str
-    ]  # List for batch (multiple questions), str for individual
-    usage: Dict[str, int]
-    structured_quality: Optional[Dict[str, Any]] = None
-
-    @property
-    def is_batch_result(self) -> bool:
-        """True if this represents a batch response (multiple answers)"""
-        return isinstance(self.answers, list)
-
-
-class ResponseExtractor:
-    """Unified response extraction and processing"""
-
-    def __init__(self):
-        pass
-
-    def extract_from_response(
-        self, response: Any, question_count: int, response_schema: Optional[Any] = None
-    ) -> ExtractionResult:
-        """
-        Unified response extraction for both batch and individual responses
-
-        This method automatically detects the response type based on question_count:
-        - question_count > 1: Treats as batch response, returns List[str] of answers
-        - question_count = 1: Treats as individual response, returns single str answer
-
-        Args:
-            response: Raw API response object or dict
-            question_count: Number of questions asked (determines batch vs individual handling)
-            response_schema: Optional schema for structured response validation
-
-        Returns:
-            ExtractionResult containing answers, usage metrics, and optional structured quality data
-        """
-        usage = {"prompt_tokens": 0, "output_tokens": 0}
-        structured_quality = None
-        is_batch = question_count > 1
-
-        if isinstance(response, dict):
-            usage = response.get("usage", usage)
-
-            if response_schema:
-                answers, structured_quality = self._handle_structured_response(
-                    response, is_batch, question_count
-                )
-            else:
-                if is_batch:
-                    response_text = response.get("text", "")
-                    answers = extract_answers(
-                        response_text, question_count, is_structured=False
-                    )
-                else:  # Individual response
-                    answers = response.get("text", "")
-        else:
-            # Simple response handling
-            if is_batch:
-                answers = extract_answers(response, question_count, is_structured=False)
-            else:  # Individual response
-                answers = str(response) if response is not None else ""
-
-        return ExtractionResult(
-            answers=answers, usage=usage, structured_quality=structured_quality
-        )
-
-    def _handle_structured_response(
-        self, response: Dict[str, Any], is_batch: bool, question_count: int
-    ) -> Tuple[Union[List[str], str], Optional[Dict[str, Any]]]:
-        """
-        Handle structured response parsing for both batch and individual responses
-
-        Args:
-            response: Dict response from API
-            is_batch: True for batch responses (multiple questions), False for individual
-            question_count: Number of questions asked (needed for text extraction fallback)
-        """
-        if response.get("structured_success"):
-            parsed_data = response.get("parsed")
-
-            if is_batch:
-                answers = [str(parsed_data)] if parsed_data else ["No structured data"]
-            else:  # Individual response
-                answers = (
-                    str(parsed_data)
-                    if parsed_data is not None
-                    else response.get("text", "")
-                )
-
-            structured_quality = {
-                "confidence": response.get("structured_confidence", 0.0),
-                "method": response.get("validation_method", "unknown"),
-                "errors": response.get("validation_errors", []),
-                "structured_data": parsed_data,
-            }
-            return answers, structured_quality
-        else:
-            # Fallback to text extraction
-            response_text = response.get("text", "")
-
-            if is_batch:
-                # For batch, extract multiple answers from text using the correct question count
-                answers = extract_answers(
-                    response_text,
-                    question_count,  # Use the parameter, not response data
-                    is_structured=False,
-                )
-            else:  # Individual response
-                answers = response_text
-
-            structured_quality = {
-                "confidence": 0.3,  # Lower confidence for text fallback
-                "method": "text_fallback",
-                "errors": response.get(
-                    "validation_errors", ["Structured parsing failed"]
-                ),
-            }
-            return answers, structured_quality
 
 
 class ResultBuilder:
@@ -269,7 +144,7 @@ class BatchProcessor:
     def __init__(self, client: Optional[GeminiClient] = None, **client_kwargs):
         """Initialize with unified client"""
         self.client = client or GeminiClient(**client_kwargs)
-        self.response_extractor = ResponseExtractor()
+        self.response_processor = ResponseProcessor()
         self.result_builder = ResultBuilder(self._calculate_efficiency)
 
     @contextmanager
@@ -289,7 +164,6 @@ class BatchProcessor:
         compare_methods: bool = False,
         return_usage: bool = False,
         response_schema: Optional[Any] = None,
-        response_processor=None,
         **options,
     ) -> Dict[str, Any]:
         """Unified method to process questions about any content type"""
@@ -300,14 +174,10 @@ class BatchProcessor:
             compare_methods=compare_methods,
             return_usage=return_usage,
             response_schema=response_schema,
-            response_processor=response_processor
-            or self._create_response_processor_if_needed(response_schema),
             options=options,
         )
 
-        if config.response_processor:
-            return self._process_with_response_processor(content, questions, config)
-
+        # Always use standard processing with integrated ResponseProcessor
         return self._process_standard(content, questions, config)
 
     def process_questions_multi_source(
@@ -315,7 +185,6 @@ class BatchProcessor:
         sources: List[Union[str, Path, List[Union[str, Path]]]],
         questions: List[str],
         response_schema: Optional[Any] = None,
-        response_processor=None,
         **kwargs,
     ) -> Dict[str, Any]:
         """Process multiple sources in a single batch for maximum efficiency"""
@@ -328,7 +197,6 @@ class BatchProcessor:
             sources,  # Combined content handled by unified client
             questions,
             response_schema=response_schema,
-            response_processor=response_processor,
             **kwargs,
         )
 
@@ -342,21 +210,13 @@ class BatchProcessor:
 
         return result
 
-    def _create_response_processor_if_needed(self, response_schema: Optional[Any]):
-        """Auto-create ResponseProcessor when response_schema is provided"""
-        if response_schema is not None:
-            from .response import ResponseProcessor
-
-            return ResponseProcessor()
-        return None
-
     def _process_standard(
         self,
         content: Union[str, Path, List[Union[str, Path]]],
         questions: List[str],
         config: ProcessingOptions,
     ) -> Dict[str, Any]:
-        """Standard processing path without ResponseProcessor"""
+        """Standard processing path using integrated ResponseProcessor"""
         # Process batch first
         batch_answers, batch_metrics = self._process_batch(content, questions, config)
 
@@ -396,8 +256,10 @@ class BatchProcessor:
                     **config.options,
                 )
 
-                extraction_result = self.response_extractor.extract_from_response(
-                    response, len(questions), config.response_schema
+                extraction_result = (
+                    self.response_processor.extract_answers_from_response(
+                        response, len(questions), config.response_schema
+                    )
                 )
 
                 metrics.prompt_tokens = extraction_result.usage.get("prompt_tokens", 0)
@@ -437,10 +299,12 @@ class BatchProcessor:
                         **config.options,
                     )
 
-                    extraction_result = self.response_extractor.extract_from_response(
-                        response,
-                        1,
-                        config.response_schema,  # Single question
+                    extraction_result = (
+                        self.response_processor.extract_answers_from_response(
+                            response,
+                            1,
+                            config.response_schema,  # Single question
+                        )
                     )
 
                     # For individual processing, we always get a single answer (str)
@@ -477,62 +341,3 @@ class BatchProcessor:
             individual_time=individual_metrics.time,
             batch_time=batch_metrics.time,
         )
-
-    def _process_with_response_processor(
-        self,
-        content: Union[str, Path, List[Union[str, Path]]],
-        questions: List[str],
-        config: ProcessingOptions,
-    ) -> Dict[str, Any]:
-        """Process questions with integrated ResponseProcessor"""
-        try:
-            with self._metrics_tracker(call_count=1) as batch_metrics:
-                # Make batch API call
-                raw_response = self.client.generate_batch(
-                    content=content,
-                    questions=questions,
-                    return_usage=True,
-                    response_schema=config.response_schema,
-                    **config.options,
-                )
-
-                # Get result from ResponseProcessor
-                result = config.response_processor.process_batch_response(
-                    raw_response=raw_response,
-                    questions=questions,
-                    response_schema=config.response_schema,
-                    return_usage=True,
-                    api_call_time=batch_metrics.time,
-                )
-
-                # Add efficiency metrics if comparison requested
-                if config.compare_methods:
-                    individual_answers, individual_metrics = self._process_individual(
-                        content, questions, config
-                    )
-
-                    # Extract batch metrics from ResponseProcessor result
-                    batch_usage = result.get("usage", {})
-                    batch_metrics.prompt_tokens = batch_usage.get("prompt_tokens", 0)
-                    batch_metrics.output_tokens = batch_usage.get("output_tokens", 0)
-
-                    self.result_builder.enhance_response_processor_result(
-                        result, batch_metrics, individual_metrics, individual_answers
-                    )
-
-                return result
-
-        except Exception as e:
-            # Error handling with ResponseProcessor
-            error_response = type(
-                "ErrorResponse", (), {"text": f"Error: {str(e)}", "parsed": None}
-            )()
-
-            result = config.response_processor.process_batch_response(
-                raw_response=error_response,
-                questions=questions,
-                response_schema=config.response_schema,
-                return_usage=True,
-            )
-            result["processing_error"] = str(e)
-            return result

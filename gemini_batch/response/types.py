@@ -3,7 +3,23 @@ Response processing types and result containers
 """
 
 from dataclasses import dataclass
-from typing import Any, Dict, List, Optional
+from typing import Any, Dict, List, Optional, Union
+
+
+@dataclass
+class ExtractionResult:
+    """Result from unified response extraction"""
+
+    answers: Union[
+        List[str], str
+    ]  # List for batch (multiple questions), str for individual
+    usage: Dict[str, int]
+    structured_quality: Optional[Dict[str, Any]] = None
+
+    @property
+    def is_batch_result(self) -> bool:
+        """True if this represents a batch response (multiple answers)"""
+        return isinstance(self.answers, list)
 
 
 @dataclass

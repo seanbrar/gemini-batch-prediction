@@ -7,7 +7,7 @@ from typing import Any, Dict, List, Optional
 from .extraction import extract_answers
 from .parsing import parse_text_with_schema_awareness
 from .quality import calculate_quality_score
-from .types import ProcessedResponse
+from .types import ExtractionResult, ProcessedResponse
 from .validation import validate_against_schema, validate_structured_response
 
 
@@ -283,6 +283,106 @@ class ResponseProcessor:
         if comparison_answers is not None:
             return calculate_quality_score(comparison_answers, answers)
         return None
+
+    def extract_answers_from_response(
+        self, response: Any, question_count: int, response_schema: Optional[Any] = None
+    ) -> ExtractionResult:
+        """
+        Unified response extraction that handles all ResponseExtractor functionality
+
+        This method auto-detects batch vs individual responses based on question_count
+        and handles both structured and unstructured responses.
+
+        Args:
+            response: Raw API response object or dict
+            question_count: Number of questions asked (determines batch vs individual handling)
+            response_schema: Optional schema for structured response validation
+
+        Returns:
+            ExtractionResult object containing:
+            - answers: Union[List[str], str] - List for batch, str for individual
+            - usage: Dict[str, int] - Token usage metrics
+            - structured_quality: Optional[Dict[str, Any]] - Quality data for structured responses
+        """
+        # Extract usage metrics
+        usage = {"prompt_tokens": 0, "output_tokens": 0}
+        if isinstance(response, dict):
+            usage = response.get("usage", usage)
+
+        # Auto-detect batch vs individual
+        is_batch = question_count > 1
+        structured_quality = None
+
+        # Handle structured responses
+        if response_schema:
+            if isinstance(response, dict):
+                if response.get("structured_success"):
+                    parsed_data = response.get("parsed")
+
+                    if is_batch:
+                        answers = (
+                            [str(parsed_data)]
+                            if parsed_data
+                            else ["No structured data"]
+                        )
+                    else:  # Individual response
+                        answers = (
+                            str(parsed_data)
+                            if parsed_data is not None
+                            else response.get("text", "")
+                        )
+
+                    structured_quality = {
+                        "confidence": response.get("structured_confidence", 0.0),
+                        "method": response.get("validation_method", "unknown"),
+                        "errors": response.get("validation_errors", []),
+                        "structured_data": parsed_data,
+                    }
+                else:
+                    # Fallback to text extraction
+                    response_text = response.get("text", "")
+
+                    if is_batch:
+                        answers = extract_answers(
+                            response_text, question_count, is_structured=False
+                        )
+                    else:  # Individual response
+                        answers = response_text
+
+                    structured_quality = {
+                        "confidence": 0.3,  # Lower confidence for text fallback
+                        "method": "text_fallback",
+                        "errors": response.get(
+                            "validation_errors", ["Structured parsing failed"]
+                        ),
+                    }
+            else:
+                # Simple response handling for structured
+                if is_batch:
+                    answers = extract_answers(
+                        response, question_count, is_structured=False
+                    )
+                else:  # Individual response
+                    answers = str(response) if response is not None else ""
+        else:
+            # Handle unstructured responses
+            if isinstance(response, dict):
+                response_text = response.get("text", "")
+            else:
+                response_text = str(response) if response is not None else ""
+
+            if is_batch:
+                answers = extract_answers(
+                    response_text, question_count, is_structured=False
+                )
+            else:  # Individual response
+                answers = response_text
+
+        return ExtractionResult(
+            answers=answers,
+            usage=usage,
+            structured_quality=structured_quality,
+        )
 
     # Convenience methods for specific use cases
 
