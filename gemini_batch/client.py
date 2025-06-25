@@ -3,10 +3,11 @@ Gemini API client with unified multimodal content processing
 """
 
 from collections import deque
+from contextlib import contextmanager
+from dataclasses import asdict, dataclass, field
 from pathlib import Path
 import time
 from typing import Any, Callable, Dict, List, Optional, Union
-import warnings
 
 from google import genai
 from google.genai import types
@@ -29,60 +30,341 @@ from .files import FileOperations
 from .response import validate_structured_response
 
 
-class ContentSource:
-    """Thin orchestration layer that delegates to the files subsystem"""
+@dataclass
+class ClientConfiguration:
+    """Unified client configuration with type safety"""
 
-    def __init__(
-        self, source: Union[str, Path, List[Union[str, Path]]], client: "GeminiClient"
-    ):
-        self.source = source
+    api_key: str
+    model_name: str
+    enable_caching: bool = False
+    tier: Optional[APITier] = None
+    custom_options: Dict[str, Any] = field(default_factory=dict)
+
+    @classmethod
+    def from_config_manager(
+        cls, config_manager: ConfigManager, **overrides
+    ) -> "ClientConfiguration":
+        """Create configuration from ConfigManager with optional overrides"""
+        return cls(
+            api_key=overrides.get("api_key") or config_manager.api_key,
+            model_name=overrides.get("model_name") or config_manager.model,
+            tier=overrides.get("tier"),
+            enable_caching=overrides.get("enable_caching", False),
+            custom_options=overrides.get("custom_options", {}),
+        )
+
+    @classmethod
+    def from_parameters(
+        cls,
+        api_key: str = None,
+        model_name: str = None,
+        tier: Optional[APITier] = None,
+        **kwargs,
+    ) -> "ClientConfiguration":
+        """Create configuration from individual parameters"""
+        # Create ConfigManager to handle defaults and environment
+        config_manager = ConfigManager(tier=tier, model=model_name, api_key=api_key)
+
+        return cls(
+            api_key=api_key or config_manager.api_key,
+            model_name=model_name or config_manager.model,
+            tier=tier,
+            enable_caching=kwargs.get("enable_caching", False),
+            custom_options={k: v for k, v in kwargs.items() if k != "enable_caching"},
+        )
+
+    def get_summary(self) -> Dict[str, Any]:
+        """Get configuration summary for debugging"""
+        return asdict(self)
+
+    def validate(self) -> None:
+        """Validate configuration completeness"""
+        if not self.api_key:
+            raise MissingKeyError(
+                "API key required. Provide via parameter, ConfigManager, "
+                "or GEMINI_API_KEY environment variable."
+            )
+
+
+@dataclass
+class RateLimitConfig:
+    """Rate limiting configuration"""
+
+    requests_per_minute: int
+    tokens_per_minute: int
+    window_seconds: int = RATE_LIMIT_WINDOW
+
+
+class RateLimiter:
+    """Handles rate limiting with context manager support"""
+
+    def __init__(self, config: RateLimitConfig):
+        self.config = config
+        self.request_timestamps = deque()
+
+    @contextmanager
+    def request_context(self):
+        """Context manager for rate-limited requests"""
+        self._wait_if_needed()
+        try:
+            yield
+        finally:
+            self._record_request()
+
+    def _wait_if_needed(self):
+        """Wait if we're approaching the rate limit"""
+        now = time.time()
+
+        # Remove timestamps older than the rate limit window
+        while (
+            self.request_timestamps
+            and now - self.request_timestamps[0] > self.config.window_seconds
+        ):
+            self.request_timestamps.popleft()
+
+        # If we're at the limit, wait for the oldest request to age out
+        if len(self.request_timestamps) >= self.config.requests_per_minute:
+            sleep_time = (
+                self.config.window_seconds - (now - self.request_timestamps[0]) + 1
+            )
+            if sleep_time > 0:
+                print(f"Rate limit reached. Waiting {sleep_time:.2f} seconds...")
+                time.sleep(sleep_time)
+                # Clean up timestamps after waiting
+                now = time.time()
+                while (
+                    self.request_timestamps
+                    and now - self.request_timestamps[0] > self.config.window_seconds
+                ):
+                    self.request_timestamps.popleft()
+
+    def _record_request(self):
+        """Record a request timestamp"""
+        self.request_timestamps.append(time.time())
+
+
+class PromptBuilder:
+    """Handles all prompt construction strategies"""
+
+    def create_batch_prompt(
+        self, questions: List[str], response_schema: Optional[Any] = None
+    ) -> str:
+        """Create batch prompt for multiple questions"""
+        if response_schema:
+            prompt = "Please answer each of the following questions. "
+            prompt += "Your response will be automatically formatted according to the specified schema.\n\n"
+
+            for i, question in enumerate(questions, 1):
+                prompt += f"Question {i}: {question}\n"
+
+            prompt += "\nProvide comprehensive answers for each question."
+        else:
+            prompt = "Please answer each of the following questions:\n\n"
+
+            for i, question in enumerate(questions, 1):
+                prompt += f"Question {i}: {question}\n"
+
+            prompt += "\nProvide numbered answers in this format:\n"
+            for i in range(1, len(questions) + 1):
+                prompt += f"Answer {i}: [Your response]\n"
+
+        return prompt
+
+    def create_single_prompt(self, prompt: str) -> str:
+        """Create single prompt (passthrough for consistency)"""
+        return prompt
+
+
+class ContentPartBuilder:
+    """Handles complex part creation logic with clear separation of concerns"""
+
+    def __init__(self, client: "GeminiClient"):
+        self.client = client
+
+    def build_parts(
+        self, extracted_content, source_url: str = None
+    ) -> List[types.Part]:
+        """Build parts with strategy-based approach"""
+        if extracted_content.requires_api_upload:
+            return self._build_upload_parts(extracted_content, source_url)
+        else:
+            return self._build_inline_parts(extracted_content, source_url)
+
+    def _build_upload_parts(
+        self, extracted_content, source_url: str = None
+    ) -> List[types.Part]:
+        """Handle API upload strategy"""
+        if extracted_content.file_path:
+            # File path - upload to Files API
+            uploaded_file = self.client._upload_file(extracted_content.file_path)
+            return [types.Part(file_data=types.FileData(file_uri=uploaded_file.uri))]
+        elif source_url:
+            # URL content that needs API upload - not yet supported
+            raise APIError(
+                f"URL content too large for inline processing: {source_url}. "
+                "Large URL content upload not yet supported."
+            )
+        else:
+            raise APIError("Content requires API upload but no file path available")
+
+    def _build_inline_parts(
+        self, extracted_content, source_url: str = None
+    ) -> List[types.Part]:
+        """Handle inline processing strategy"""
+        content_bytes = self._get_content_bytes(extracted_content, source_url)
+        return [
+            types.Part.from_bytes(
+                data=content_bytes,
+                mime_type=extracted_content.metadata["mime_type"],
+            )
+        ]
+
+    def _get_content_bytes(self, extracted_content, source_url: str = None) -> bytes:
+        """Handle content retrieval (file vs URL vs cache)"""
+        if extracted_content.file_path:
+            # File path - read file data
+            return extracted_content.file_path.read_bytes()
+        elif source_url:
+            return self._get_url_content_bytes(extracted_content, source_url)
+        else:
+            raise APIError("No data source available for inline processing")
+
+    def _get_url_content_bytes(self, extracted_content, source_url: str) -> bytes:
+        """Get content bytes from URL with caching support"""
+        if extracted_content.metadata.get("content_cached", False):
+            # Get cached content from URLExtractor
+            file_ops = FileOperations()
+            url_extractor = None
+            for extractor in file_ops.extractor_manager.extractors:
+                if hasattr(extractor, "get_cached_content"):
+                    url_extractor = extractor
+                    break
+
+            if url_extractor:
+                file_data = url_extractor.get_cached_content(source_url)
+                if file_data is None:
+                    # Cache miss - download using extractor's method
+                    file_data = url_extractor.download_content_if_needed(source_url)
+                return file_data
+            else:
+                # Fallback to direct download
+                return self._download_url_content(source_url)
+        else:
+            # Content not cached - download it
+            return self._download_url_content(source_url)
+
+    def _download_url_content(self, source_url: str) -> bytes:
+        """Direct URL content download"""
+        with httpx.Client(timeout=30) as client:
+            response = client.get(source_url)
+            response.raise_for_status()
+            return response.content
+
+
+class GenerationErrorHandler:
+    """Centralized error handling with context awareness"""
+
+    def handle_generation_error(
+        self,
+        error: Exception,
+        response_schema: Optional[Any] = None,
+        content_type: str = "unknown",
+    ) -> None:
+        """Handle with rich context for better error messages"""
+        error_str = str(error).lower()
+
+        # Structured output specific errors
+        if response_schema and ("json" in error_str or "schema" in error_str):
+            raise APIError(
+                f"Structured output generation failed for {content_type} content. "
+                f"Check your schema definition. Original error: {error}"
+            ) from error
+
+        # Content-specific errors
+        if "quota" in error_str and "youtube" in error_str:
+            raise APIError(
+                f"YouTube quota exceeded. Free tier allows 8 hours/day. "
+                f"Original error: {error}"
+            ) from error
+        elif "private" in error_str or "unlisted" in error_str:
+            raise APIError(
+                f"YouTube video must be public. Private/unlisted videos not supported. "
+                f"Original error: {error}"
+            ) from error
+        elif "not found" in error_str or "unavailable" in error_str:
+            raise APIError(
+                f"Content not found or unavailable ({content_type}). "
+                f"Original error: {error}"
+            ) from error
+
+        raise APIError(
+            f"Content generation failed for {content_type}: {error}"
+        ) from error
+
+
+class ContentProcessor:
+    """Pure interface: files subsystem → Gemini Parts coordination"""
+
+    def __init__(self, client: "GeminiClient"):
         self.client = client
         self.file_ops = FileOperations()
-        self.parts = self._prepare_parts()
+        self.part_builder = ContentPartBuilder(client)
+        self.strategies = {
+            "direct_text": self._handle_text_content,
+            "youtube_api": self._handle_youtube_content,
+            "pdf_url_api": self._handle_pdf_url_content,
+            "directory_scan": self._handle_directory_content,
+        }
 
-    def _prepare_parts(self) -> List[types.Part]:
-        """Convert any source type into Gemini API Parts"""
-        if isinstance(self.source, list):
+    def process_content(
+        self, source: Union[str, Path, List[Union[str, Path]]]
+    ) -> List[types.Part]:
+        """Process any content type using appropriate strategy"""
+        if isinstance(source, list):
             parts = []
-            for item in self.source:
+            for item in source:
                 parts.extend(self._process_single_source(item))
             return parts
         else:
-            return self._process_single_source(self.source)
+            return self._process_single_source(source)
 
     def _process_single_source(self, source: Union[str, Path]) -> List[types.Part]:
-        """Process a single source into Part(s)"""
+        """Process a single source using strategy pattern"""
         try:
-            # Delegate all source processing to FileOperations
             extracted_content = self.file_ops.process_source(source)
+            strategy = self.strategies.get(extracted_content.extraction_method)
 
-            # Handle different extraction methods
-            if extracted_content.extraction_method == "direct_text":
-                # Text content - create text part
-                return [types.Part(text=extracted_content.content)]
-
-            elif extracted_content.extraction_method == "youtube_api":
-                # YouTube URL - create file data part with URL
-                youtube_url = extracted_content.metadata["url"]
-                return [types.Part(file_data=types.FileData(file_uri=youtube_url))]
-
-            elif extracted_content.extraction_method == "pdf_url_api":
-                # Large PDF URL - create file data part with URL (like YouTube)
-                pdf_url = extracted_content.metadata["url"]
-                return [types.Part(file_data=types.FileData(file_uri=pdf_url))]
-
-            elif extracted_content.extraction_method == "directory_scan":
-                # Directory - scan and process all files
-                return self._handle_directory_from_extracted(extracted_content)
-
+            if strategy:
+                return strategy(extracted_content)
             else:
-                # File or URL extraction - create parts from extracted content
-                return self._create_parts_from_extracted(
-                    extracted_content, extracted_content.metadata.get("url")
-                )
+                return self._handle_generic_content(extracted_content)
 
         except Exception as e:
             raise APIError(f"Failed to process source {source}: {e}") from e
+
+    def _handle_text_content(self, extracted_content) -> List[types.Part]:
+        """Handle direct text content"""
+        return [types.Part(text=extracted_content.content)]
+
+    def _handle_youtube_content(self, extracted_content) -> List[types.Part]:
+        """Handle YouTube URL content"""
+        youtube_url = extracted_content.metadata["url"]
+        return [types.Part(file_data=types.FileData(file_uri=youtube_url))]
+
+    def _handle_pdf_url_content(self, extracted_content) -> List[types.Part]:
+        """Handle PDF URL content"""
+        pdf_url = extracted_content.metadata["url"]
+        return [types.Part(file_data=types.FileData(file_uri=pdf_url))]
+
+    def _handle_directory_content(self, extracted_content) -> List[types.Part]:
+        """Handle directory content"""
+        return self._handle_directory_from_extracted(extracted_content)
+
+    def _handle_generic_content(self, extracted_content) -> List[types.Part]:
+        """Handle generic file or URL content"""
+        return self.part_builder.build_parts(
+            extracted_content, extracted_content.metadata.get("url")
+        )
 
     def _handle_directory_from_extracted(self, extracted_content) -> List[types.Part]:
         """Handle directory processing using extracted content metadata"""
@@ -110,7 +392,7 @@ class ContentSource:
             for file_info in all_files:
                 try:
                     file_extracted = self.file_ops.extract_content(file_info.path)
-                    file_parts = self._create_parts_from_extracted(file_extracted)
+                    file_parts = self.part_builder.build_parts(file_extracted)
                     parts.extend(file_parts)
                 except Exception as e:
                     # Add error information as text part for failed files
@@ -123,153 +405,77 @@ class ContentSource:
         except Exception as e:
             raise APIError(f"Failed to process directory {directory_path}: {e}") from e
 
-    def _create_parts_from_extracted(
-        self, extracted_content, source_url: str = None
-    ) -> List[types.Part]:
-        """Create API Parts from ExtractedContent, handling both files and URLs"""
-        if extracted_content.requires_api_upload:
-            if extracted_content.file_path:
-                # File path - upload to Files API
-                uploaded_file = self.client._upload_file(extracted_content.file_path)
-                return [
-                    types.Part(file_data=types.FileData(file_uri=uploaded_file.uri))
-                ]
-            elif source_url:
-                # URL content that needs API upload - we need the raw data
-                # For now, URLs always use inline processing to avoid complexity
-                # This could be enhanced later to support large URL uploads
-                raise APIError(
-                    f"URL content too large for inline processing: {source_url}. "
-                    "Large URL content upload not yet supported."
-                )
-            else:
-                raise APIError("Content requires API upload but no file path available")
-        else:
-            # Inline processing - create Part from file data or URL data
-            if extracted_content.file_path:
-                # File path - read file data
-                file_data = extracted_content.file_path.read_bytes()
-            elif source_url:
-                # URL - check if content is cached to avoid double download
-                if extracted_content.metadata.get("content_cached", False):
-                    # Get cached content from URLExtractor
-                    url_extractor = None
-                    for extractor in self.file_ops.extractor_manager.extractors:
-                        if hasattr(extractor, "get_cached_content"):
-                            url_extractor = extractor
-                            break
-
-                    if url_extractor:
-                        file_data = url_extractor.get_cached_content(source_url)
-                        if file_data is None:
-                            # Cache miss - download using extractor's method
-                            file_data = url_extractor.download_content_if_needed(
-                                source_url
-                            )
-                    else:
-                        # Fallback to direct download
-                        with httpx.Client(timeout=30) as client:
-                            response = client.get(source_url)
-                            response.raise_for_status()
-                            file_data = response.content
-                else:
-                    # Content not cached - download it
-                    with httpx.Client(timeout=30) as client:
-                        response = client.get(source_url)
-                        response.raise_for_status()
-                        file_data = response.content
-            else:
-                raise APIError("No data source available for inline processing")
-
-            return [
-                types.Part.from_bytes(
-                    data=file_data,
-                    mime_type=extracted_content.metadata["mime_type"],
-                )
-            ]
-
 
 class GeminiClient:
-    """Gemini API client with batch processing capabilities"""
+    """Streamlined Gemini API client with clear separation of concerns"""
 
-    def __init__(
-        self,
-        api_key: str = None,
-        model_name: str = None,
-        enable_caching: bool = False,
-        config_manager: Optional[ConfigManager] = None,
-        tier: Optional[APITier] = None,
-        **kwargs,
-    ):
-        """Initialize client with flexible configuration options"""
+    def __init__(self, config: ClientConfiguration):
+        """Initialize client with unified configuration"""
+        self.config = config
+        self.config.validate()
 
-        # Configuration resolution with clean precedence
-        if config_manager is not None:
-            self.config = config_manager
-            self.api_key = api_key or config_manager.api_key
-            self.model_name = model_name or config_manager.model
+        # Set up components
+        self.client = genai.Client(api_key=config.api_key)
+        self.rate_limiter = RateLimiter(self._get_rate_limit_config())
+        self.prompt_builder = PromptBuilder()
+        self.error_handler = GenerationErrorHandler()
 
-            if api_key or model_name or tier:
-                warnings.warn(
-                    "Explicit parameters override ConfigManager values. "
-                    "Consider using ConfigManager exclusively for cleaner "
-                    "configuration.",
-                    stacklevel=2,
-                )
-        else:
-            self.config = ConfigManager(tier=tier, model=model_name, api_key=api_key)
-            self.api_key = self.config.api_key
-            self.model_name = self.config.model
-
-        # Validate we have an API key
-        if not self.api_key:
-            raise MissingKeyError(
-                "API key required. Provide via parameter, ConfigManager, "
-                "or GEMINI_API_KEY environment variable."
+    def _get_rate_limit_config(self) -> RateLimitConfig:
+        """Get rate limiting configuration"""
+        try:
+            # Create temporary ConfigManager for rate limit config
+            temp_config = ConfigManager(
+                api_key=self.config.api_key,
+                model=self.config.model_name,
+                tier=self.config.tier,
+            )
+            rate_config = temp_config.get_rate_limiter_config(self.config.model_name)
+            return RateLimitConfig(
+                requests_per_minute=rate_config["requests_per_minute"],
+                tokens_per_minute=rate_config["tokens_per_minute"],
+            )
+        except Exception:
+            return RateLimitConfig(
+                requests_per_minute=FALLBACK_REQUESTS_PER_MINUTE,
+                tokens_per_minute=FALLBACK_TOKENS_PER_MINUTE,
             )
 
-        # Client-specific configuration
-        self.enable_caching = enable_caching
-
-        # Set up Google AI client
-        self.client = genai.Client(api_key=self.api_key)
-
-        # Set up rate limiting using config
-        self._setup_rate_limiting()
+    @classmethod
+    def from_config_manager(
+        cls, config_manager: ConfigManager, **overrides
+    ) -> "GeminiClient":
+        """Create client from ConfigManager with optional overrides"""
+        client_config = ClientConfiguration.from_config_manager(
+            config_manager, **overrides
+        )
+        return cls(client_config)
 
     @classmethod
-    def from_config(cls, config: ConfigManager, **kwargs) -> "GeminiClient":
-        """Factory method for creating client from ConfigManager"""
-        return cls(config_manager=config, **kwargs)
+    def from_env(cls, **overrides) -> "GeminiClient":
+        """Create client from environment variables"""
+        config_manager = ConfigManager.from_env()
+        return cls.from_config_manager(config_manager, **overrides)
 
     @classmethod
-    def from_env(cls, **kwargs) -> "GeminiClient":
-        """Factory method for environment-driven configuration"""
-        config = ConfigManager.from_env()
-        return cls(config_manager=config, **kwargs)
-
-    def _setup_rate_limiting(self):
-        """Set up rate limiting using configuration"""
-        try:
-            rate_config = self.config.get_rate_limiter_config(self.model_name)
-            self.rate_limit_requests = rate_config["requests_per_minute"]
-            self.rate_limit_tokens = rate_config["tokens_per_minute"]
-        except Exception:
-            self.rate_limit_requests = FALLBACK_REQUESTS_PER_MINUTE
-            self.rate_limit_tokens = FALLBACK_TOKENS_PER_MINUTE
-
-        self.rate_limit_window = RATE_LIMIT_WINDOW
-        self.request_timestamps = deque()
+    def with_defaults(cls, api_key: str, **overrides) -> "GeminiClient":
+        """Create client with sensible defaults"""
+        client_config = ClientConfiguration.from_parameters(
+            api_key=api_key,
+            model_name=overrides.get("model_name", "gemini-1.5-flash"),
+            **overrides,
+        )
+        return cls(client_config)
 
     def get_config_summary(self) -> Dict[str, Any]:
         """Get summary of current configuration for debugging"""
-        summary = self.config.get_config_summary()
+        summary = self.config.get_summary()
         summary.update(
             {
-                "client_model_name": self.model_name,
-                "rate_limit_requests": self.rate_limit_requests,
-                "rate_limit_tokens": getattr(self, "rate_limit_tokens", "unknown"),
-                "enable_caching": self.enable_caching,
+                "rate_limiter_config": {
+                    "requests_per_minute": self.rate_limiter.config.requests_per_minute,
+                    "tokens_per_minute": self.rate_limiter.config.tokens_per_minute,
+                    "window_seconds": self.rate_limiter.config.window_seconds,
+                }
             }
         )
         return summary
@@ -284,17 +490,14 @@ class GeminiClient:
         **options,
     ) -> Union[str, Dict[str, Any]]:
         """Generate content from any source type"""
-        # Prepare content parts
-        content_source = ContentSource(content, self)
-        parts = content_source.parts.copy()
-
-        # Add prompt if provided
-        if prompt:
-            parts.append(types.Part(text=prompt))
-
-        # Single unified API call
-        return self._generate_with_parts(
-            parts, system_instruction, return_usage, response_schema, **options
+        return self._execute_generation(
+            content=content,
+            prompts=[prompt] if prompt else [],
+            system_instruction=system_instruction,
+            return_usage=return_usage,
+            response_schema=response_schema,
+            is_batch=False,
+            **options,
         )
 
     def generate_batch(
@@ -310,18 +513,55 @@ class GeminiClient:
         if not questions:
             raise APIError("At least one question is required for batch processing")
 
-        # Prepare content parts
-        content_source = ContentSource(content, self)
-        parts = content_source.parts.copy()
-
-        # Add batch prompt
-        batch_prompt = self._create_batch_prompt(questions, response_schema)
-        parts.append(types.Part(text=batch_prompt))
-
-        # Single unified API call
-        return self._generate_with_parts(
-            parts, system_instruction, return_usage, response_schema, **options
+        return self._execute_generation(
+            content=content,
+            prompts=questions,
+            system_instruction=system_instruction,
+            return_usage=return_usage,
+            response_schema=response_schema,
+            is_batch=True,
+            **options,
         )
+
+    def _execute_generation(
+        self,
+        content: Union[str, Path, List[Union[str, Path]]],
+        prompts: List[str],
+        system_instruction: Optional[str] = None,
+        return_usage: bool = False,
+        response_schema: Optional[Any] = None,
+        is_batch: bool = False,
+        **options,
+    ) -> Union[str, Dict[str, Any]]:
+        """Unified generation method eliminating duplication"""
+        # Prepare content
+        content_processor = ContentProcessor(self)
+        parts = content_processor.process_content(content)
+
+        # Add prompts using PromptBuilder
+        if is_batch:
+            batch_prompt = self.prompt_builder.create_batch_prompt(
+                prompts, response_schema
+            )
+            parts.append(types.Part(text=batch_prompt))
+        else:
+            for prompt in prompts:
+                if prompt:
+                    clean_prompt = self.prompt_builder.create_single_prompt(prompt)
+                    parts.append(types.Part(text=clean_prompt))
+
+        # Execute API call with rate limiting
+        with self.rate_limiter.request_context():
+            try:
+                return self._generate_with_parts(
+                    parts, system_instruction, return_usage, response_schema, **options
+                )
+            except Exception as e:
+                # Determine content type for better error context
+                content_type = self._get_content_type_description(content)
+                self.error_handler.handle_generation_error(
+                    e, response_schema, content_type
+                )
 
     def _generate_with_parts(
         self,
@@ -352,96 +592,31 @@ class GeminiClient:
             )
 
             response = self.client.models.generate_content(
-                model=self.model_name,
+                model=self.config.model_name,
                 contents=types.Content(parts=parts),
                 config=config,
             )
 
             return self._process_response(response, return_usage, response_schema)
 
-        try:
-            return self._api_call_with_retry(api_call)
-        except Exception as e:
-            # Enhanced error handling for content-specific issues
-            error_str = str(e).lower()
+        return self._api_call_with_retry(api_call)
 
-            # Structured output specific errors
-            if response_schema and ("json" in error_str or "schema" in error_str):
-                raise APIError(
-                    f"Structured output generation failed. Check your schema definition. "
-                    f"Original error: {e}"
-                ) from e
-
-            if "quota" in error_str and "youtube" in error_str:
-                raise APIError(
-                    f"YouTube quota exceeded. Free tier allows 8 hours/day. "
-                    f"Original error: {e}"
-                ) from e
-            elif "private" in error_str or "unlisted" in error_str:
-                raise APIError(
-                    f"YouTube video must be public. Private/unlisted videos not supported. "
-                    f"Original error: {e}"
-                ) from e
-            elif "not found" in error_str or "unavailable" in error_str:
-                raise APIError(
-                    f"Content not found or unavailable. Original error: {e}"
-                ) from e
-
-            raise APIError(f"Content generation failed: {e}") from e
-
-    def _create_batch_prompt(
-        self, questions: List[str], response_schema: Optional[Any] = None
-    ) -> str:
-        """Create batch prompt for multiple questions, aware of structured output"""
-        if response_schema:
-            # For structured output, provide a more schema-friendly prompt
-            prompt = "Please answer each of the following questions. "
-            prompt += "Your response will be automatically formatted according to the specified schema.\n\n"
-
-            for i, question in enumerate(questions, 1):
-                prompt += f"Question {i}: {question}\n"
-
-            prompt += "\nProvide comprehensive answers for each question."
+    def _get_content_type_description(self, content) -> str:
+        """Get human-readable description of content type for error messages"""
+        if isinstance(content, list):
+            return f"mixed content ({len(content)} items)"
+        elif isinstance(content, Path):
+            return f"file ({content.suffix or 'unknown type'})"
+        elif isinstance(content, str):
+            if content.startswith(("http://", "https://")):
+                if "youtube.com" in content or "youtu.be" in content:
+                    return "YouTube video"
+                else:
+                    return "URL content"
+            else:
+                return "text content"
         else:
-            # Traditional text-based prompt
-            prompt = "Please answer each of the following questions:\n\n"
-
-            for i, question in enumerate(questions, 1):
-                prompt += f"Question {i}: {question}\n"
-
-            prompt += "\nProvide numbered answers in this format:\n"
-            for i in range(1, len(questions) + 1):
-                prompt += f"Answer {i}: [Your response]\n"
-
-        return prompt
-
-    def _wait_for_rate_limit(self):
-        """Simple rate limiting: wait if we're approaching the limit"""
-        now = time.time()
-
-        # Remove timestamps older than the rate limit window
-        while (
-            self.request_timestamps
-            and now - self.request_timestamps[0] > self.rate_limit_window
-        ):
-            self.request_timestamps.popleft()
-
-        # If we're at the limit, wait for the oldest request to age out
-        if len(self.request_timestamps) >= self.rate_limit_requests:
-            sleep_time = self.rate_limit_window - (now - self.request_timestamps[0]) + 1
-            if sleep_time > 0:
-                print(f"Rate limit reached. Waiting {sleep_time:.2f} seconds...")
-                time.sleep(sleep_time)
-                # Clean up timestamps after waiting
-                now = time.time()
-                while (
-                    self.request_timestamps
-                    and now - self.request_timestamps[0] > self.rate_limit_window
-                ):
-                    self.request_timestamps.popleft()
-
-        # Record this request
-        self.request_timestamps.append(now)
+            return "unknown content"
 
     def _process_response(
         self,
@@ -505,40 +680,33 @@ class GeminiClient:
     def _api_call_with_retry(
         self, api_call_func: Callable, max_retries: int = MAX_RETRIES
     ):
-        """Execute API call with basic retry logic"""
+        """Execute API call with simplified retry logic"""
         for attempt in range(max_retries + 1):
             try:
-                # Rate limiting before each attempt
-                self._wait_for_rate_limit()
-
-                # Make the API call
                 return api_call_func()
 
             except Exception as e:
-                error_str = str(e).lower()
+                if attempt < max_retries:
+                    error_str = str(e).lower()
 
-                # Check if it's a rate limit error
-                if (
-                    "rate limit" in error_str
-                    or "quota" in error_str
-                    or "429" in error_str
-                ):
-                    if attempt < max_retries:
+                    # Check if it's a rate limit error
+                    if (
+                        "rate limit" in error_str
+                        or "quota" in error_str
+                        or "429" in error_str
+                    ):
                         wait_time = (2**attempt) * RATE_LIMIT_RETRY_DELAY
                         print(
                             f"Rate limit hit. Retrying in {wait_time}s... "
                             f"(attempt {attempt + 1}/{max_retries + 1})"
                         )
-                        time.sleep(wait_time)
-                        continue
+                    else:
+                        wait_time = (2**attempt) * RETRY_BASE_DELAY
+                        print(
+                            f"API error. Retrying in {wait_time}s... "
+                            f"(attempt {attempt + 1}/{max_retries + 1})"
+                        )
 
-                # For other errors, retry with shorter delay
-                elif attempt < max_retries:
-                    wait_time = (2**attempt) * RETRY_BASE_DELAY
-                    print(
-                        f"API error. Retrying in {wait_time}s... "
-                        f"(attempt {attempt + 1}/{max_retries + 1})"
-                    )
                     time.sleep(wait_time)
                     continue
 
