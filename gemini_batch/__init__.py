@@ -5,10 +5,10 @@ Gemini Batch Processing Framework
 import importlib.metadata
 
 from .batch_processor import BatchProcessor
-from .client import GeminiClient
 from .config import ConfigManager
 from .exceptions import APIError, GeminiBatchError, MissingKeyError, NetworkError
 from .files import FileOperations, FileType
+from .gemini_client import GeminiClient
 
 try:
     __version__ = importlib.metadata.version("gemini-batch")

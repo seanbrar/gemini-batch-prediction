@@ -8,8 +8,8 @@ from pathlib import Path
 import time
 from typing import Any, Dict, List, Optional, Tuple, Union
 
-from .client import GeminiClient
 from .efficiency import track_efficiency
+from .gemini_client import GeminiClient
 from .response import ResponseProcessor
 
 
@@ -143,7 +143,20 @@ class BatchProcessor:
 
     def __init__(self, client: Optional[GeminiClient] = None, **client_kwargs):
         """Initialize with unified client"""
-        self.client = client or GeminiClient(**client_kwargs)
+        if client is not None:
+            self.client = client
+        elif client_kwargs:
+            # Extract API key and use appropriate factory method
+            api_key = client_kwargs.pop("api_key", None)
+            if api_key:
+                self.client = GeminiClient.with_defaults(api_key, **client_kwargs)
+            else:
+                # Fallback to environment-based creation
+                self.client = GeminiClient.from_env(**client_kwargs)
+        else:
+            # No arguments provided - use environment
+            self.client = GeminiClient.from_env()
+
         self.response_processor = ResponseProcessor()
         self.result_builder = ResultBuilder(self._calculate_efficiency)
 
