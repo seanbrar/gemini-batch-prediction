@@ -14,6 +14,7 @@ from .client.content_processor import ContentProcessor
 from .client.error_handler import GenerationErrorHandler
 from .client.prompt_builder import PromptBuilder
 from .client.rate_limiter import RateLimiter
+from .client.token_counter import TokenCounter
 from .config import ConfigManager
 from .constants import (
     FALLBACK_REQUESTS_PER_MINUTE,
@@ -42,6 +43,16 @@ class GeminiClient:
         self.rate_limiter = RateLimiter(self._get_rate_limit_config())
         self.prompt_builder = PromptBuilder()
         self.error_handler = GenerationErrorHandler()
+
+        # Initialize caching components if enabled
+        if config.enable_caching:
+            self.config_manager = ConfigManager(
+                tier=config.tier, model=config.model_name, api_key=config.api_key
+            )
+            self.token_counter = TokenCounter(self.client, self.config_manager)
+        else:
+            self.config_manager = None
+            self.token_counter = None
 
         # Initialize file operations - pure file logic only
         from .files import FileOperations
@@ -106,10 +117,61 @@ class GeminiClient:
                     "requests_per_minute": self.rate_limiter.config.requests_per_minute,
                     "tokens_per_minute": self.rate_limiter.config.tokens_per_minute,
                     "window_seconds": self.rate_limiter.config.window_seconds,
-                }
+                },
+                "caching_enabled": self.config.enable_caching,
+                "caching_available": self.token_counter is not None,
             }
         )
+        if self.config_manager:
+            summary["caching_thresholds"] = self.config_manager.get_caching_thresholds(
+                self.config.model_name
+            )
         return summary
+
+    def should_cache_content(self, content, prefer_implicit: bool = True) -> bool:
+        """
+        Simple caching decision - returns True if content should be cached
+        """
+        if not self.token_counter:
+            return False
+
+        estimate = self.token_counter.estimate_for_caching(
+            self.config.model_name, content, prefer_implicit
+        )
+        return estimate["cacheable"]
+
+    def analyze_caching_strategy(
+        self, content, prefer_implicit: bool = True
+    ) -> Dict[str, Any]:
+        """
+        Detailed caching analysis with strategy recommendations
+        """
+        if not self.token_counter:
+            return {
+                "tokens": 0,
+                "cacheable": False,
+                "strategy": "none",
+                "details": {"error": "Caching not enabled"},
+                "caching_enabled": False,
+            }
+
+        estimate = self.token_counter.estimate_for_caching(
+            self.config.model_name, content, prefer_implicit
+        )
+
+        return {
+            "tokens": estimate["tokens"],
+            "cacheable": estimate["cacheable"],
+            "strategy": estimate["recommended_strategy"],
+            "details": estimate,
+            "caching_enabled": True,
+        }
+
+    def get_caching_thresholds(self) -> Dict[str, Optional[int]]:
+        """Get caching thresholds for the current model"""
+        if not self.config_manager:
+            return {"implicit": None, "explicit": None}
+        return self.config_manager.get_caching_thresholds(self.config.model_name)
 
     def generate_content(
         self,
