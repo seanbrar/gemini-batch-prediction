@@ -54,13 +54,8 @@ class GeminiClient:
             self.config_manager = None
             self.token_counter = None
 
-        # Initialize file operations - pure file logic only
-        from .files import FileOperations
-
-        self.file_ops = FileOperations()
-
-        # Initialize content processor for orchestration
-        self.content_processor = ContentProcessor(self.file_ops)
+        # Initialize content processor
+        self.content_processor = ContentProcessor()
 
     def _get_rate_limit_config(self) -> RateLimitConfig:
         """Get rate limiting configuration for the current model"""
@@ -263,25 +258,23 @@ class GeminiClient:
 
     def _create_api_part(self, extracted_content) -> types.Part:
         """Convert extracted content to API part - handles upload if needed"""
-        # Handle different extraction methods
-        if extracted_content.extraction_method == "direct_text":
+        # Use processing strategy instead of specific extraction method knowledge
+        strategy = extracted_content.processing_strategy
+
+        if strategy == "text_only":
             return types.Part(text=extracted_content.content)
-        elif extracted_content.extraction_method == "youtube_api":
-            youtube_url = extracted_content.metadata["url"]
-            return types.Part(file_data=types.FileData(file_uri=youtube_url))
-        elif extracted_content.extraction_method == "pdf_url_api":
-            pdf_url = extracted_content.metadata["url"]
-            return types.Part(file_data=types.FileData(file_uri=pdf_url))
-        elif extracted_content.extraction_method == "directory_scan":
-            return self._handle_directory_extracted_content(extracted_content)
-        elif extracted_content.extraction_method == "error":
-            return types.Part(text=extracted_content.content)
-        else:
-            # Generic content - handle upload vs inline
-            if extracted_content.requires_api_upload:
-                return self._upload_file_if_needed(extracted_content)
+        elif strategy == "url":
+            # Handle URL-based content (YouTube, PDF URLs)
+            url = extracted_content.metadata.get("url")
+            if url:
+                return types.Part(file_data=types.FileData(file_uri=url))
             else:
-                return self._create_inline_part(extracted_content)
+                # Fallback to text if URL is missing
+                return types.Part(text=extracted_content.content)
+        elif strategy == "upload":
+            return self._upload_file_if_needed(extracted_content)
+        else:  # strategy == "inline" or fallback
+            return self._create_inline_part(extracted_content)
 
     def _upload_file_if_needed(self, extracted_content) -> types.Part:
         """Handle upload when content requires it - API operation"""
@@ -304,46 +297,6 @@ class GeminiClient:
             data=content_bytes,
             mime_type=extracted_content.metadata.get("mime_type", "text/plain"),
         )
-
-    def _handle_directory_extracted_content(self, extracted_content) -> types.Part:
-        """Handle directory content by processing individual files"""
-        directory_path = Path(extracted_content.metadata["directory_path"])
-
-        try:
-            # Use existing directory scanning infrastructure
-            categorized_files = self.file_ops.scan_directory(directory_path)
-
-            # Flatten all files into a single list
-            all_files = []
-            for file_type, files in categorized_files.items():
-                all_files.extend(files)
-
-            if not all_files:
-                return types.Part(
-                    text=f"Directory {directory_path} contains no processable files."
-                )
-
-            # Process each file and combine into text summary
-            file_contents = []
-            for file_info in all_files:
-                try:
-                    file_extracted = self.file_ops.process_source(file_info.path)
-                    if file_extracted.extraction_method == "direct_text":
-                        file_contents.append(
-                            f"=== {file_info.path.name} ===\n{file_extracted.content}\n"
-                        )
-                    else:
-                        file_contents.append(
-                            f"=== {file_info.path.name} ===\n[Binary file - {file_extracted.metadata.get('mime_type', 'unknown type')}]\n"
-                        )
-                except Exception as e:
-                    file_contents.append(f"=== {file_info.path.name} ===\nError: {e}\n")
-
-            combined_content = "\n".join(file_contents)
-            return types.Part(text=combined_content)
-
-        except Exception as e:
-            raise APIError(f"Failed to process directory {directory_path}: {e}") from e
 
     def _upload_file(self, file_path: Path):
         """Upload file to Gemini Files API - API operation belongs here"""

@@ -7,7 +7,7 @@ import importlib.metadata
 from .batch_processor import BatchProcessor
 from .config import ConfigManager
 from .exceptions import APIError, GeminiBatchError, MissingKeyError, NetworkError
-from .files import FileOperations, FileType
+from .files import FileType
 from .gemini_client import GeminiClient
 
 try:
@@ -18,8 +18,7 @@ __all__ = [
     "GeminiClient",
     "BatchProcessor",
     "ConfigManager",
-    # Files processing
-    "FileOperations",
+    # File type enum
     "FileType",
     # Exceptions
     "GeminiBatchError",

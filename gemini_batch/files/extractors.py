@@ -44,6 +44,18 @@ class ExtractedContent:
         """Get the media type for multimodal files"""
         return self.metadata.get("media_type")
 
+    @property
+    def processing_strategy(self) -> str:
+        """How this content should be processed - 'upload', 'inline', 'text_only', 'url'"""
+        if self.extraction_method in ["youtube_api", "pdf_url_api"]:
+            return "url"
+        elif self.requires_api_upload:
+            return "upload"
+        elif self.content:
+            return "text_only"
+        else:
+            return "inline"
+
 
 class BaseExtractor(ABC):
     """Base class for content extractors"""
