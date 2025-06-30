@@ -20,12 +20,23 @@ class ProcessingMetrics:
     calls: int = 0
     prompt_tokens: int = 0
     output_tokens: int = 0
+    cached_tokens: int = 0
     time: float = 0.0
     structured_output: Optional[Dict[str, Any]] = None
 
     @property
     def total_tokens(self) -> int:
         return self.prompt_tokens + self.output_tokens
+
+    @property
+    def effective_tokens(self) -> int:
+        """Effective tokens for cost calculation (excluding cached portion)"""
+        return (self.prompt_tokens - self.cached_tokens) + self.output_tokens
+
+    @property
+    def cache_hit_ratio(self) -> float:
+        """Ratio of cached to total prompt tokens"""
+        return self.cached_tokens / max(self.prompt_tokens, 1)
 
     @classmethod
     def empty(cls) -> "ProcessingMetrics":
@@ -38,7 +49,10 @@ class ProcessingMetrics:
             "calls": self.calls,
             "prompt_tokens": self.prompt_tokens,
             "output_tokens": self.output_tokens,
+            "cached_tokens": self.cached_tokens,
             "tokens": self.total_tokens,
+            "effective_tokens": self.effective_tokens,
+            "cache_hit_ratio": self.cache_hit_ratio,
             "time": self.time,
         }
         if self.structured_output:
@@ -83,6 +97,21 @@ class ResultBuilder:
                 "individual": individual_metrics.to_dict(),
             },
         }
+
+        # Add cache summary if caching was used
+        if batch_metrics.cached_tokens > 0 or individual_metrics.cached_tokens > 0:
+            result["cache_summary"] = {
+                "cache_enabled": True,
+                "batch_cache_hit_ratio": batch_metrics.cache_hit_ratio,
+                "individual_cache_hit_ratio": individual_metrics.cache_hit_ratio,
+                "tokens_saved": individual_metrics.total_tokens
+                - batch_metrics.total_tokens,
+                "cache_cost_benefit": efficiency.get("cache_efficiency", {}).get(
+                    "cache_improvement_factor", 1.0
+                ),
+            }
+        else:
+            result["cache_summary"] = {"cache_enabled": False}
 
         self._add_optional_data(result, batch_metrics, individual_answers, config)
         return result
@@ -134,7 +163,9 @@ class ResultBuilder:
                 "prompt_tokens": batch_metrics.prompt_tokens,
                 "output_tokens": batch_metrics.output_tokens,
                 "total_tokens": batch_metrics.total_tokens,
-                "cached_tokens": 0,
+                "cached_tokens": batch_metrics.cached_tokens,
+                "effective_tokens": batch_metrics.effective_tokens,
+                "cache_hit_ratio": batch_metrics.cache_hit_ratio,
             }
 
 
@@ -146,13 +177,8 @@ class BatchProcessor:
         if client is not None:
             self.client = client
         elif client_kwargs:
-            # Extract API key and use appropriate factory method
-            api_key = client_kwargs.pop("api_key", None)
-            if api_key:
-                self.client = GeminiClient.with_defaults(api_key, **client_kwargs)
-            else:
-                # Fallback to environment-based creation
-                self.client = GeminiClient.from_env(**client_kwargs)
+            # Use from_env for both cases - it handles direct API key parameters
+            self.client = GeminiClient.from_env(**client_kwargs)
         else:
             # No arguments provided - use environment
             self.client = GeminiClient.from_env()
@@ -275,8 +301,13 @@ class BatchProcessor:
                     )
                 )
 
-                metrics.prompt_tokens = extraction_result.usage.get("prompt_tokens", 0)
-                metrics.output_tokens = extraction_result.usage.get("output_tokens", 0)
+                usage_metrics = extraction_result.usage
+                metrics.prompt_tokens = usage_metrics.get("prompt_tokens", 0)
+                metrics.output_tokens = usage_metrics.get("output_tokens", 0)
+                metrics.cached_tokens = usage_metrics.get(
+                    "cached_tokens", 0
+                )
+
                 if extraction_result.structured_quality:
                     metrics.structured_output = extraction_result.structured_quality
 
@@ -328,11 +359,11 @@ class BatchProcessor:
                     )
                     answers.append(answer)
 
-                    metrics.prompt_tokens += extraction_result.usage.get(
-                        "prompt_tokens", 0
-                    )
-                    metrics.output_tokens += extraction_result.usage.get(
-                        "output_tokens", 0
+                    usage_metrics = extraction_result.usage
+                    metrics.prompt_tokens += usage_metrics.get("prompt_tokens", 0)
+                    metrics.output_tokens += usage_metrics.get("output_tokens", 0)
+                    metrics.cached_tokens += usage_metrics.get(
+                        "cached_tokens", 0
                     )
 
                 except Exception as e:
@@ -349,8 +380,25 @@ class BatchProcessor:
             batch_calls=batch_metrics.calls,
             individual_prompt_tokens=individual_metrics.prompt_tokens,
             individual_output_tokens=individual_metrics.output_tokens,
+            individual_cached_tokens=individual_metrics.cached_tokens,
             batch_prompt_tokens=batch_metrics.prompt_tokens,
             batch_output_tokens=batch_metrics.output_tokens,
+            batch_cached_tokens=batch_metrics.cached_tokens,
             individual_time=individual_metrics.time,
             batch_time=batch_metrics.time,
+            include_cache_metrics=True,
         )
+
+    # Cache management methods
+
+    def get_cache_efficiency_summary(self) -> Optional[Dict[str, Any]]:
+        """Get cache efficiency summary from the underlying client"""
+        if hasattr(self.client, "get_cache_metrics"):
+            return self.client.get_cache_metrics()
+        return None
+
+    def cleanup_caches(self) -> int:
+        """Clean up expired caches"""
+        if hasattr(self.client, "cleanup_expired_caches"):
+            return self.client.cleanup_expired_caches()
+        return 0

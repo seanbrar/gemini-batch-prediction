@@ -304,10 +304,30 @@ class ResponseProcessor:
             - usage: Dict[str, int] - Token usage metrics
             - structured_quality: Optional[Dict[str, Any]] - Quality data for structured responses
         """
-        # Extract usage metrics
-        usage = {"prompt_tokens": 0, "output_tokens": 0}
+        # Extract usage metrics with enhanced cache awareness
+        usage = {
+            "prompt_tokens": 0,
+            "output_tokens": 0,
+            "cached_tokens": 0,
+        }  # Default with cache
+
         if isinstance(response, dict):
-            usage = response.get("usage", usage)
+            # Enhanced usage extraction
+            response_usage = response.get("usage", {})
+            usage.update(
+                {
+                    "prompt_tokens": response_usage.get("prompt_tokens", 0),
+                    "output_tokens": response_usage.get("output_tokens", 0),
+                    "cached_tokens": response_usage.get("cached_tokens", 0),
+                    "cache_hit_ratio": response_usage.get("cache_hit_ratio", 0.0),
+                    "cache_enabled": response_usage.get("cache_enabled", False),
+                }
+            )
+        else:
+            # Extract from response object using enhanced metrics extraction
+            from ..efficiency.metrics import extract_usage_metrics
+
+            usage = extract_usage_metrics(response)
 
         # Auto-detect batch vs individual
         is_batch = question_count > 1
