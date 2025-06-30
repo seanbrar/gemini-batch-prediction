@@ -9,6 +9,7 @@ from typing import Any, Callable, Dict, List, Optional, Union
 from google import genai
 from google.genai import types
 
+from .client.cache_manager import CacheManager, CacheStrategy
 from .client.configuration import ClientConfiguration, RateLimitConfig
 from .client.content_processor import ContentProcessor
 from .client.error_handler import GenerationErrorHandler
@@ -17,11 +18,14 @@ from .client.rate_limiter import RateLimiter
 from .client.token_counter import TokenCounter
 from .config import ConfigManager
 from .constants import (
+    DEFAULT_CACHE_TTL,
     FALLBACK_REQUESTS_PER_MINUTE,
     FALLBACK_TOKENS_PER_MINUTE,
     FILE_POLL_INTERVAL,
     FILE_PROCESSING_TIMEOUT,
+    LARGE_TEXT_THRESHOLD,
     MAX_RETRIES,
+    MIN_TEXT_LENGTH_FOR_CACHE_ANALYSIS,
     RATE_LIMIT_RETRY_DELAY,
     RETRY_BASE_DELAY,
 )
@@ -38,24 +42,32 @@ class GeminiClient:
         self.config = config
         self.config.validate()
 
-        # Set up components
-        self.client = genai.Client(api_key=config.api_key)
+        # Core components (always available)
+        self.client = genai.Client(api_key=self.config.api_key)
         self.rate_limiter = RateLimiter(self._get_rate_limit_config())
         self.prompt_builder = PromptBuilder()
         self.error_handler = GenerationErrorHandler()
+        self.content_processor = ContentProcessor()
+
+        # Optional caching components with clear type hints
+        self.cache_manager: Optional[CacheManager] = None
+        self.config_manager: Optional[ConfigManager] = None
+        self.token_counter: Optional[TokenCounter] = None
 
         # Initialize caching components if enabled
-        if config.enable_caching:
+        if self.config.enable_caching:
             self.config_manager = ConfigManager(
-                tier=config.tier, model=config.model_name, api_key=config.api_key
+                tier=self.config.tier,
+                model=self.config.model_name,
+                api_key=self.config.api_key,
             )
             self.token_counter = TokenCounter(self.client, self.config_manager)
-        else:
-            self.config_manager = None
-            self.token_counter = None
-
-        # Initialize content processor
-        self.content_processor = ContentProcessor()
+            self.cache_manager = CacheManager(
+                client=self.client,
+                config_manager=self.config_manager,
+                token_counter=self.token_counter,
+                default_ttl_seconds=DEFAULT_CACHE_TTL,
+            )
 
     def _get_rate_limit_config(self) -> RateLimitConfig:
         """Get rate limiting configuration for the current model"""
@@ -82,26 +94,53 @@ class GeminiClient:
         cls, config_manager: ConfigManager, **overrides
     ) -> "GeminiClient":
         """Create client from ConfigManager with optional parameter overrides"""
+        # Enhanced caching configuration
+        enable_caching = overrides.get("enable_caching", False)
+
+        # Auto-enable caching if using models that support it and not explicitly disabled
+        if "enable_caching" not in overrides and config_manager.model:
+            caching_support = config_manager.can_use_caching(config_manager.model, 4096)
+            if caching_support.get("explicit") or caching_support.get("implicit"):
+                enable_caching = True
+
+        # Remove enable_caching from overrides to avoid duplicate parameter
+        filtered_overrides = {
+            k: v for k, v in overrides.items() if k != "enable_caching"
+        }
+
         client_config = ClientConfiguration.from_config_manager(
-            config_manager, **overrides
+            config_manager, enable_caching=enable_caching, **filtered_overrides
         )
         return cls(client_config)
 
     @classmethod
     def from_env(cls, **overrides) -> "GeminiClient":
         """Create client from environment variables with optional overrides"""
-        config_manager = ConfigManager.from_env()
-        return cls.from_config_manager(config_manager, **overrides)
+        # Handle direct API key parameter
+        api_key = overrides.pop("api_key", None)
 
-    @classmethod
-    def with_defaults(cls, api_key: str, **overrides) -> "GeminiClient":
-        """Create client with sensible defaults for quick setup"""
-        client_config = ClientConfiguration.from_parameters(
-            api_key=api_key,
-            model_name=overrides.get("model_name", "gemini-2.0-flash"),
-            **overrides,
-        )
-        return cls(client_config)
+        if api_key:
+            # Use parameters-based configuration when API key provided directly
+            client_config = ClientConfiguration.from_parameters(
+                api_key=api_key, **overrides
+            )
+            return cls(client_config)
+        else:
+            # Use environment-based configuration
+            config_manager = ConfigManager.from_env()
+
+            # Check for cache enabling environment variable
+            import os
+
+            env_caching = os.getenv("GEMINI_ENABLE_CACHING", "").lower() in (
+                "true",
+                "1",
+                "yes",
+            )
+            if env_caching and "enable_caching" not in overrides:
+                overrides["enable_caching"] = True
+
+            return cls.from_config_manager(config_manager, **overrides)
 
     def get_config_summary(self) -> Dict[str, Any]:
         """Get current configuration summary for debugging"""
@@ -114,20 +153,38 @@ class GeminiClient:
                     "window_seconds": self.rate_limiter.config.window_seconds,
                 },
                 "caching_enabled": self.config.enable_caching,
-                "caching_available": self.token_counter is not None,
+                "caching_available": self.config_manager is not None,
             }
         )
-        if self.config_manager:
+
+        # Add caching info if available
+        if self.config_manager and self.cache_manager:
             summary["caching_thresholds"] = self.config_manager.get_caching_thresholds(
                 self.config.model_name
             )
+
+            # Add cache metrics
+            cache_metrics = self.cache_manager.get_cache_metrics()
+            summary["cache_metrics"] = {
+                "active_caches": cache_metrics.active_caches,
+                "total_caches_created": cache_metrics.total_caches,
+                "cache_hits": cache_metrics.cache_hits,
+                "cache_misses": cache_metrics.cache_misses,
+                "total_cached_tokens": cache_metrics.total_cached_tokens,
+            }
+        else:
+            summary["caching_thresholds"] = None
+            summary["cache_metrics"] = None
+
         return summary
 
     def should_cache_content(self, content, prefer_implicit: bool = True) -> bool:
         """
-        Simple caching decision - returns True if content should be cached
+        Simple caching decision - returns True if content should be cached.
+
+        Returns False when caching is disabled - this is the expected behavior.
         """
-        if not self.token_counter:
+        if not self.config.enable_caching or not self.token_counter:
             return False
 
         estimate = self.token_counter.estimate_for_caching(
@@ -139,14 +196,16 @@ class GeminiClient:
         self, content, prefer_implicit: bool = True
     ) -> Dict[str, Any]:
         """
-        Detailed caching analysis with strategy recommendations
+        Detailed caching analysis with strategy recommendations.
+
+        Provides useful information even when caching is disabled.
         """
         if not self.token_counter:
             return {
                 "tokens": 0,
                 "cacheable": False,
                 "strategy": "none",
-                "details": {"error": "Caching not enabled"},
+                "details": {"reason": "Caching not enabled"},
                 "caching_enabled": False,
             }
 
@@ -162,10 +221,14 @@ class GeminiClient:
             "caching_enabled": True,
         }
 
-    def get_caching_thresholds(self) -> Dict[str, Optional[int]]:
-        """Get caching thresholds for the current model"""
+    def get_caching_thresholds(self) -> Optional[Dict[str, Optional[int]]]:
+        """
+        Get caching thresholds for the current model.
+
+        Returns None when caching is disabled.
+        """
         if not self.config_manager:
-            return {"implicit": None, "explicit": None}
+            return None
         return self.config_manager.get_caching_thresholds(self.config.model_name)
 
     def generate_content(
@@ -246,14 +309,28 @@ class GeminiClient:
         # Execute API call with rate limiting
         with self.rate_limiter.request_context():
             try:
+                # Try cache-aware generation if caching enabled
+                if self.cache_manager and self._should_attempt_caching(parts):
+                    cache_result = self._try_cached_generation(
+                        parts,
+                        system_instruction,
+                        return_usage,
+                        response_schema,
+                        **options,
+                    )
+                    if cache_result is not None:
+                        return cache_result
+
+                # Fallback to existing generation flow
                 return self._generate_with_parts(
                     parts, system_instruction, return_usage, response_schema, **options
                 )
             except Exception as e:
                 # Determine content type for better error context
                 content_type = self._get_content_type_description(content)
+                cache_enabled = self.cache_manager is not None
                 self.error_handler.handle_generation_error(
-                    e, response_schema, content_type
+                    e, response_schema, content_type, cache_enabled
                 )
 
     def _create_api_part(self, extracted_content) -> types.Part:
@@ -323,6 +400,204 @@ class GeminiClient:
 
         if uploaded_file.state.name == "FAILED":
             raise APIError(f"File processing failed: {uploaded_file.display_name}")
+
+    def _should_attempt_caching(self, parts: List[types.Part]) -> bool:
+        """Quick check if content is worth analyzing for caching"""
+        if not self.config.enable_caching or not self.cache_manager:
+            return False
+
+        # Simple heuristic: only analyze for caching if we have substantial content
+        total_text_length = sum(
+            len(part.text) for part in parts if hasattr(part, "text") and part.text
+        )
+
+        # Only attempt caching analysis for content that might meet minimum thresholds
+        return total_text_length > MIN_TEXT_LENGTH_FOR_CACHE_ANALYSIS or any(
+            hasattr(part, "file_data") for part in parts
+        )
+
+    def _try_cached_generation(
+        self,
+        parts: List[types.Part],
+        system_instruction: Optional[str] = None,
+        return_usage: bool = False,
+        response_schema: Optional[Any] = None,
+        **options,
+    ) -> Optional[Union[str, Dict[str, Any]]]:
+        """
+        Attempt cached generation with graceful fallback.
+
+        Returns:
+            Generated content if caching succeeds, None if fallback needed
+        """
+        try:
+            # Analyze caching strategy
+            cache_strategy = self.cache_manager.analyze_cache_strategy(
+                model=self.config.model_name,
+                content=parts,  # Pass parts for analysis
+                prefer_explicit=True,
+            )
+
+            if not cache_strategy.should_cache:
+                return None  # Fall back to non-cached generation
+
+            # For implicit caching, structure content optimally and use regular flow
+            if cache_strategy.strategy_type == "implicit":
+                return self._generate_with_implicit_cache(
+                    parts, system_instruction, return_usage, response_schema, **options
+                )
+
+            # For explicit caching, manage cache lifecycle
+            elif cache_strategy.strategy_type == "explicit":
+                return self._generate_with_explicit_cache(
+                    parts,
+                    cache_strategy,
+                    system_instruction,
+                    return_usage,
+                    response_schema,
+                    **options,
+                )
+
+            # Unknown strategy, fall back
+            return None
+
+        except Exception:
+            # Any caching error should fall back gracefully
+            return None
+
+    def _generate_with_implicit_cache(
+        self,
+        parts: List[types.Part],
+        system_instruction: Optional[str] = None,
+        return_usage: bool = False,
+        response_schema: Optional[Any] = None,
+        **options,
+    ) -> Union[str, Dict[str, Any]]:
+        """
+        Generate with implicit caching optimization.
+
+        Structures content to maximize cache hit probability.
+        """
+        # Implicit caching optimization: put large/common content first
+        optimized_parts = self._optimize_parts_for_implicit_cache(parts)
+
+        return self._generate_with_parts(
+            optimized_parts,
+            system_instruction,
+            return_usage,
+            response_schema,
+            **options,
+        )
+
+    def _generate_with_explicit_cache(
+        self,
+        parts: List[types.Part],
+        cache_strategy: CacheStrategy,
+        system_instruction: Optional[str] = None,
+        return_usage: bool = False,
+        response_schema: Optional[Any] = None,
+        **options,
+    ) -> Union[str, Dict[str, Any]]:
+        """Generate using explicit cache with lifecycle management"""
+
+        # Separate cacheable content from prompt parts
+        content_parts, prompt_parts = self._separate_cacheable_content(parts)
+
+        if not content_parts:
+            return None  # Nothing to cache, fall back
+
+        # Get or create cache for content
+        cache_result = self.cache_manager.get_or_create_cache(
+            model=self.config.model_name,
+            content_parts=content_parts,
+            strategy=cache_strategy,
+            system_instruction=system_instruction,
+        )
+
+        if not cache_result.success:
+            return None  # Cache failed, fall back to regular generation
+
+        # Generate with cached content
+        return self._generate_with_cache_reference(
+            cache_name=cache_result.cache_name,
+            prompt_parts=prompt_parts,
+            return_usage=return_usage,
+            response_schema=response_schema,
+            **options,
+        )
+
+    def _optimize_parts_for_implicit_cache(
+        self, parts: List[types.Part]
+    ) -> List[types.Part]:
+        """Optimize part ordering for implicit cache hits"""
+        # For implicit caching: large, stable content should come first
+        file_parts = []
+        text_parts = []
+        prompt_parts = []
+
+        for part in parts:
+            if hasattr(part, "file_data"):
+                file_parts.append(part)  # Files first (usually largest)
+            elif hasattr(part, "text") and len(part.text) > LARGE_TEXT_THRESHOLD:
+                text_parts.append(part)  # Large text second
+            else:
+                prompt_parts.append(part)  # Prompts/questions last
+
+        # Optimal order: files, large text, prompts
+        return file_parts + text_parts + prompt_parts
+
+    def _separate_cacheable_content(
+        self, parts: List[types.Part]
+    ) -> tuple[List[types.Part], List[types.Part]]:
+        """Separate content parts (cacheable) from prompt parts"""
+        content_parts = []
+        prompt_parts = []
+
+        for part in parts:
+            # Files and large text are cacheable
+            if hasattr(part, "file_data"):
+                content_parts.append(part)
+            elif hasattr(part, "text") and len(part.text) > LARGE_TEXT_THRESHOLD:
+                # Large text content is worth caching
+                content_parts.append(part)
+            else:
+                # Short text (prompts/questions) not worth caching
+                prompt_parts.append(part)
+
+        return content_parts, prompt_parts
+
+    def _generate_with_cache_reference(
+        self,
+        cache_name: str,
+        prompt_parts: List[types.Part],
+        return_usage: bool = False,
+        response_schema: Optional[Any] = None,
+        **options,
+    ) -> Union[str, Dict[str, Any]]:
+        """Generate content using explicit cache reference"""
+
+        def api_call():
+            # Build config parameters
+            config_params = {"cached_content": cache_name}  # Cache reference
+
+            if response_schema:
+                config_params["response_mime_type"] = "application/json"
+                config_params["response_schema"] = response_schema
+
+            config = types.GenerateContentConfig(**config_params)
+
+            # Generate with cache reference and remaining prompts
+            return self.client.models.generate_content(
+                model=self.config.model_name,
+                contents=types.Content(parts=prompt_parts),
+                config=config,
+            )
+
+        response = self._api_call_with_retry(api_call)
+
+        return self._process_response(
+            response, return_usage, response_schema, {"model": self.config.model_name}
+        )
 
     def _generate_with_parts(
         self,
@@ -395,6 +670,11 @@ class GeminiClient:
                 # Extract and return with usage information
                 usage_info = extract_usage_metrics(response)
 
+                # Enhanced usage info includes cache metrics
+                usage_info = self._enhance_usage_with_cache_metrics(
+                    usage_info, response
+                )
+
                 result = {
                     "text": response.text,
                     "parsed": validation_result.parsed_data,
@@ -423,6 +703,9 @@ class GeminiClient:
             # Extract and return with usage information
             usage_info = extract_usage_metrics(response)
 
+            # Enhanced usage info includes cache metrics
+            usage_info = self._enhance_usage_with_cache_metrics(usage_info, response)
+
             result = {
                 "text": response.text,
                 "usage": usage_info,
@@ -436,6 +719,32 @@ class GeminiClient:
         else:
             # Just return the text
             return response.text
+
+    def _enhance_usage_with_cache_metrics(
+        self, usage_info: Dict[str, int], response
+    ) -> Dict[str, int]:
+        """Enhance usage info with cache-specific metrics"""
+        # The enhanced usage_info already includes cached_content_token_count from extract_usage_metrics
+        # Add cache efficiency metrics if available
+        if hasattr(response, "usage_metadata") and hasattr(
+            response.usage_metadata, "cached_content_token_count"
+        ):
+            cached_tokens = (
+                getattr(response.usage_metadata, "cached_content_token_count", 0) or 0
+            )
+            if cached_tokens > 0:
+                # Calculate cache efficiency
+                total_input = usage_info.get("prompt_tokens", 0)
+                if total_input > 0:
+                    cache_hit_ratio = cached_tokens / total_input
+                    usage_info["cache_hit_ratio"] = round(cache_hit_ratio, 3)
+                    usage_info["cache_enabled"] = True
+                else:
+                    usage_info["cache_enabled"] = False
+            else:
+                usage_info["cache_enabled"] = False
+
+        return usage_info
 
     def _api_call_with_retry(
         self, api_call_func: Callable, max_retries: int = MAX_RETRIES
@@ -477,3 +786,63 @@ class GeminiClient:
                 else:
                     # Non-retryable error
                     raise
+
+    # Public cache management methods
+
+    def cleanup_expired_caches(self) -> int:
+        """
+        Clean up expired caches and return count of cleaned caches.
+
+        Returns 0 when caching is disabled - this makes sense.
+        """
+        if not self.cache_manager:
+            return 0
+        return self.cache_manager.cleanup_expired_caches()
+
+    def get_cache_metrics(self) -> Optional[Dict[str, Any]]:
+        """
+        Get current cache usage metrics if caching is enabled.
+
+        Returns None when caching is disabled - this is explicit and honest.
+        Type hint makes it clear this might not be available.
+        """
+        if not self.cache_manager:
+            return None
+
+        metrics = self.cache_manager.get_cache_metrics()
+        return {
+            "total_caches_created": metrics.total_caches,
+            "active_caches": metrics.active_caches,
+            "cache_hits": metrics.cache_hits,
+            "cache_misses": metrics.cache_misses,
+            "total_cached_tokens": metrics.total_cached_tokens,
+            "cache_hit_rate": (
+                metrics.cache_hits / max(metrics.cache_hits + metrics.cache_misses, 1)
+            ),
+            "average_creation_time": (
+                metrics.cache_creation_time / max(metrics.total_caches, 1)
+            ),
+        }
+
+    def list_active_caches(self) -> List[Dict[str, Any]]:
+        """
+        List active caches with summary information.
+
+        Returns empty list when caching is disabled - this makes sense.
+        """
+        if not self.cache_manager:
+            return []
+
+        cache_infos = self.cache_manager.list_active_caches()
+        return [
+            {
+                "cache_name": info.cache_name,
+                "model": info.model,
+                "created_at": info.created_at.isoformat(),
+                "ttl_seconds": info.ttl_seconds,
+                "token_count": info.token_count,
+                "usage_count": info.usage_count,
+                "last_used": info.last_used.isoformat() if info.last_used else None,
+            }
+            for info in cache_infos
+        ]

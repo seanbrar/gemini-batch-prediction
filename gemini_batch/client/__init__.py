@@ -7,7 +7,13 @@ for better hierarchical architecture. This package contains supporting component
 For backward compatibility, use: from gemini_batch import GeminiClient
 """
 
-# Configuration classes for advanced usage
+from .cache_manager import (
+    CacheInfo,
+    CacheManager,
+    CacheMetrics,
+    CacheResult,
+    CacheStrategy,
+)
 from .configuration import ClientConfiguration, RateLimitConfig
 
 # Specialized components for custom integrations
@@ -27,4 +33,10 @@ __all__ = [
     "GenerationErrorHandler",
     "PromptBuilder",
     "RateLimiter",
+    # Cache management
+    "CacheManager",
+    "CacheStrategy",
+    "CacheResult",
+    "CacheInfo",
+    "CacheMetrics",
 ]
