@@ -14,7 +14,7 @@ from .gemini_client import GeminiClient
 try:
     __version__ = importlib.metadata.version("gemini-batch")
 except importlib.metadata.PackageNotFoundError:
-    __version__ = "0.4.0"  # fallback version
+    __version__ = "0.5.0"  # fallback version
 
 __all__ = [
     "GeminiClient",
