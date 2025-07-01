@@ -211,9 +211,12 @@ class CacheManager:
         start_time = time.time()
 
         try:
+            # Wrap content parts in Content objects with role
+            contents = [types.Content(role="user", parts=content_parts)]
+
             # Prepare cache configuration
             cache_config = types.CreateCachedContentConfig(
-                contents=content_parts, ttl=f"{strategy.ttl_seconds}s"
+                contents=contents, ttl=f"{strategy.ttl_seconds}s"
             )
 
             if system_instruction:
@@ -264,7 +267,7 @@ class CacheManager:
 
         # Hash content parts
         for part in content_parts:
-            if hasattr(part, "text"):
+            if hasattr(part, "text") and part.text is not None:
                 hasher.update(part.text.encode("utf-8"))
             elif hasattr(part, "file_data") and hasattr(part.file_data, "file_uri"):
                 hasher.update(part.file_data.file_uri.encode("utf-8"))
