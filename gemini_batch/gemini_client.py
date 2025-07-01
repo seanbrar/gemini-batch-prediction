@@ -187,9 +187,11 @@ class GeminiClient:
         if not self.config.enable_caching or not self.token_counter:
             return False
 
+        # Use direct content for token estimation
         estimate = self.token_counter.estimate_for_caching(
             self.config.model_name, content, prefer_implicit
         )
+
         return estimate["cacheable"]
 
     def analyze_caching_strategy(
@@ -285,13 +287,15 @@ class GeminiClient:
         **options,
     ) -> Union[str, Dict[str, Any]]:
         """Core generation method for both single and batch requests"""
-        # Get extracted content from orchestrator (pure file operations)
+        # Get extracted content from content processor
         extracted_contents = self.content_processor.process_content(content)
 
-        # Convert to API parts (including uploads) - API responsibility
+        # Convert to API parts with caching-aware upload decisions
         parts = []
         for extracted in extracted_contents:
-            part = self._create_api_part(extracted)
+            part = self._create_api_part(
+                extracted, cache_enabled=self.config.enable_caching
+            )
             parts.append(part)
 
         # Add prompts using PromptBuilder
@@ -333,10 +337,21 @@ class GeminiClient:
                     e, response_schema, content_type, cache_enabled
                 )
 
-    def _create_api_part(self, extracted_content) -> types.Part:
-        """Convert extracted content to API part - handles upload if needed"""
-        # Use processing strategy instead of specific extraction method knowledge
+    def _create_api_part(
+        self, extracted_content, cache_enabled: bool = False
+    ) -> types.Part:
+        """Convert extracted content to API part with consolidated upload decision logic"""
+        # Get base processing strategy and adjust for caching if needed
         strategy = extracted_content.processing_strategy
+
+        # If caching is enabled and this is multimodal content set for inline processing,
+        # force upload for cache compatibility
+        if (
+            cache_enabled
+            and strategy == "inline"
+            and self.content_processor.is_multimodal_content(extracted_content)
+        ):
+            strategy = "upload"
 
         if strategy == "text_only":
             return types.Part(text=extracted_content.content)
@@ -359,7 +374,15 @@ class GeminiClient:
             raise APIError("Content requires upload but no file path available")
 
         uploaded_file = self._upload_file(extracted_content.file_path)
-        return types.Part(file_data=types.FileData(file_uri=uploaded_file.uri))
+
+        # Include mime_type in FileData for cache compatibility
+        mime_type = extracted_content.metadata.get("mime_type") or getattr(
+            uploaded_file, "mime_type", None
+        )
+
+        return types.Part(
+            file_data=types.FileData(file_uri=uploaded_file.uri, mime_type=mime_type)
+        )
 
     def _create_inline_part(self, extracted_content) -> types.Part:
         """Create inline part from extracted content"""
@@ -408,12 +431,12 @@ class GeminiClient:
 
         # Simple heuristic: only analyze for caching if we have substantial content
         total_text_length = sum(
-            len(part.text) for part in parts if hasattr(part, "text") and part.text
+            len(part.text) for part in parts if self._is_text_part(part)
         )
 
         # Only attempt caching analysis for content that might meet minimum thresholds
         return total_text_length > MIN_TEXT_LENGTH_FOR_CACHE_ANALYSIS or any(
-            hasattr(part, "file_data") for part in parts
+            self._is_file_part(part) for part in parts
         )
 
     def _try_cached_generation(
@@ -536,9 +559,9 @@ class GeminiClient:
         prompt_parts = []
 
         for part in parts:
-            if hasattr(part, "file_data"):
+            if self._is_file_part(part):
                 file_parts.append(part)  # Files first (usually largest)
-            elif hasattr(part, "text") and len(part.text) > LARGE_TEXT_THRESHOLD:
+            elif self._is_large_text_part(part):
                 text_parts.append(part)  # Large text second
             else:
                 prompt_parts.append(part)  # Prompts/questions last
@@ -555,9 +578,9 @@ class GeminiClient:
 
         for part in parts:
             # Files and large text are cacheable
-            if hasattr(part, "file_data"):
+            if self._is_file_part(part):
                 content_parts.append(part)
-            elif hasattr(part, "text") and len(part.text) > LARGE_TEXT_THRESHOLD:
+            elif self._is_large_text_part(part):
                 # Large text content is worth caching
                 content_parts.append(part)
             else:
@@ -627,7 +650,7 @@ class GeminiClient:
 
             return self.client.models.generate_content(
                 model=self.config.model_name,
-                contents=types.Content(parts=parts),  # Proper API wrapping
+                contents=types.Content(parts=parts),
                 config=config,
             )
 
@@ -793,7 +816,7 @@ class GeminiClient:
         """
         Clean up expired caches and return count of cleaned caches.
 
-        Returns 0 when caching is disabled - this makes sense.
+        Returns 0 when caching is disabled.
         """
         if not self.cache_manager:
             return 0
@@ -803,8 +826,7 @@ class GeminiClient:
         """
         Get current cache usage metrics if caching is enabled.
 
-        Returns None when caching is disabled - this is explicit and honest.
-        Type hint makes it clear this might not be available.
+        Returns None when caching is disabled.
         """
         if not self.cache_manager:
             return None
@@ -828,7 +850,7 @@ class GeminiClient:
         """
         List active caches with summary information.
 
-        Returns empty list when caching is disabled - this makes sense.
+        Returns empty list when caching is disabled
         """
         if not self.cache_manager:
             return []
@@ -846,3 +868,16 @@ class GeminiClient:
             }
             for info in cache_infos
         ]
+
+    # Helper methods for part type checking
+    def _is_text_part(self, part) -> bool:
+        """Check if part contains text content"""
+        return hasattr(part, "text") and part.text is not None
+
+    def _is_file_part(self, part) -> bool:
+        """Check if part contains file data"""
+        return hasattr(part, "file_data") and part.file_data is not None
+
+    def _is_large_text_part(self, part, threshold=LARGE_TEXT_THRESHOLD) -> bool:
+        """Check if part contains large text content"""
+        return self._is_text_part(part) and len(part.text) > threshold
