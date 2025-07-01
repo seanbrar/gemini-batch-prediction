@@ -135,20 +135,19 @@ class MediaExtractor(BaseExtractor):
         }
 
     def extract(self, file_info: FileInfo) -> ExtractedContent:
-        """Prepare media file for API upload"""
+        """Prepare media file for processing (inline or API upload based on size)"""
         self._validate_file_size(file_info)
 
-        # Get base metadata and add media-specific info
+        # Get base metadata (includes size-based upload decision) and add media-specific info
         metadata = self._get_base_metadata(file_info)
         metadata.update(
             {
-                "requires_api_upload": True,  # Media files always require API upload
                 "media_type": self.MEDIA_TYPE_MAP.get(file_info.file_type, "document"),
             }
         )
 
         return ExtractedContent(
-            content="",  # No text content - file will be uploaded to API
+            content="",  # No text content - file will be processed
             metadata=metadata,
             file_info=file_info,
             file_path=file_info.path,

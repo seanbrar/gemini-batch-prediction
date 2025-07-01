@@ -1,5 +1,6 @@
 """
-Content processing orchestration - converts sources to extracted content
+Content processing orchestration - converts multiple mixed sources
+into processed ExtractedContent objects for API consumption
 """
 
 from pathlib import Path
@@ -7,7 +8,6 @@ from typing import List, Union
 
 from ..files import FileOperations
 from ..files.extractors import ExtractedContent
-from ..files.scanner import FileInfo, FileType
 
 
 def _flatten_sources(sources: Union[str, Path, List]) -> List[Union[str, Path]]:
@@ -25,7 +25,19 @@ def _flatten_sources(sources: Union[str, Path, List]) -> List[Union[str, Path]]:
 
 
 class ContentProcessor:
-    """Pure orchestration - converts sources to extracted content only"""
+    """
+    Content orchestration layer - handles multiple mixed sources and batch processing.
+
+    Responsibilities:
+    - Convert multiple sources (files, directories, URLs) into ExtractedContent objects
+    - Handle directory expansion and flattening
+    - Coordinate with FileOperations for low-level file handling
+    - Aggregate errors from batch processing
+
+    This class serves as an abstraction layer between GeminiClient (high-level API)
+    and FileOperations (low-level file handling), preventing GeminiClient from
+    needing to handle complex source orchestration logic.
+    """
 
     def __init__(self):
         self.file_ops = FileOperations()
@@ -33,7 +45,7 @@ class ContentProcessor:
     def process_content(
         self, source: Union[str, Path, List[Union[str, Path]]]
     ) -> List[ExtractedContent]:
-        """Convert any content source into list of ExtractedContent"""
+        """Convert any content source into list of ExtractedContent for API consumption"""
         # Flatten nested lists first to avoid deep recursion
         flattened_sources = _flatten_sources(source)
 
@@ -44,6 +56,10 @@ class ContentProcessor:
             extracted_contents.extend(source_extracts)
 
         return extracted_contents
+
+    def is_multimodal_content(self, extracted_content: ExtractedContent) -> bool:
+        """Check if content is multimodal by delegating to FileOperations"""
+        return self.file_ops.is_multimodal_content(extracted_content)
 
     def _process_single_source(
         self, source: Union[str, Path]
@@ -60,27 +76,9 @@ class ContentProcessor:
                 return [extracted_content]
 
         except Exception as e:
-            # Return error info in a structured way for the API client to handle
-            # Create a minimal FileInfo for error cases
-            source_path = Path(str(source))
-            error_file_info = FileInfo(
-                path=source_path,
-                file_type=FileType.UNKNOWN,
-                size=0,
-                extension=source_path.suffix,
-                name=source_path.name,
-                relative_path=source_path,  # Required field
-                mime_type="text/plain",
-            )
-
-            error_extract = ExtractedContent(
-                content=f"Error processing {source}: {e}",
-                extraction_method="error",
-                metadata={"error": str(e), "source": str(source)},
-                file_info=error_file_info,  # Required parameter
-                requires_api_upload=False,
-            )
-            return [error_extract]
+            # Let the error bubble up rather than trying to create invalid ExtractedContent
+            # The caller (GeminiClient) can handle this more appropriately
+            raise RuntimeError(f"Error processing {source}: {e}") from e
 
     def _expand_directory(
         self, directory_extract: ExtractedContent
