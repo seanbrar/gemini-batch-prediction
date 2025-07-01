@@ -9,39 +9,36 @@
 
 ## 🎯 Project Overview
 
-This project develops a framework for efficiently analyzing educational video content using Google's Gemini API. By implementing intelligent batch processing and context caching strategies, we aim to achieve **4-5x reduction in API calls** while maintaining high-quality responses for educational content analysis.
+This project develops a framework for efficiently analyzing educational video content using Google's Gemini API. By implementing intelligent batch processing and context caching strategies, we achieve **4-5x reduction in API calls** with **up to 75% cost savings** while maintaining high-quality responses for educational content analysis.
 
-### Key Goals
+### Key Features
 - **Batch Processing**: Group related questions to minimize redundant API calls
-- **Context Caching**: Leverage Gemini's caching capabilities for repeated analysis
-- **Conversation Memory**: Maintain coherent follow-up question handling
-- **Multimodal Analysis**: Support text, PDFs, videos, images, and mixed content sources
+- **Context Caching**: Leverage Gemini's implicit and explicit caching for cost reduction ✨ **NEW**
+- **Multimodal Analysis**: Support text, PDFs, videos, images, YouTube URLs, and mixed content
+- **Conversation Memory**: Maintain coherent follow-up question handling *(Week 5)*
 
 ## 🚀 Current Status
 
-**Week 1 (June 2-8, 2025)**: Foundation & Core Text Processing ✅ **COMPLETED**
-- ✅ Production-ready API client with authentication and error handling
-- ✅ Comprehensive batch processing framework for text content
-- ✅ Efficiency tracking utilities with quality analysis
-- ✅ Professional documentation and examples
-- ✅ **Bonus**: Visualization module for efficiency analysis
-- ✅ **Bonus**: Scaling experiments demonstrating 3-6x efficiency gains
+**Foundation & Architecture (Weeks 1-2)**: ✅ **COMPLETED**
+- Production-ready API client with comprehensive error handling and rate limiting
+- Advanced configuration management supporting all Gemini API tiers
+- Professional test suite with 95%+ coverage and modern packaging system
 
-**Week 2 (June 9-15, 2025)**: Enhanced Error Handling & Testing ✅ **COMPLETED**
-- ✅ Comprehensive test suite (95%+ coverage across unit and integration tests)
-- ✅ Advanced configuration management with flexible API tier support
-- ✅ Professional error handling and retry mechanisms
-- ✅ Performance optimization and rate limiting enhancements
-- ✅ Modern packaging system with optional dependencies
-- ✅ Professional documentation and setup guides
+**Multimodal Processing (Week 3)**: ✅ **COMPLETED**  
+- Unified interface for any content type (text, files, URLs, directories)
+- YouTube URL processing with native Gemini integration
+- Files API integration with intelligent routing for large content
+- Multi-source analysis with academic research workflow demonstrations
 
-**Week 3 (June 16-22, 2025)**: Multimodal Processing & File Handling ✅ **COMPLETED**
-- ✅ Unified content processing interface for any source type
-- ✅ YouTube URL support with native Gemini integration
-- ✅ Files API integration for large content (PDFs, videos, images)
-- ✅ Multi-source analysis capabilities (directories, mixed content)
-- ✅ **Bonus**: Academic literature review demo with 12 sources
-- ✅ **Bonus**: Structured output support with Pydantic schemas
+**Context Caching (Week 4)**: ✅ **COMPLETED**
+- Intelligent caching strategies with automatic model capability detection
+- Cache lifecycle management with performance metrics and monitoring
+- Up to 75% cost reduction for repeated content analysis
+
+**Next: Conversation Memory (Week 5)**: ⚪ **IN PROGRESS**
+- Multi-turn conversation state management
+- Context coherence across follow-up questions
+- Building on established caching foundation
 
 ## 📦 Installation
 
@@ -52,10 +49,7 @@ pip install -e .
 # With visualization capabilities (recommended for demos)
 pip install -e .[viz]
 
-# With development dependencies
-pip install -e .[dev]
-
-# Full installation
+# Full installation with development dependencies
 pip install -e .[viz,dev]
 ```
 
@@ -64,87 +58,87 @@ Get your API key from [Google AI Studio](https://ai.dev/) and configure:
 ```bash
 # Create .env file
 GEMINI_API_KEY=your_api_key_here
-GEMINI_MODEL=gemini-2.0-flash  # Optional: defaults to optimal model for tier
+GEMINI_MODEL=gemini-2.0-flash
+GEMINI_ENABLE_CACHING=true     # Enable context caching
+GEMINI_TIER=free              # Options: free, tier_1, tier_2, tier_3
 ```
 
 See [docs/SETUP.md](docs/SETUP.md) for detailed configuration options.
 
+### ⚡ Rate Limit Configuration
+
+**Important**: Gemini API rate limits vary substantially by billing tier. Configure your tier for optimal performance:
+
+**Check your tier in Google AI Studio → Billing:**
+- `free` - No billing enabled (default)
+- `tier_1` - Billing enabled (most common paid tier)
+- `tier_2`, `tier_3` - Higher volume plans
+
+**Without tier configuration**, all users default to free tier limits.
+
 ## 🔥 Quick Start
 
-### Flexible Initialization
+### Basic Usage with Caching
 ```python
-from gemini_batch import GeminiClient, BatchProcessor
+from gemini_batch import BatchProcessor
 
-# Environment-based (recommended)
-client = GeminiClient()
-processor = BatchProcessor()
+# Automatic caching for supported models
+processor = BatchProcessor(enable_caching=True)
 
-# See docs/SETUP.md for advanced configuration options
+questions = ["What are the main points?", "What are the key insights?"]
+
+# Works with any content type
+results = processor.process_questions("content.pdf", questions)
 ```
 
 ### Unified Content Processing
 ```python
-# Works with any content type - text, files, URLs, directories, or mixed
 questions = ["What are the main points?", "What are the key insights?"]
-
-# Text content
-results = processor.process_questions("Your text content here", questions)
 
 # YouTube video
 results = processor.process_questions("https://youtube.com/watch?v=example", questions)
 
-# PDF file or directory
-results = processor.process_questions("document.pdf", questions)
-results = processor.process_questions("research_papers/", questions)
-
-# Mixed sources (text + files + URLs)
-sources = ["Background context", "paper.pdf", "https://example.com/article"]
-results = processor.process_questions(sources, questions)
-
-# Access results
-print(f"🚀 Efficiency: {results['efficiency']['token_efficiency_ratio']:.1f}x improvement")
-print(f"💰 Token reduction: {results['metrics']['individual']['tokens']} → {results['metrics']['batch']['tokens']}")
-
-for i, answer in enumerate(results['answers'], 1):
-    print(f"Q{i}: {answer}")
-```
-
-### Multi-Source Research Analysis
-```python
-# Analyze multiple research sources simultaneously
+# Multiple research sources
 sources = [
     "research_papers/",           # Directory of papers
     "https://arxiv.org/pdf/...",  # arXiv paper
     "https://youtube.com/watch?v=...",  # Educational video
 ]
 
-research_questions = [
-    "What are the main research trends across all sources?",
-    "Which approaches show the most promise?",
-    "What gaps exist in current research?"
-]
+# Single API call processes all sources with caching
+results = processor.process_questions_multi_source(sources, questions)
+```
 
-# Single API call processes all sources together
-results = processor.process_questions_multi_source(sources, research_questions)
+### Configuration Options
+```python
+# Automatic tier detection from environment
+processor = BatchProcessor()  # Reads GEMINI_TIER from .env
+
+# Or specify explicitly  
+from gemini_batch.config import APITier
+processor = BatchProcessor(tier=APITier.TIER_1)
 ```
 
 ## 📚 Documentation
 
-- **[Setup Guide](docs/SETUP.md)** - Installation and configuration options
+### Core Guides
+- **[Setup Guide](docs/SETUP.md)** - Installation and configuration
+- **[Context Caching](docs/CACHING.md)** - Cost optimization with caching strategies ✨ **NEW**
 - **[Source Handling](docs/SOURCE_HANDLING.md)** - Working with different content types
-- **Examples** - See `examples/` directory for complete demos
-- **Notebooks** - Interactive demos in `notebooks/` directory
+
+### Examples & Demos
+- **[Examples Directory](examples/)** - Complete usage demonstrations
+- **[Research Notebook](notebooks/literature_review_demo.ipynb)** - Academic workflow with 12 sources
 
 ## 🛠️ Development Roadmap
 
 | Week | Focus | Status |
 |------|-------|--------|
-| 1-2 | Text batch processing & API foundation | ✅ **Completed** |
-| 2 | Error handling, testing & configuration | ✅ **Completed** |
-| 3 | Multimodal processing & file handling | ✅ **Completed** |
-| 4-5 | Context caching implementation | ⚪ **Next** |
-| 6-8 | Conversation memory & advanced features | ⚪ Planned |
-| 9-11 | Performance optimization & polish | ⚪ Planned |
+| 1-3 | Foundation, testing & multimodal processing | ✅ **Completed** |
+| 4 | Context caching implementation | ✅ **Completed** |
+| 5 | Conversation memory framework | ⚪ **Current** |
+| 6-7 | Advanced conversation features & optimization | ⚪ Planned |
+| 8-11 | Performance tuning & advanced features | ⚪ Planned |
 | 12-13 | Documentation & final delivery | ⚪ Planned |
 
 ## 🤝 Contributing
