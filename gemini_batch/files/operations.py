@@ -106,3 +106,13 @@ class FileOperations:
     def process_source(self, source: Union[str, Path]) -> ExtractedContent:
         """Process any source type (text, URLs, files, directories) using appropriate extractors"""
         return self.extractor_manager.process_source(source)
+
+    def is_multimodal_content(self, extracted_content: ExtractedContent) -> bool:
+        """Check if extracted content is multimodal (PDF, image, video, audio)"""
+        multimodal_types = {
+            FileType.PDF,
+            FileType.IMAGE,
+            FileType.VIDEO,
+            FileType.AUDIO,
+        }
+        return extracted_content.file_info.file_type in multimodal_types

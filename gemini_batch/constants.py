@@ -67,3 +67,30 @@ VIZ_COLORS = {
     "improvements": ["#4CAF50", "#2196F3", "#FF9800"],
     "line": "#2E7D32",
 }
+
+# ==============================================================================
+# Context Caching Configuration
+# ==============================================================================
+
+# Cache lifecycle settings
+DEFAULT_CACHE_TTL = 3600  # 1 hour in seconds
+MAX_CACHE_TTL = 24 * 3600  # 24 hours maximum
+MIN_CACHE_TTL = 300  # 5 minutes minimum
+
+# Cache size thresholds
+MIN_CACHEABLE_TOKENS = 1024  # Minimum tokens worth caching
+LARGE_CONTENT_THRESHOLD = 50_000  # Tokens considered "large content"
+HUGE_CONTENT_THRESHOLD = 100_000  # Tokens considered "huge content"
+
+# Text analysis thresholds for caching decisions
+MIN_TEXT_LENGTH_FOR_CACHE_ANALYSIS = 2000  # Minimum text length to analyze for caching
+LARGE_TEXT_THRESHOLD = 1000  # Text length threshold for separating content vs prompts
+
+# Cache performance settings
+CACHE_CLEANUP_INTERVAL = 300  # 5 minutes between cleanup cycles
+MAX_ACTIVE_CACHES = 100  # Maximum number of caches to track
+CACHE_HIT_RATIO_THRESHOLD = 0.1  # Minimum cache hit ratio to consider successful
+
+# Cache efficiency targets
+TARGET_CACHE_EFFICIENCY = 2.0  # Target cache efficiency improvement
+CACHE_BENEFIT_THRESHOLD = 0.1  # 10% improvement threshold for recommendations

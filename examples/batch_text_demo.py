@@ -197,10 +197,10 @@ def run_demo_with_content(name, content, questions, processor, compare_methods=T
         content, questions, compare_methods=compare_methods
     )
 
-    # Display truncated batch answers
-    print("\n📝 BATCH ANSWERS (Preview):")
+    # Display truncated answers
+    print("\n📝 ANSWERS (Preview):")
     print("-" * 40)
-    for i, answer in enumerate(results["batch_answers"], 1):
+    for i, answer in enumerate(results["answers"], 1):
         preview = answer[:80] + "..." if len(answer) > 80 else answer
         print(f"Q{i}: {preview}")
 
@@ -230,7 +230,7 @@ def run_demo_with_content(name, content, questions, processor, compare_methods=T
 
         # Calculate and display quality score
         quality_score = calculate_quality_score(
-            results.get("individual_answers", []), results["batch_answers"]
+            results.get("individual_answers", []), results["answers"]
         )
         if quality_score is not None:
             print(f"✨ Quality score: {quality_score * 100:.1f}/100")

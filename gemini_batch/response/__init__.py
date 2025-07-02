@@ -11,7 +11,7 @@ from .parsing import (
 )
 from .processor import ResponseProcessor
 from .quality import calculate_quality_score
-from .types import ParsingResult, ProcessedResponse, ValidationResult
+from .types import ExtractionResult, ParsingResult, ProcessedResponse, ValidationResult
 from .validation import (
     validate_against_schema,
     validate_generic_type,
@@ -23,6 +23,7 @@ __all__ = [
     "ResponseProcessor",
     "ProcessedResponse",
     # Result types
+    "ExtractionResult",
     "ValidationResult",
     "ParsingResult",
     # Individual components

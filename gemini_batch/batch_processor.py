@@ -2,27 +2,199 @@
 Batch processor for text content analysis
 """
 
+from contextlib import contextmanager
+from dataclasses import dataclass, field
 from pathlib import Path
 import time
-from typing import Any, Dict, List, Optional, Union
-import warnings
+from typing import Any, Dict, List, Optional, Tuple, Union
 
-from .client import GeminiClient
 from .efficiency import track_efficiency
-from .response import extract_answers
+from .gemini_client import GeminiClient
+from .response import ResponseProcessor
+
+
+@dataclass
+class ProcessingMetrics:
+    """Container for processing metrics"""
+
+    calls: int = 0
+    prompt_tokens: int = 0
+    output_tokens: int = 0
+    cached_tokens: int = 0
+    time: float = 0.0
+    structured_output: Optional[Dict[str, Any]] = None
+
+    @property
+    def total_tokens(self) -> int:
+        return self.prompt_tokens + self.output_tokens
+
+    @property
+    def effective_tokens(self) -> int:
+        """Effective tokens for cost calculation (excluding cached portion)"""
+        return (self.prompt_tokens - self.cached_tokens) + self.output_tokens
+
+    @property
+    def cache_hit_ratio(self) -> float:
+        """Ratio of cached to total prompt tokens"""
+        return self.cached_tokens / max(self.prompt_tokens, 1)
+
+    @classmethod
+    def empty(cls) -> "ProcessingMetrics":
+        """Create empty metrics for comparison baseline"""
+        return cls()
+
+    def to_dict(self) -> Dict[str, Any]:
+        """Convert to dictionary format for backward compatibility"""
+        result = {
+            "calls": self.calls,
+            "prompt_tokens": self.prompt_tokens,
+            "output_tokens": self.output_tokens,
+            "cached_tokens": self.cached_tokens,
+            "tokens": self.total_tokens,
+            "effective_tokens": self.effective_tokens,
+            "cache_hit_ratio": self.cache_hit_ratio,
+            "time": self.time,
+        }
+        if self.structured_output:
+            result["structured_output"] = self.structured_output
+        return result
+
+
+@dataclass
+class ProcessingOptions:
+    """Container for processing configuration"""
+
+    compare_methods: bool = False
+    return_usage: bool = False
+    response_schema: Optional[Any] = None
+    options: Dict[str, Any] = field(default_factory=dict)
+
+
+class ResultBuilder:
+    """Unified result building for different processing modes"""
+
+    def __init__(self, efficiency_calculator):
+        self.efficiency_calculator = efficiency_calculator
+
+    def build_standard_result(
+        self,
+        questions: List[str],
+        batch_answers: List[str],
+        batch_metrics: ProcessingMetrics,
+        individual_metrics: ProcessingMetrics,
+        individual_answers: Optional[List[str]],
+        config: ProcessingOptions,
+    ) -> Dict[str, Any]:
+        """Build result for standard processing mode"""
+        efficiency = self.efficiency_calculator(individual_metrics, batch_metrics)
+
+        result = {
+            "question_count": len(questions),
+            "answers": batch_answers,
+            "efficiency": efficiency,
+            "metrics": {
+                "batch": batch_metrics.to_dict(),
+                "individual": individual_metrics.to_dict(),
+            },
+        }
+
+        # Add cache summary if caching was used
+        if batch_metrics.cached_tokens > 0 or individual_metrics.cached_tokens > 0:
+            result["cache_summary"] = {
+                "cache_enabled": True,
+                "batch_cache_hit_ratio": batch_metrics.cache_hit_ratio,
+                "individual_cache_hit_ratio": individual_metrics.cache_hit_ratio,
+                "tokens_saved": individual_metrics.total_tokens
+                - batch_metrics.total_tokens,
+                "cache_cost_benefit": efficiency.get("cache_efficiency", {}).get(
+                    "cache_improvement_factor", 1.0
+                ),
+            }
+        else:
+            result["cache_summary"] = {"cache_enabled": False}
+
+        self._add_optional_data(result, batch_metrics, individual_answers, config)
+        return result
+
+    def enhance_response_processor_result(
+        self,
+        result: Dict[str, Any],
+        batch_metrics: ProcessingMetrics,
+        individual_metrics: ProcessingMetrics,
+        individual_answers: List[str],
+    ) -> None:
+        """Add efficiency comparison metrics to ResponseProcessor result"""
+        efficiency = self.efficiency_calculator(individual_metrics, batch_metrics)
+
+        result.update(
+            {
+                "efficiency": efficiency,
+                "metrics": {
+                    "batch": batch_metrics.to_dict(),
+                    "individual": individual_metrics.to_dict(),
+                },
+                "individual_answers": individual_answers,
+            }
+        )
+
+    def _add_optional_data(
+        self,
+        result: Dict[str, Any],
+        batch_metrics: ProcessingMetrics,
+        individual_answers: Optional[List[str]],
+        config: ProcessingOptions,
+    ) -> None:
+        """Add optional data to result dictionary"""
+        # Add structured data if available
+        if batch_metrics.structured_output and batch_metrics.structured_output.get(
+            "structured_data"
+        ):
+            result["structured_data"] = batch_metrics.structured_output[
+                "structured_data"
+            ]
+
+        # Add individual answers if comparison was requested
+        if config.compare_methods and individual_answers:
+            result["individual_answers"] = individual_answers
+
+        # Add usage information if requested
+        if config.return_usage:
+            result["usage"] = {
+                "prompt_tokens": batch_metrics.prompt_tokens,
+                "output_tokens": batch_metrics.output_tokens,
+                "total_tokens": batch_metrics.total_tokens,
+                "cached_tokens": batch_metrics.cached_tokens,
+                "effective_tokens": batch_metrics.effective_tokens,
+                "cache_hit_ratio": batch_metrics.cache_hit_ratio,
+            }
 
 
 class BatchProcessor:
     """Process multiple questions efficiently using batch operations"""
 
-    def __init__(self, client: GeminiClient = None, **client_kwargs):
+    def __init__(self, client: Optional[GeminiClient] = None, **client_kwargs):
         """Initialize with unified client"""
         if client is not None:
             self.client = client
+        elif client_kwargs:
+            # Use from_env for both cases - it handles direct API key parameters
+            self.client = GeminiClient.from_env(**client_kwargs)
         else:
-            self.client = GeminiClient(**client_kwargs)
+            # No arguments provided - use environment
+            self.client = GeminiClient.from_env()
 
-        self.reset_metrics()
+        self.response_processor = ResponseProcessor()
+        self.result_builder = ResultBuilder(self._calculate_efficiency)
+
+    @contextmanager
+    def _metrics_tracker(self, call_count: int = 1):
+        """Context manager for tracking processing metrics"""
+        metrics = ProcessingMetrics(calls=call_count)
+        start_time = time.time()
+        try:
+            yield metrics
+        finally:
+            metrics.time = time.time() - start_time
 
     def process_questions(
         self,
@@ -31,460 +203,202 @@ class BatchProcessor:
         compare_methods: bool = False,
         return_usage: bool = False,
         response_schema: Optional[Any] = None,
-        response_processor=None,
         **options,
     ) -> Dict[str, Any]:
         """Unified method to process questions about any content type"""
         if not questions:
             raise ValueError("Questions are required")
 
-        # Auto-create ResponseProcessor when response_schema is provided but no processor
-        if response_schema is not None and response_processor is None:
-            from .response import ResponseProcessor
-
-            response_processor = ResponseProcessor()
-
-        # If response_processor is provided, delegate all response processing to it
-        if response_processor is not None:
-            return self._process_with_response_processor(
-                content,
-                questions,
-                response_processor,
-                response_schema,
-                compare_methods,
-                **options,
-            )
-
-        # Standard processing path (existing logic)
-        self.reset_metrics()
-
-        # Process batch first (unified for all content types)
-        batch_answers, batch_metrics = self._process_batch(
-            content, questions, return_usage, response_schema, **options
+        config = ProcessingOptions(
+            compare_methods=compare_methods,
+            return_usage=return_usage,
+            response_schema=response_schema,
+            options=options,
         )
 
-        # Optionally process individually for comparison
-        if compare_methods:
-            individual_answers, individual_metrics = self._process_individual(
-                content, questions, return_usage, response_schema, **options
-            )
-        else:
-            individual_answers = None
-            individual_metrics = {
-                "calls": 0,
-                "prompt_tokens": 0,
-                "output_tokens": 0,
-                "tokens": 0,
-                "time": 0.0,
-            }
-
-        # Calculate efficiency metrics
-        efficiency = track_efficiency(
-            individual_calls=individual_metrics["calls"],
-            batch_calls=batch_metrics["calls"],
-            individual_prompt_tokens=individual_metrics.get("prompt_tokens", 0),
-            individual_output_tokens=individual_metrics.get("output_tokens", 0),
-            batch_prompt_tokens=batch_metrics.get("prompt_tokens", 0),
-            batch_output_tokens=batch_metrics.get("output_tokens", 0),
-            individual_time=individual_metrics["time"],
-            batch_time=batch_metrics["time"],
-        )
-
-        result = {
-            "question_count": len(questions),
-            "answers": batch_answers,  # Primary result
-            "batch_answers": batch_answers,  # Backward compatibility
-            "efficiency": efficiency,
-            "metrics": {
-                "batch": batch_metrics,
-                "individual": individual_metrics,
-            },
-        }
-
-        # Add structured data if available for easy access
-        if batch_metrics.get("structured_output", {}).get("structured_data"):
-            result["structured_data"] = batch_metrics["structured_output"][
-                "structured_data"
-            ]
-
-        if compare_methods and individual_answers:
-            result["individual_answers"] = individual_answers
-
-        if return_usage:
-            result["usage"] = {
-                "prompt_tokens": batch_metrics.get("prompt_tokens", 0),
-                "output_tokens": batch_metrics.get("output_tokens", 0),
-                "total_tokens": batch_metrics.get("tokens", 0),
-                "cached_tokens": 0,
-            }
-
-        return result
-
-    def _process_batch(
-        self,
-        content: Union[str, Path, List[Union[str, Path]]],
-        questions: List[str],
-        return_usage: bool = False,
-        response_schema: Optional[Any] = None,
-        **options,
-    ) -> tuple[List[str], Dict[str, Any]]:
-        """Process all questions in a single batch call"""
-        start_time = time.time()
-
-        try:
-            # Single unified call handles any content type
-            response = self.client.generate_batch(
-                content=content,
-                questions=questions,
-                return_usage=True,
-                response_schema=response_schema,
-                **options,
-            )
-
-            # Extract answers and metrics based on response type
-            if isinstance(response, dict):
-                # Response includes usage and possibly parsed data
-                usage = response.get(
-                    "usage", {"prompt_tokens": 0, "output_tokens": 0, "total_tokens": 0}
-                )
-
-                structured_quality = None  # Initialize for all paths
-
-                if response_schema:
-                    if (
-                        "structured_success" in response
-                        and response["structured_success"]
-                    ):
-                        # High-quality structured output - preserve structured data
-                        parsed_data = response.get("parsed")
-
-                        # For structured output, provide minimal text representation for
-                        # compatibility but also preserve the actual structured object
-                        answers = (
-                            [str(parsed_data)]
-                            if parsed_data
-                            else ["No structured data"]
-                        )
-
-                        # Add structured output metadata with actual structured object
-                        structured_quality = {
-                            "confidence": response.get("structured_confidence", 0.0),
-                            "method": response.get("validation_method", "unknown"),
-                            "errors": response.get("validation_errors", []),
-                            "structured_data": parsed_data,
-                        }
-                    else:
-                        # Fallback to text extraction with lower confidence
-                        response_text = response.get("text", "")
-                        answers = extract_answers(
-                            response_text, len(questions), is_structured=False
-                        )
-                        structured_quality = {
-                            "confidence": 0.3,  # Lower confidence for text fallback
-                            "method": "text_fallback",
-                            "errors": response.get(
-                                "validation_errors", ["Structured parsing failed"]
-                            ),
-                        }
-                else:
-                    # Standard text response
-                    response_text = response.get("text", "")
-                    answers = extract_answers(
-                        response_text, len(questions), is_structured=False
-                    )
-            else:
-                # Simple text response (no usage tracking)
-                usage = {"prompt_tokens": 0, "output_tokens": 0, "total_tokens": 0}
-                answers = extract_answers(response, len(questions), is_structured=False)
-                structured_quality = None
-
-            duration = time.time() - start_time
-
-            metrics = {
-                "calls": 1,
-                "prompt_tokens": usage["prompt_tokens"],
-                "output_tokens": usage["output_tokens"],
-                "tokens": usage["total_tokens"],
-                "time": duration,
-            }
-
-            # Add structured output quality metrics if applicable
-            if response_schema and structured_quality:
-                metrics["structured_output"] = structured_quality
-
-            return answers, metrics
-
-        except Exception:
-            # Fallback to individual processing
-            return self._process_individual(
-                content, questions, return_usage, response_schema, **options
-            )
-
-    def _process_individual(
-        self,
-        content: Union[str, Path, List[Union[str, Path]]],
-        questions: List[str],
-        return_usage: bool = False,
-        response_schema: Optional[Any] = None,
-        **options,
-    ) -> tuple[List[str], Dict[str, Any]]:
-        """Process questions individually for comparison or fallback"""
-        answers = []
-        total_prompt_tokens = 0
-        total_output_tokens = 0
-        start_time = time.time()
-
-        for question in questions:
-            try:
-                # Single unified call handles any content type
-                response = self.client.generate_content(
-                    content=content,
-                    prompt=question,
-                    return_usage=True,
-                    response_schema=response_schema,
-                    **options,
-                )
-
-                if isinstance(response, dict):
-                    if response_schema and "parsed" in response:
-                        # Structured output - convert parsed object to string
-                        parsed_data = response["parsed"]
-                        if parsed_data is not None:
-                            answers.append(str(parsed_data))
-                        else:
-                            answers.append(response.get("text", ""))
-                    else:
-                        # Text response
-                        answers.append(response.get("text", ""))
-
-                    usage = response.get(
-                        "usage", {"prompt_tokens": 0, "output_tokens": 0}
-                    )
-                    total_prompt_tokens += usage["prompt_tokens"]
-                    total_output_tokens += usage["output_tokens"]
-                else:
-                    # Simple response - convert to string if needed
-                    answers.append(str(response) if response is not None else "")
-
-            except Exception as e:
-                answers.append(f"Error: {str(e)}")
-
-        duration = time.time() - start_time
-
-        metrics = {
-            "calls": len(questions),
-            "prompt_tokens": total_prompt_tokens,
-            "output_tokens": total_output_tokens,
-            "tokens": total_prompt_tokens + total_output_tokens,
-            "time": duration,
-        }
-
-        return answers, metrics
+        # Always use standard processing with integrated ResponseProcessor
+        return self._process_standard(content, questions, config)
 
     def process_questions_multi_source(
         self,
         sources: List[Union[str, Path, List[Union[str, Path]]]],
         questions: List[str],
         response_schema: Optional[Any] = None,
-        response_processor=None,
         **kwargs,
     ) -> Dict[str, Any]:
-        """Process multiple sources in a single batch for maximum efficiency
-
-        Combines multiple distinct sources (files, URLs, text, directories) and
-        processes all questions against all sources simultaneously.
-
-        See docs/SOURCE_HANDLING.md for detailed usage examples.
-        """
+        """Process multiple sources in a single batch for maximum efficiency"""
         if not sources:
             raise ValueError("At least one source is required")
         if not questions:
             raise ValueError("Questions are required")
 
-        # Flatten the sources list to create a single combined content input
-        # The unified client can handle mixed content types in a single call
-        combined_content = sources
-
-        # Use the main process_questions method (which now handles response_processor)
         result = self.process_questions(
-            combined_content,
+            sources,  # Combined content handled by unified client
             questions,
             response_schema=response_schema,
-            response_processor=response_processor,
             **kwargs,
         )
 
-        # Enhance result with multi-source metadata
-        result["source_count"] = len(sources)
-        result["processing_mode"] = "multi_source_batch"
+        # Enhance with multi-source metadata
+        result.update(
+            {
+                "source_count": len(sources),
+                "processing_mode": "multi_source_batch",
+            }
+        )
 
         return result
 
-    def _process_with_response_processor(
+    def _process_standard(
         self,
         content: Union[str, Path, List[Union[str, Path]]],
         questions: List[str],
-        response_processor,
-        response_schema: Optional[Any] = None,
-        compare_methods: bool = False,
-        **kwargs,
+        config: ProcessingOptions,
     ) -> Dict[str, Any]:
-        """Process questions with integrated ResponseProcessor for unified handling
+        """Standard processing path using integrated ResponseProcessor"""
+        # Process batch first
+        batch_answers, batch_metrics = self._process_batch(content, questions, config)
 
-        This method provides clean separation of concerns:
-        - BatchProcessor handles content processing and API calls
-        - ResponseProcessor handles all response processing and result packaging
+        # Optionally process individually for comparison
+        individual_metrics = ProcessingMetrics.empty()
+        individual_answers = None
 
-        Args:
-            content: Content to process (any supported type)
-            questions: List of questions
-            response_processor: ResponseProcessor instance (required for integration)
-            response_schema: Optional schema for structured output
-            compare_methods: Whether to run both batch and individual for comparison
-            **kwargs: Additional options
-
-        Returns:
-            Complete result dict from ResponseProcessor, enhanced with efficiency metrics if compare_methods=True
-        """
-
-        try:
-            # Measure total time including API call
-            total_start_time = time.time()
-
-            # Always run batch processing
-            raw_response = self.client.generate_batch(
-                content=content,
-                questions=questions,
-                return_usage=True,
-                response_schema=response_schema,
-                **kwargs,
+        if config.compare_methods:
+            individual_answers, individual_metrics = self._process_individual(
+                content, questions, config
             )
 
-            # Calculate total time including API call
-            total_duration = time.time() - total_start_time
+        # Build and return result
+        return self.result_builder.build_standard_result(
+            questions,
+            batch_answers,
+            batch_metrics,
+            individual_metrics,
+            individual_answers,
+            config,
+        )
 
-            # Get the primary result from ResponseProcessor with API call timing
-            result = response_processor.process_batch_response(
-                raw_response=raw_response,
-                questions=questions,
-                response_schema=response_schema,
-                return_usage=True,
-                api_call_time=total_duration,
-            )
-
-            # If comparison is requested, run individual processing and add efficiency metrics
-            if compare_methods:
-                # Extract batch metrics from the ResponseProcessor result
-                batch_usage = result.get("usage", {})
-                batch_time = result.get("processing_time", 0.0)
-
-                batch_metrics = {
-                    "calls": 1,
-                    "prompt_tokens": batch_usage.get("prompt_tokens", 0),
-                    "output_tokens": batch_usage.get("output_tokens", 0),
-                    "tokens": batch_usage.get("total_tokens", 0),
-                    "time": batch_time,
-                }
-
-                # Run individual processing for comparison
-                individual_answers, individual_metrics = self._process_individual(
-                    content,
-                    questions,
+    def _process_batch(
+        self,
+        content: Union[str, Path, List[Union[str, Path]]],
+        questions: List[str],
+        config: ProcessingOptions,
+    ) -> Tuple[List[str], ProcessingMetrics]:
+        """Process all questions in a single batch call"""
+        with self._metrics_tracker(call_count=1) as metrics:
+            try:
+                response = self.client.generate_batch(
+                    content=content,
+                    questions=questions,
                     return_usage=True,
-                    response_schema=response_schema,
-                    **kwargs,
+                    response_schema=config.response_schema,
+                    **config.options,
                 )
 
-                # Calculate efficiency metrics
-                efficiency = track_efficiency(
-                    individual_calls=individual_metrics["calls"],
-                    batch_calls=batch_metrics["calls"],
-                    individual_prompt_tokens=individual_metrics.get("prompt_tokens", 0),
-                    individual_output_tokens=individual_metrics.get("output_tokens", 0),
-                    batch_prompt_tokens=batch_metrics.get("prompt_tokens", 0),
-                    batch_output_tokens=batch_metrics.get("output_tokens", 0),
-                    individual_time=individual_metrics["time"],
-                    batch_time=batch_metrics["time"],
+                extraction_result = (
+                    self.response_processor.extract_answers_from_response(
+                        response, len(questions), config.response_schema
+                    )
                 )
 
-                # Add efficiency data to the result
-                result["efficiency"] = efficiency
-                result["metrics"] = {
-                    "batch": batch_metrics,
-                    "individual": individual_metrics,
-                }
-                result["individual_answers"] = individual_answers
+                usage_metrics = extraction_result.usage
+                metrics.prompt_tokens = usage_metrics.get("prompt_tokens", 0)
+                metrics.output_tokens = usage_metrics.get("output_tokens", 0)
+                metrics.cached_tokens = usage_metrics.get(
+                    "cached_tokens", 0
+                )
 
-            return result
+                if extraction_result.structured_quality:
+                    metrics.structured_output = extraction_result.structured_quality
 
-        except Exception as e:
-            error_response = type(
-                "ErrorResponse", (), {"text": f"Error: {str(e)}", "parsed": None}
-            )()
+                # Ensure we return List[str] for batch processing
+                answers = (
+                    extraction_result.answers
+                    if extraction_result.is_batch_result
+                    else [extraction_result.answers]
+                )
+                return answers, metrics
 
-            result = response_processor.process_batch_response(
-                raw_response=error_response,
-                questions=questions,
-                response_schema=response_schema,
-                return_usage=True,
-            )
-            result["processing_error"] = str(e)
-            return result
+            except Exception:
+                # Fallback to individual processing
+                return self._process_individual(content, questions, config)
 
-    def reset_metrics(self):
-        """Reset tracking metrics"""
-        pass  # Simplified - metrics now handled per-call
+    def _process_individual(
+        self,
+        content: Union[str, Path, List[Union[str, Path]]],
+        questions: List[str],
+        config: ProcessingOptions,
+    ) -> Tuple[List[str], ProcessingMetrics]:
+        """Process questions individually for comparison or fallback"""
+        with self._metrics_tracker(call_count=len(questions)) as metrics:
+            answers = []
 
-    # Backward compatibility methods
-    def process_text_questions(self, content: str, questions: List[str], **kwargs):
-        """Deprecated: use process_questions() instead"""
-        warnings.warn(
-            "process_text_questions() is deprecated. Use process_questions() instead.",
-            DeprecationWarning,
-            stacklevel=2,
+            for question in questions:
+                try:
+                    response = self.client.generate_content(
+                        content=content,
+                        prompt=question,
+                        return_usage=True,
+                        response_schema=config.response_schema,
+                        **config.options,
+                    )
+
+                    extraction_result = (
+                        self.response_processor.extract_answers_from_response(
+                            response,
+                            1,
+                            config.response_schema,  # Single question
+                        )
+                    )
+
+                    # For individual processing, we always get a single answer (str)
+                    answer = (
+                        extraction_result.answers
+                        if not extraction_result.is_batch_result
+                        else extraction_result.answers[0]
+                    )
+                    answers.append(answer)
+
+                    usage_metrics = extraction_result.usage
+                    metrics.prompt_tokens += usage_metrics.get("prompt_tokens", 0)
+                    metrics.output_tokens += usage_metrics.get("output_tokens", 0)
+                    metrics.cached_tokens += usage_metrics.get(
+                        "cached_tokens", 0
+                    )
+
+                except Exception as e:
+                    answers.append(f"Error: {str(e)}")
+
+            return answers, metrics
+
+    def _calculate_efficiency(
+        self, individual_metrics: ProcessingMetrics, batch_metrics: ProcessingMetrics
+    ) -> Dict[str, Any]:
+        """Calculate efficiency metrics between individual and batch processing"""
+        return track_efficiency(
+            individual_calls=individual_metrics.calls,
+            batch_calls=batch_metrics.calls,
+            individual_prompt_tokens=individual_metrics.prompt_tokens,
+            individual_output_tokens=individual_metrics.output_tokens,
+            individual_cached_tokens=individual_metrics.cached_tokens,
+            batch_prompt_tokens=batch_metrics.prompt_tokens,
+            batch_output_tokens=batch_metrics.output_tokens,
+            batch_cached_tokens=batch_metrics.cached_tokens,
+            individual_time=individual_metrics.time,
+            batch_time=batch_metrics.time,
+            include_cache_metrics=True,
         )
-        return self.process_questions(content, questions, **kwargs)
 
-    def process_file_questions(
-        self, file_path: Union[str, Path], questions: List[str], **kwargs
-    ):
-        """Deprecated: use process_questions() instead"""
-        warnings.warn(
-            "process_file_questions() is deprecated. Use process_questions() instead.",
-            DeprecationWarning,
-            stacklevel=2,
-        )
-        return self.process_questions(file_path, questions, **kwargs)
+    # Cache management methods
 
-    def process_youtube_questions(
-        self, youtube_url: str, questions: List[str], **kwargs
-    ):
-        """Deprecated: use process_questions() instead"""
-        warnings.warn(
-            "process_youtube_questions() is deprecated. Use process_questions() instead.",
-            DeprecationWarning,
-            stacklevel=2,
-        )
-        return self.process_questions(youtube_url, questions, **kwargs)
+    def get_cache_efficiency_summary(self) -> Optional[Dict[str, Any]]:
+        """Get cache efficiency summary from the underlying client"""
+        if hasattr(self.client, "get_cache_metrics"):
+            return self.client.get_cache_metrics()
+        return None
 
-    def process_directory_questions(
-        self, directory_path: Union[str, Path], questions: List[str], **kwargs
-    ):
-        """Deprecated: use process_questions() instead"""
-        warnings.warn(
-            "process_directory_questions() is deprecated. Use process_questions() instead.",
-            DeprecationWarning,
-            stacklevel=2,
-        )
-        return self.process_questions(directory_path, questions, **kwargs)
-
-    def process_mixed_content_questions(
-        self, mixed_content: List[Union[str, Path]], questions: List[str], **kwargs
-    ):
-        """Deprecated: use process_questions() instead"""
-        warnings.warn(
-            "process_mixed_content_questions() is deprecated. Use process_questions() instead.",
-            DeprecationWarning,
-            stacklevel=2,
-        )
-        return self.process_questions(mixed_content, questions, **kwargs)
+    def cleanup_caches(self) -> int:
+        """Clean up expired caches"""
+        if hasattr(self.client, "cleanup_expired_caches"):
+            return self.client.cleanup_expired_caches()
+        return 0

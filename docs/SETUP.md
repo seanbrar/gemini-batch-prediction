@@ -16,8 +16,9 @@ Get your API key from [Google AI Studio](https://ai.dev/) and configure it using
 ```bash
 # Create .env file or export directly
 GEMINI_API_KEY=your_api_key_here
-GEMINI_MODEL=gemini-2.0-flash  # Optional
-GEMINI_TIER=free               # Options: free, tier_1, tier_2, tier_3
+GEMINI_MODEL=gemini-2.0-flash       # Optional
+GEMINI_TIER=free                    # Options: free, tier_1, tier_2, tier_3
+GEMINI_ENABLE_CACHING=true          # Enable context caching for cost optimization
 ```
 
 > **Note**: Free tier limits vary by model (typically 10-30 requests/minute). For higher limits, enable billing in Google AI Studio.
@@ -34,7 +35,7 @@ Automatically reads from environment variables:
 from gemini_batch import GeminiClient, BatchProcessor
 
 # Uses GEMINI_API_KEY from environment
-client = GeminiClient()
+client = GeminiClient.from_env()
 processor = BatchProcessor()
 ```
 
@@ -43,8 +44,8 @@ processor = BatchProcessor()
 Explicitly provide configuration:
 
 ```python
-# Direct initialization
-client = GeminiClient(
+# Direct initialization with parameters
+client = GeminiClient.from_env(
     api_key="your_api_key_here",
     model_name="gemini-2.0-flash",
     enable_caching=False,        # Optional: enable response caching
@@ -67,7 +68,7 @@ config = ConfigManager(
     tier=APITier.FREE
 )
 
-client = GeminiClient.from_config(config)
+client = GeminiClient.from_config_manager(config)
 ```
 
 ### 4. Factory Methods
@@ -87,7 +88,7 @@ client = GeminiClient.from_env(model_name="gemini-1.5-pro")
 Use one client configuration across multiple components:
 
 ```python
-client = GeminiClient(api_key="your_key")
+client = GeminiClient.from_env(api_key="your_key")
 processor = BatchProcessor(client=client)  # Reuses client config
 ```
 
@@ -98,7 +99,7 @@ processor = BatchProcessor(client=client)  # Reuses client config
 ```python
 from gemini_batch import GeminiClient
 
-client = GeminiClient()
+client = GeminiClient.from_env()
 response = client.generate_content("What is artificial intelligence?")
 print(response)
 ```
@@ -143,7 +144,7 @@ The `process_questions()` method supports text, files, URLs, and mixed content. 
 Check your setup before processing:
 
 ```python
-client = GeminiClient()
+client = GeminiClient.from_env()
 config = client.get_config_summary()
 print(f"Using {config['tier_name']} with {config['client_model_name']}")
 print(f"API key configured: {config['api_key_present']}")
@@ -155,7 +156,7 @@ print(f"API key configured: {config['api_key_present']}")
 from gemini_batch.exceptions import MissingKeyError, APIError
 
 try:
-    client = GeminiClient()
+    client = GeminiClient.from_env()
     response = client.generate_content("Hello")
 except MissingKeyError as e:
     print(f"API key required: {e}")
@@ -177,7 +178,7 @@ print("API key present:", bool(os.getenv('GEMINI_API_KEY')))
 **Rate limit errors**
 ```python
 # Check your current tier configuration
-client = GeminiClient()
+client = GeminiClient.from_env()
 config = client.get_config_summary()
 print(f"Tier: {config['tier_name']}")
 print(f"Rate limit: {client.rate_limit_requests} requests/minute")
