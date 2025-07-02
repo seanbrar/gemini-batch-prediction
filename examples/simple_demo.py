@@ -17,18 +17,24 @@ def main():
 
     processor = BatchProcessor()
 
-    # Show it just works
     content = "Machine learning enables pattern recognition in data."
     questions = ["What is machine learning?", "What does it enable?"]
 
     results = processor.process_questions(content, questions)
 
     print("📝 Results:")
-    for i, answer in enumerate(results['answers'], 1):
+    for i, answer in enumerate(results["answers"], 1):
         print(f"{i}. {answer}")
 
     print("\n✨ Same interface works with files, URLs, videos, and more!")
-    print("See examples/ for advanced features and efficiency analysis.")
+    print("💡 For large content + multiple questions, try context caching:")
+    print(
+        "   processor = BatchProcessor(client=GeminiClient.from_env(enable_caching=True))"
+    )
+    print(
+        "\nSee examples/ for caching demos, advanced features, and efficiency analysis."
+    )
+
 
 if __name__ == "__main__":
     main()

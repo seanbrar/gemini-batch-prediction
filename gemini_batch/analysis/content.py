@@ -2,8 +2,9 @@ from dataclasses import dataclass
 from pathlib import Path
 from typing import Dict, List, Optional, Union
 
+from ..client.content_processor import ContentProcessor
 from ..exceptions import ValidationError
-from ..files import FileOperations, FileType
+from ..files import FileType
 
 
 @dataclass
@@ -27,10 +28,12 @@ class ContentAnalyzer:
         "pdf_url_api": "arxiv_paper",
         "url_download": "web_content",
         "directory_scan": "file_directory",
+        "error": "error",
+        "empty_directory": "empty_directory",
     }
 
     def __init__(self):
-        self.file_ops = FileOperations()
+        self.content_processor = ContentProcessor()
 
     def analyze_sources(
         self,
@@ -41,8 +44,11 @@ class ContentAnalyzer:
         if not sources:
             raise ValidationError("Sources cannot be empty")
 
-        # Expand sources to get actual count (handles directories)
-        expanded_sources = self._expand_sources(sources)
+        # Use ContentProcessor to expand sources (handles directories)
+        extracted_contents = self.content_processor.process_content(sources)
+
+        # Convert to analysis format
+        expanded_sources = self._convert_to_analysis_format(extracted_contents)
 
         # Categorize sources
         breakdown = self._categorize_sources(expanded_sources)
@@ -63,58 +69,22 @@ class ContentAnalyzer:
             efficiency_factor=efficiency_factor,
         )
 
-    def _expand_sources(self, sources) -> List[Dict[str, any]]:
-        """Expand sources using existing file operations - focus on counting"""
-        if not isinstance(sources, list):
-            sources = [sources]
-
+    def _convert_to_analysis_format(self, extracted_contents) -> List[Dict[str, any]]:
+        """Convert ExtractedContent list to analysis format"""
         expanded = []
 
-        for source in sources:
-            try:
-                # Use existing file operations to handle directories, etc.
-                extracted = self.file_ops.process_source(source)
-
-                # If it's a directory, we need to count the actual files
-                if extracted.extraction_method == "directory_scan":
-                    # Get directory contents
-                    directory_path = Path(extracted.metadata["directory_path"])
-                    scan_results = self.file_ops.scan_directory(directory_path)
-
-                    # Add each file as a separate source
-                    for file_type, files in scan_results.items():
-                        for file_info in files:
-                            expanded.append(
-                                {
-                                    "source": file_info.path,
-                                    "type": "local_file",
-                                    "file_type": file_type,
-                                    "from_directory": str(directory_path),
-                                }
-                            )
-                else:
-                    # Single source
-                    expanded.append(
-                        {
-                            "source": source,
-                            "type": self._classify_source_type(extracted),
-                            "file_type": extracted.file_info.file_type
-                            if extracted.file_info
-                            else FileType.UNKNOWN,
-                            "extraction_method": extracted.extraction_method,
-                        }
-                    )
-
-            except Exception as e:
-                # For demo purposes, we want to be lenient but informative
-                expanded.append(
-                    {
-                        "source": source,
-                        "type": "unknown",
-                        "file_type": FileType.UNKNOWN,
-                        "error": str(e),
-                    }
-                )
+        for extracted in extracted_contents:
+            expanded.append(
+                {
+                    "source": extracted.file_info.path,
+                    "type": self._classify_source_type(extracted),
+                    "file_type": extracted.file_info.file_type,
+                    "extraction_method": extracted.extraction_method,
+                    "error": extracted.metadata.get("error")
+                    if extracted.extraction_method == "error"
+                    else None,
+                }
+            )
 
         return expanded
 

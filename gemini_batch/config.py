@@ -5,7 +5,7 @@ Configuration system for rate limiting and model capabilities
 from dataclasses import dataclass
 from enum import Enum
 import os
-from typing import Dict, Optional
+from typing import Dict, Optional, Union
 
 from .exceptions import GeminiBatchError, MissingKeyError
 
@@ -17,13 +17,55 @@ class APITier(Enum):
     TIER_3 = "tier_3"
 
 
+class CachingRecommendation(Enum):
+    """Recommended caching strategy for a given context"""
+
+    IMPLICIT = "implicit"
+    EXPLICIT = "explicit"
+    NONE = "none"
+
+
+@dataclass
+class CachingCapabilities:
+    """Caching capabilities for a model"""
+
+    supports_implicit: bool = False
+    supports_explicit: bool = True  # Default to explicit for all caching-enabled models
+    implicit_minimum_tokens: Optional[int] = None
+    explicit_minimum_tokens: int = 4096
+
+    def can_use_implicit_caching(self, token_count: int) -> bool:
+        """Check if implicit caching is available for given token count"""
+        return (
+            self.supports_implicit
+            and self.implicit_minimum_tokens is not None
+            and token_count >= self.implicit_minimum_tokens
+        )
+
+    def can_use_explicit_caching(self, token_count: int) -> bool:
+        """Check if explicit caching is available for given token count"""
+        return self.supports_explicit and token_count >= self.explicit_minimum_tokens
+
+
 @dataclass
 class ModelCapabilities:
     """Intrinsic model capabilities (same across all tiers)"""
 
-    supports_caching: bool
     supports_multimodal: bool
     context_window: int
+    caching: Optional[CachingCapabilities] = None
+
+    def get_caching(self) -> CachingCapabilities:
+        """Get caching capabilities with fallback for backwards compatibility"""
+        if self.caching is not None:
+            return self.caching
+
+        # No caching support at all if no explicit caching configuration
+        return CachingCapabilities(
+            supports_implicit=False,
+            supports_explicit=False,
+            explicit_minimum_tokens=float("inf"),  # Impossible threshold
+        )
 
 
 @dataclass
@@ -40,49 +82,77 @@ class ModelLimits:
 
     requests_per_minute: int
     tokens_per_minute: int
-    # TODO: Distinguish between explicit cache support (all models)
-    # and implicit cache support (2.5 models only)
-    supports_caching: bool
     supports_multimodal: bool
     context_window: int
+    caching: Optional[CachingCapabilities] = None
+
+
+# Helper factory functions for common caching patterns
+def _gemini_25_flash_caching() -> CachingCapabilities:
+    """Caching capabilities for Gemini 2.5 Flash models"""
+    return CachingCapabilities(
+        supports_implicit=True,
+        supports_explicit=True,
+        implicit_minimum_tokens=1024,
+        explicit_minimum_tokens=1024,
+    )
+
+
+def _gemini_25_pro_caching() -> CachingCapabilities:
+    """Caching capabilities for Gemini 2.5 Pro models"""
+    return CachingCapabilities(
+        supports_implicit=True,
+        supports_explicit=True,
+        implicit_minimum_tokens=2048,
+        explicit_minimum_tokens=2048,
+    )
+
+
+def _explicit_only_caching(minimum_tokens: int = 4096) -> CachingCapabilities:
+    """Caching capabilities for explicit-only models (2.0, 1.5 family)"""
+    return CachingCapabilities(
+        supports_implicit=False,
+        supports_explicit=True,
+        explicit_minimum_tokens=minimum_tokens,
+    )
 
 
 # Base model capabilities (shared across tiers)
 MODEL_CAPABILITIES = {
     "gemini-2.5-flash-preview-05-20": ModelCapabilities(
-        supports_caching=True,
         supports_multimodal=True,
         context_window=1_000_000,
+        caching=_gemini_25_flash_caching(),
     ),
     "gemini-2.5-pro-preview-06-05": ModelCapabilities(
-        supports_caching=True,
         supports_multimodal=True,
         context_window=2_000_000,
+        caching=_gemini_25_pro_caching(),
     ),
     "gemini-2.0-flash": ModelCapabilities(
-        supports_caching=True,
         supports_multimodal=True,
         context_window=1_000_000,
+        caching=_explicit_only_caching(),
     ),
     "gemini-2.0-flash-lite": ModelCapabilities(
-        supports_caching=True,
         supports_multimodal=True,
         context_window=1_000_000,
+        caching=_explicit_only_caching(),
     ),
     "gemini-1.5-flash": ModelCapabilities(
-        supports_caching=True,
         supports_multimodal=True,
         context_window=1_000_000,
+        caching=_explicit_only_caching(),
     ),
     "gemini-1.5-flash-8b": ModelCapabilities(
-        supports_caching=True,
         supports_multimodal=True,
         context_window=1_000_000,
+        caching=_explicit_only_caching(),
     ),
     "gemini-1.5-pro": ModelCapabilities(
-        supports_caching=True,
         supports_multimodal=True,
         context_window=2_000_000,
+        caching=_explicit_only_caching(),
     ),
 }
 
@@ -265,9 +335,9 @@ class ConfigManager:
         return ModelLimits(
             requests_per_minute=rate_limits.requests_per_minute,
             tokens_per_minute=rate_limits.tokens_per_minute,
-            supports_caching=capabilities.supports_caching,
             supports_multimodal=capabilities.supports_multimodal,
             context_window=capabilities.context_window,
+            caching=capabilities.caching,
         )
 
     def select_optimal_model(
@@ -303,6 +373,53 @@ class ConfigManager:
     def requires_api_key(self) -> bool:
         """Check if current configuration requires an API key"""
         return self.api_key is not None
+
+    def can_use_caching(
+        self, model: str, token_count: int, prefer_implicit: bool = True
+    ) -> Dict[str, Union[bool, str]]:
+        """Check caching availability for a model and token count"""
+        capabilities = MODEL_CAPABILITIES.get(model)
+        if not capabilities:
+            return {
+                "implicit": False,
+                "explicit": False,
+                "recommended": CachingRecommendation.NONE.value,
+            }
+
+        caching = capabilities.get_caching()
+
+        implicit_available = caching.can_use_implicit_caching(token_count)
+        explicit_available = caching.can_use_explicit_caching(token_count)
+
+        # Determine recommendation using enum
+        if implicit_available and prefer_implicit:
+            recommendation = CachingRecommendation.IMPLICIT
+        elif explicit_available:
+            recommendation = CachingRecommendation.EXPLICIT
+        else:
+            recommendation = CachingRecommendation.NONE
+
+        return {
+            "implicit": implicit_available,
+            "explicit": explicit_available,
+            "recommended": recommendation.value,
+        }
+
+    def get_caching_thresholds(self, model: str) -> Dict[str, Optional[int]]:
+        """Get minimum token thresholds for caching types"""
+        capabilities = MODEL_CAPABILITIES.get(model)
+        if not capabilities:
+            return {"implicit": None, "explicit": None}
+
+        caching = capabilities.get_caching()
+        return {
+            "implicit": caching.implicit_minimum_tokens
+            if caching.supports_implicit
+            else None,
+            "explicit": caching.explicit_minimum_tokens
+            if caching.supports_explicit
+            else None,
+        }
 
     def get_config_summary(self) -> Dict[str, str]:
         """Get summary of current configuration for debugging"""

@@ -371,7 +371,7 @@ def run_efficiency_experiment(
 
     # Quality analysis
     individual_answers = results.get("individual_answers", [])
-    batch_answers = results.get("batch_answers", [])
+    batch_answers = results.get("answers", [])
 
     quality_score = calculate_quality_score(individual_answers, batch_answers)
     if quality_score is not None:
