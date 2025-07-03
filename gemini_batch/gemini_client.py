@@ -9,6 +9,9 @@ from typing import Any, Callable, Dict, List, Optional, Union
 from google import genai
 from google.genai import types
 
+from gemini_batch.efficiency.metrics import extract_usage_metrics
+from gemini_batch.response.validation import validate_structured_response
+
 from .client.cache_manager import CacheManager, CacheStrategy
 from .client.configuration import ClientConfiguration, RateLimitConfig
 from .client.content_processor import ContentProcessor
@@ -21,17 +24,13 @@ from .constants import (
     DEFAULT_CACHE_TTL,
     FALLBACK_REQUESTS_PER_MINUTE,
     FALLBACK_TOKENS_PER_MINUTE,
-    FILE_POLL_INTERVAL,
-    FILE_PROCESSING_TIMEOUT,
     LARGE_TEXT_THRESHOLD,
     MAX_RETRIES,
     MIN_TEXT_LENGTH_FOR_CACHE_ANALYSIS,
     RATE_LIMIT_RETRY_DELAY,
     RETRY_BASE_DELAY,
 )
-from .efficiency import extract_usage_metrics
 from .exceptions import APIError
-from .response import validate_structured_response
 
 
 class GeminiClient:
@@ -291,12 +290,11 @@ class GeminiClient:
         extracted_contents = self.content_processor.process_content(content)
 
         # Convert to API parts with caching-aware upload decisions
-        parts = []
-        for extracted in extracted_contents:
-            part = self._create_api_part(
-                extracted, cache_enabled=self.config.enable_caching
-            )
-            parts.append(part)
+        parts = self.content_processor.create_api_parts(
+            extracted_contents,
+            cache_enabled=self.config.enable_caching,
+            client=self.client,
+        )
 
         # Add prompts using PromptBuilder
         if is_batch:
@@ -336,93 +334,6 @@ class GeminiClient:
                 self.error_handler.handle_generation_error(
                     e, response_schema, content_type, cache_enabled
                 )
-
-    def _create_api_part(
-        self, extracted_content, cache_enabled: bool = False
-    ) -> types.Part:
-        """Convert extracted content to API part with consolidated upload decision logic"""
-        # Get base processing strategy and adjust for caching if needed
-        strategy = extracted_content.processing_strategy
-
-        # If caching is enabled and this is multimodal content set for inline processing,
-        # force upload for cache compatibility
-        if (
-            cache_enabled
-            and strategy == "inline"
-            and self.content_processor.is_multimodal_content(extracted_content)
-        ):
-            strategy = "upload"
-
-        if strategy == "text_only":
-            return types.Part(text=extracted_content.content)
-        elif strategy == "url":
-            # Handle URL-based content (YouTube, PDF URLs)
-            url = extracted_content.metadata.get("url")
-            if url:
-                return types.Part(file_data=types.FileData(file_uri=url))
-            else:
-                # Fallback to text if URL is missing
-                return types.Part(text=extracted_content.content)
-        elif strategy == "upload":
-            return self._upload_file_if_needed(extracted_content)
-        else:  # strategy == "inline" or fallback
-            return self._create_inline_part(extracted_content)
-
-    def _upload_file_if_needed(self, extracted_content) -> types.Part:
-        """Handle upload when content requires it - API operation"""
-        if not extracted_content.file_path:
-            raise APIError("Content requires upload but no file path available")
-
-        uploaded_file = self._upload_file(extracted_content.file_path)
-
-        # Include mime_type in FileData for cache compatibility
-        mime_type = extracted_content.metadata.get("mime_type") or getattr(
-            uploaded_file, "mime_type", None
-        )
-
-        return types.Part(
-            file_data=types.FileData(file_uri=uploaded_file.uri, mime_type=mime_type)
-        )
-
-    def _create_inline_part(self, extracted_content) -> types.Part:
-        """Create inline part from extracted content"""
-        if extracted_content.file_path:
-            # File path - read file data
-            content_bytes = extracted_content.file_path.read_bytes()
-        else:
-            # Convert string content to bytes
-            content_bytes = extracted_content.content.encode("utf-8")
-
-        return types.Part.from_bytes(
-            data=content_bytes,
-            mime_type=extracted_content.metadata.get("mime_type", "text/plain"),
-        )
-
-    def _upload_file(self, file_path: Path):
-        """Upload file to Gemini Files API - API operation belongs here"""
-        try:
-            uploaded_file = self.client.files.upload(file=str(file_path))
-            self._wait_for_file_processing(uploaded_file)
-            return uploaded_file
-        except Exception as e:
-            raise APIError(f"Failed to upload file {file_path}: {e}") from e
-
-    def _wait_for_file_processing(
-        self, uploaded_file, timeout: int = FILE_PROCESSING_TIMEOUT
-    ):
-        """Wait for uploaded file to finish processing"""
-        start_time = time.time()
-        poll_interval = FILE_POLL_INTERVAL
-
-        while uploaded_file.state.name == "PROCESSING":
-            if time.time() - start_time > timeout:
-                raise APIError(f"File processing timeout: {uploaded_file.display_name}")
-
-            time.sleep(poll_interval)
-            uploaded_file = self.client.files.get(name=uploaded_file.name)
-
-        if uploaded_file.state.name == "FAILED":
-            raise APIError(f"File processing failed: {uploaded_file.display_name}")
 
     def _should_attempt_caching(self, parts: List[types.Part]) -> bool:
         """Quick check if content is worth analyzing for caching"""
