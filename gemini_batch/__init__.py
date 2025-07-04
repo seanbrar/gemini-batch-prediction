@@ -7,6 +7,12 @@ import importlib.metadata
 from .batch_processor import BatchProcessor
 from .client.cache_manager import CacheInfo, CacheManager, CacheStrategy
 from .config import ConfigManager
+from .conversation import (
+    ConversationSession,
+    ConversationTurn,
+    create_conversation,
+    load_conversation,
+)
 from .exceptions import APIError, GeminiBatchError, MissingKeyError, NetworkError
 from .files import FileType
 from .gemini_client import GeminiClient
@@ -31,4 +37,9 @@ __all__ = [
     "CacheManager",
     "CacheStrategy",
     "CacheInfo",
+    # Conversation
+    "ConversationSession",
+    "ConversationTurn",
+    "create_conversation",
+    "load_conversation",
 ]
