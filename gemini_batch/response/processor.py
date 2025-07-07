@@ -375,6 +375,7 @@ class ResponseProcessor:
                         "errors": response.get(
                             "validation_errors", ["Structured parsing failed"]
                         ),
+                        "structured_data": None,
                     }
             else:
                 # Simple response handling for structured
@@ -384,6 +385,13 @@ class ResponseProcessor:
                     )
                 else:  # Individual response
                     answers = str(response) if response is not None else ""
+
+                structured_quality = {
+                    "confidence": 0.2,
+                    "method": "simple_response_fallback",
+                    "errors": ["No structured response dict"],
+                    "structured_data": None,
+                }
         else:
             # Handle unstructured responses
             if isinstance(response, dict):

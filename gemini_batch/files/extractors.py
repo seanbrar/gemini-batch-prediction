@@ -48,7 +48,9 @@ class ExtractedContent:
     def processing_strategy(self) -> str:
         """How this content should be processed - 'upload', 'inline', 'text_only', 'url'"""
         if self.extraction_method in ["youtube_api", "pdf_url_api"]:
-            return "url"
+            return "url"  # Direct API (YouTube)
+        elif self.extraction_method == "arxiv_pdf_download":
+            return "upload"  # Download + Upload (arXiv PDFs)
         elif self.requires_api_upload:
             return "upload"
         elif self.content:
@@ -156,7 +158,7 @@ class MediaExtractor(BaseExtractor):
 
 
 class URLExtractor(BaseExtractor):
-    """Extract content from URLs by downloading and processing, including PDF URLs"""
+    """Extract content from URLs - supports arXiv PDFs only"""
 
     def __init__(self, timeout: int = 30, max_size: int = utils.MAX_FILE_SIZE):
         super().__init__(max_size)
@@ -164,28 +166,29 @@ class URLExtractor(BaseExtractor):
         self._content_cache = {}  # Cache downloaded content to avoid double downloads
 
     def can_extract(self, source: str) -> bool:
-        """Check if source is a URL (non-YouTube)"""
+        """Check if source is a supported URL (arXiv PDFs only)"""
         if not utils.is_url(source):
             return False
 
-        # Exclude YouTube URLs - they're handled separately
-        return not utils.is_youtube_url(source)
+        # Exclude YouTube URLs - they're handled by YouTubeExtractor
+        if utils.is_youtube_url(source):
+            return False
+
+        # Only support arXiv PDF URLs
+        return self._is_arxiv_pdf_url(source)
 
     def can_extract_source(self, source: Union[str, Path]) -> bool:
-        """Check if source is a URL (non-YouTube) - includes PDF URLs"""
+        """Check if source is a supported URL (arXiv PDFs only)"""
         return self.can_extract(str(source))
 
-    def _is_pdf_url(self, url: str) -> bool:
-        """Check if URL is a PDF based on extension and content patterns"""
+    def _is_arxiv_pdf_url(self, url: str) -> bool:
+        """Check if URL is a supported arXiv PDF"""
         url_lower = url.lower()
 
-        # Quick check for obvious PDF URLs
-        if url_lower.endswith(".pdf"):
-            return True
+        # Specific arXiv PDF patterns
+        arxiv_patterns = ["arxiv.org/pdf/", "export.arxiv.org/pdf/"]
 
-        # Check for common PDF hosting patterns
-        pdf_indicators = ["arxiv.org/pdf", "/pdf/", ".pdf"]
-        return any(indicator in url_lower for indicator in pdf_indicators)
+        return any(pattern in url_lower for pattern in arxiv_patterns)
 
     def _create_http_client(self) -> httpx.Client:
         """Create a configured HTTP client - centralized configuration"""
@@ -287,8 +290,8 @@ class URLExtractor(BaseExtractor):
         return "application/octet-stream"
 
     def _is_large_pdf_url(self, url: str) -> bool:
-        """Check if PDF URL is large enough to warrant direct API handling"""
-        if not self._is_pdf_url(url):
+        """Check if arXiv PDF URL is large enough to warrant Files API handling"""
+        if not self._is_arxiv_pdf_url(url):
             return False
 
         try:
@@ -319,62 +322,59 @@ class URLExtractor(BaseExtractor):
             )
 
     def extract_from_url(self, url: str) -> ExtractedContent:
-        """Extract content from URL using efficient HEAD request first"""
-        # Validate video URLs early
-        self._validate_video_url(url)
+        """Extract arXiv PDF URLs for processing"""
 
-        # Check if this is a large PDF that should use special API handling
-        if self._is_large_pdf_url(url):
-            return self._extract_large_pdf_url(url)
+        # Validate that this is a supported URL
+        if not self._is_arxiv_pdf_url(url):
+            raise GeminiBatchError(
+                f"Unsupported URL: {url}. "
+                f"Only arXiv PDF URLs (arxiv.org/pdf/) are supported. "
+                f"For YouTube videos, use the direct URL."
+            )
 
-        # Regular URL processing (including small PDFs)
+        # Get content metadata
         mime_type, content_size = self._get_content_metadata(url)
 
         # Validate size
         if content_size > self.max_size:
             raise GeminiBatchError(
-                f"URL content too large: {content_size / (1024**2):.1f}MB "
+                f"PDF too large: {content_size / (1024**2):.1f}MB "
                 f"(max: {self.max_size / (1024**2):.1f}MB)"
             )
 
-        # Determine file type from MIME type
-        file_type, detected_mime = utils.determine_file_type(Path(url), mime_type)
-
-        # Create synthetic FileInfo for URL content
+        # Create FileInfo for arXiv PDF
         url_path = Path(url)
         file_info = FileInfo(
             path=url_path,
-            file_type=file_type,
+            file_type=FileType.PDF,
             size=content_size,
-            extension=self._get_extension_from_url(url),
-            name=url_path.name or "downloaded_content",
+            extension=".pdf",
+            name=f"arxiv_paper_{url_path.name.replace('/', '_')}",
             relative_path=url_path,
-            mime_type=detected_mime or mime_type,
+            mime_type="application/pdf",
         )
 
-        # Create metadata with PDF-aware source type
-        source_type = "pdf_url_small" if self._is_pdf_url(url) else "url"
+        # Determine if the file should be uploaded to the Files API
+        requires_upload = utils.requires_files_api(content_size)
 
         metadata = {
             "url": url,
             "file_size": content_size,
             "file_size_mb": round(content_size / (1024 * 1024), 2),
-            "mime_type": detected_mime or mime_type,
-            "requires_api_upload": utils.requires_files_api(content_size),
-            "processing_method": "files_api"
-            if utils.requires_files_api(content_size)
-            else "inline",
-            "source_type": source_type,
+            "mime_type": "application/pdf",
+            "requires_api_upload": requires_upload,
+            "processing_method": "files_api" if requires_upload else "inline",
+            "source_type": "arxiv_pdf",
             "download_method": "httpx",
             "content_cached": url in self._content_cache,
         }
 
         return ExtractedContent(
-            content="",  # No text content - raw bytes will be used
+            content="",  # No content - PDF will be downloaded when needed
             metadata=metadata,
             file_info=file_info,
-            file_path=None,  # No local file path for URLs
-            extraction_method="url_download",
+            file_path=None,  # No local file path - URL will be downloaded
+            extraction_method="arxiv_pdf_download",
         )
 
     def _extract_large_pdf_url(self, url: str) -> ExtractedContent:

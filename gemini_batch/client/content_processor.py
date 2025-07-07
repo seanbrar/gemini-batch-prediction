@@ -3,10 +3,12 @@ Content processing orchestration - converts multiple mixed sources
 into processed ExtractedContent objects for API consumption
 """
 
+import io
 from pathlib import Path
 from typing import Any, List, Optional, Union
 
 from google.genai import types
+import httpx
 
 from ..exceptions import APIError
 from ..files import FileOperations
@@ -163,12 +165,6 @@ class ContentProcessor:
         """
         Coordinate conversion of extracted content to API parts.
 
-        High-level components call this and don't need to know about:
-        - Upload decisions
-        - Multimodal detection
-        - Caching implications
-        - File upload coordination
-
         Args:
             extracted_contents: List of processed content
             cache_enabled: Whether caching is enabled (affects upload decisions)
@@ -220,23 +216,52 @@ class ContentProcessor:
         self, extracted: ExtractedContent, client: Optional[Any]
     ) -> types.Part:
         """Coordinate file upload through low-level utility"""
+
+        # Handle arXiv PDFs that need download-first-then-upload
+        if extracted.extraction_method == "arxiv_pdf_download":
+            return self._handle_arxiv_pdf_upload(extracted, client)
+
+        # Regular file upload path (existing logic unchanged)
         if not extracted.file_path:
             raise APIError("Content requires upload but no file path available")
 
         if client is None:
             raise APIError("Client required for file upload but not provided")
 
-        # Coordinate with low-level file upload manager
         upload_manager = self._get_file_upload_manager(client)
         uploaded_file = upload_manager.upload_and_wait(extracted.file_path)
 
-        # Build API part with mime_type for cache compatibility
         mime_type = extracted.metadata.get("mime_type") or getattr(
             uploaded_file, "mime_type", None
         )
         return types.Part(
             file_data=types.FileData(file_uri=uploaded_file.uri, mime_type=mime_type)
         )
+
+    def _handle_arxiv_pdf_upload(
+        self, extracted: ExtractedContent, client: Optional[Any]
+    ) -> types.Part:
+        """Handle arXiv PDF upload using Files API (for large PDFs)"""
+
+        if client is None:
+            raise APIError("Client required for arXiv PDF upload but not provided")
+
+        source_url = extracted.metadata.get("url")
+        if not source_url:
+            raise APIError("arXiv PDF extraction missing URL")
+
+        # Download content to memory
+        content_bytes = self._download_url_content(extracted, source_url)
+
+        # Use Files API with BytesIO
+        doc_io = io.BytesIO(content_bytes)
+
+        uploaded_file = client.files.upload(
+            file=doc_io, config={"mime_type": "application/pdf"}
+        )
+
+        # Return the uploaded file reference (this becomes a Part automatically)
+        return uploaded_file
 
     def _create_url_part(self, extracted: ExtractedContent) -> types.Part:
         """Create part from URL-based content (YouTube, PDF URLs)"""
@@ -248,15 +273,60 @@ class ContentProcessor:
             return types.Part(text=extracted.content)
 
     def _create_inline_part(self, extracted: ExtractedContent) -> types.Part:
-        """Create inline part from extracted content"""
+        """Create inline part from extracted content - handles URLs and files"""
         if extracted.file_path:
             # File path - read file data
             content_bytes = extracted.file_path.read_bytes()
+            mime_type = extracted.metadata.get("mime_type", "application/octet-stream")
         else:
-            # Convert string content to bytes
-            content_bytes = extracted.content.encode("utf-8")
+            # Check if this is URL content that needs to be downloaded
+            source_url = extracted.metadata.get("url")
+            if source_url:
+                # URL content - download it (restore the missing logic)
+                content_bytes = self._download_url_content(extracted, source_url)
+                mime_type = extracted.metadata.get(
+                    "mime_type", "application/octet-stream"
+                )
+            else:
+                # Text content - encode to bytes
+                content_bytes = extracted.content.encode("utf-8")
+                mime_type = "text/plain"
 
         return types.Part.from_bytes(
             data=content_bytes,
-            mime_type=extracted.metadata.get("mime_type", "text/plain"),
+            mime_type=mime_type,
         )
+
+    def _download_url_content(
+        self, extracted: ExtractedContent, source_url: str
+    ) -> bytes:
+        """Download URL content"""
+
+        # Check if content is cached to avoid double download
+        if extracted.metadata.get("content_cached", False):
+            # Get cached content from URLExtractor
+            url_extractor = None
+            for extractor in self.file_ops.extractor_manager.extractors:
+                if hasattr(extractor, "get_cached_content"):
+                    url_extractor = extractor
+                    break
+
+            if url_extractor:
+                file_data = url_extractor.get_cached_content(source_url)
+                if file_data is None:
+                    # Cache miss - download using extractor's method
+                    file_data = url_extractor.download_content_if_needed(source_url)
+            else:
+                # Fallback to direct download
+                with httpx.Client(timeout=30) as client:
+                    response = client.get(source_url)
+                    response.raise_for_status()
+                    file_data = response.content
+        else:
+            # Content not cached - download it
+            with httpx.Client(timeout=30) as client:
+                response = client.get(source_url)
+                response.raise_for_status()
+                file_data = response.content
+
+        return file_data

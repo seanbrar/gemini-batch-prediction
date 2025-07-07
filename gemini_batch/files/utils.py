@@ -477,6 +477,15 @@ def is_text_content(text: str, original_source: Union[str, Path]) -> bool:
         path = Path(text)
         if path.exists():
             return False
+
+        # Even if path doesn't exist, check if it has a file extension
+        # This handles cases where relative paths don't exist from current directory
+        if path.suffix:
+            extension = path.suffix.lower()
+            # Use existing comprehensive extension checking
+            if extension in ALL_SUPPORTED_EXTENSIONS:
+                return False
+
     except (OSError, ValueError):
         pass
 
