@@ -284,8 +284,18 @@ class BatchProcessor:
         # Optionally process individually for comparison
         individual_metrics = ProcessingMetrics.empty()
         individual_answers = None
+        batch_failed = False
 
-        if config.compare_methods:
+        # If batch_metrics is actually from individual fallback, assign to individual
+        if batch_metrics.calls == len(questions) and batch_metrics.prompt_tokens > 0:
+            # This is a fallback case - individual processing was used
+            individual_metrics = batch_metrics
+            batch_metrics = ProcessingMetrics.empty()
+            individual_answers = batch_answers
+            # Do not replace batch_answers with None; keep the actual answers for the result
+            batch_failed = True
+
+        if config.compare_methods and not batch_failed:
             individual_answers, individual_metrics = self._process_individual(
                 content, questions, config
             )
@@ -325,7 +335,7 @@ class BatchProcessor:
                     questions=[
                         batch_prompt
                     ],  # The builder combines questions into one prompt
-                    return_usage=True,
+                    return_usage=False,  # Let ResponseProcessor handle usage extraction
                     response_schema=config.response_schema,  # Pass schema down
                     **config.options,
                 )
@@ -377,7 +387,7 @@ class BatchProcessor:
                     response = self.client.generate_content(
                         content=content,
                         prompt=question,
-                        return_usage=True,
+                        return_usage=False,  # Let ResponseProcessor handle usage extraction
                         response_schema=config.response_schema,
                         **config.options,
                     )

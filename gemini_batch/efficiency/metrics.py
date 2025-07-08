@@ -5,36 +5,45 @@ Usage metrics extraction from API responses
 from typing import Any, Dict
 
 
+def _get_token_count(usage_obj, attr_name: str) -> int:
+    """Safely extract token count from usage object"""
+    try:
+        value = getattr(usage_obj, attr_name, 0)
+        # Handle None values and ensure we return an int
+        return int(value) if value is not None else 0
+    except (ValueError, TypeError):
+        # Handle cases where the value can't be converted to int
+        return 0
+
+
 def extract_usage_metrics(response) -> Dict[str, int]:
     """Extract token usage from API response"""
+    # Default values
+    prompt_tokens = 0
+    output_tokens = 0
+    cached_tokens = 0
+
     try:
         usage = response.usage_metadata
-        prompt_tokens = getattr(usage, "prompt_token_count", 0) or 0
-        output_tokens = getattr(usage, "candidates_token_count", 0) or 0
-        cached_tokens = getattr(usage, "cached_content_token_count", 0) or 0
+        if usage is not None:
+            # Use getattr with proper defaults and validation
+            prompt_tokens = _get_token_count(usage, "prompt_token_count")
+            output_tokens = _get_token_count(usage, "candidates_token_count")
+            cached_tokens = _get_token_count(usage, "cached_content_token_count")
 
-        return {
-            "prompt_tokens": prompt_tokens,
-            "output_tokens": output_tokens,
-            "cached_tokens": cached_tokens,
-            "total_tokens": prompt_tokens + output_tokens,
-            # Cache-specific metrics
-            "effective_prompt_tokens": prompt_tokens
-            - cached_tokens,  # Non-cached portion
-            "cache_hit_ratio": cached_tokens
-            / max(prompt_tokens, 1),  # Cache efficiency
-            "cache_enabled": cached_tokens > 0,  # Whether caching was used
-        }
     except (AttributeError, TypeError):
-        return {
-            "prompt_tokens": 0,
-            "output_tokens": 0,
-            "cached_tokens": 0,
-            "total_tokens": 0,
-            "effective_prompt_tokens": 0,
-            "cache_hit_ratio": 0.0,
-            "cache_enabled": False,
-        }
+        # Handle cases where usage_metadata doesn't exist or isn't accessible
+        pass
+
+    return {
+        "prompt_tokens": prompt_tokens,
+        "output_tokens": output_tokens,
+        "cached_tokens": cached_tokens,
+        "total_tokens": (prompt_tokens - cached_tokens) + output_tokens,
+        "effective_prompt_tokens": prompt_tokens - cached_tokens,
+        "cache_hit_ratio": cached_tokens / max(prompt_tokens, 1),
+        "cache_enabled": cached_tokens > 0,
+    }
 
 
 def calculate_cache_savings(
@@ -44,6 +53,7 @@ def calculate_cache_savings(
     Calculate cache savings between cached and non-cached usage.
     """
     cached_tokens = usage_with_cache.get("cached_tokens", 0)
+    prompt_tokens = usage_with_cache.get("prompt_tokens", 0)
 
     if cached_tokens == 0:
         return {
@@ -65,8 +75,9 @@ def calculate_cache_savings(
     time_savings_estimate = cached_tokens * 0.9  # 90% time reduction for cached portion
 
     # Cache effectiveness (how much of the potential was cached)
-    cache_effectiveness = cached_tokens / max(
-        usage_with_cache.get("prompt_tokens", 1), 1
+    # If prompt_tokens is 0 but cached_tokens > 0, use cached_tokens / 1
+    cache_effectiveness = (
+        cached_tokens / max(prompt_tokens, 1) if cached_tokens > 0 else 0.0
     )
 
     return {
