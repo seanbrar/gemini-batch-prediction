@@ -4,6 +4,7 @@ Gemini Batch Processing Framework
 
 import importlib.metadata
 
+from .analysis.schema_analyzer import SchemaAnalyzer
 from .batch_processor import BatchProcessor
 from .client.cache_manager import CacheInfo, CacheManager, CacheStrategy
 from .config import ConfigManager
@@ -16,6 +17,7 @@ from .conversation import (
 from .exceptions import APIError, GeminiBatchError, MissingKeyError, NetworkError
 from .files import FileType
 from .gemini_client import GeminiClient
+from .prompts import BatchPromptBuilder, StructuredPromptBuilder
 
 try:
     __version__ = importlib.metadata.version("gemini-batch")
@@ -42,4 +44,8 @@ __all__ = [
     "ConversationTurn",
     "create_conversation",
     "load_conversation",
+    # Structured output components
+    "BatchPromptBuilder",
+    "StructuredPromptBuilder",
+    "SchemaAnalyzer",
 ]

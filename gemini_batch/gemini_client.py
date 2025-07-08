@@ -10,7 +10,6 @@ from google import genai
 from google.genai import types
 
 from gemini_batch.efficiency.metrics import extract_usage_metrics
-from gemini_batch.response.validation import validate_structured_response
 
 from .client.cache_manager import CacheManager, CacheStrategy
 from .client.configuration import ClientConfiguration, RateLimitConfig
@@ -596,9 +595,27 @@ class GeminiClient:
     ) -> Union[str, Dict[str, Any]]:
         """Process API response with optional usage tracking and validation"""
 
-        # Handle structured output with validation
+        # Handle structured output with simple validation
         if response_schema:
-            validation_result = validate_structured_response(response, response_schema)
+            # Simple validation using Pydantic
+            try:
+                if hasattr(response, "parsed") and response.parsed:
+                    parsed_data = response.parsed
+                    success = True
+                    errors = []
+                else:
+                    # Fallback to text parsing
+                    response_text = getattr(response, "text", "")
+                    import json
+
+                    loaded_json = json.loads(response_text)
+                    parsed_data = response_schema.model_validate(loaded_json)
+                    success = True
+                    errors = []
+            except Exception as e:
+                parsed_data = None
+                success = False
+                errors = [str(e)]
 
             if return_usage:
                 # Extract and return with usage information
@@ -611,11 +628,11 @@ class GeminiClient:
 
                 result = {
                     "text": response.text,
-                    "parsed": validation_result.parsed_data,
-                    "structured_success": validation_result.success,
-                    "structured_confidence": validation_result.confidence,
-                    "validation_method": validation_result.validation_method,
-                    "validation_errors": validation_result.errors,
+                    "parsed": parsed_data,
+                    "structured_success": success,
+                    "structured_confidence": 0.9 if success else 0.3,
+                    "validation_method": "simple_pydantic",
+                    "validation_errors": errors,
                     "usage": usage_info,
                 }
 
@@ -626,11 +643,7 @@ class GeminiClient:
                 return result
             else:
                 # Return best available data
-                return (
-                    validation_result.parsed_data
-                    if validation_result.success
-                    else response.text
-                )
+                return parsed_data if success else response.text
 
         # Standard text response
         if return_usage:
@@ -783,7 +796,11 @@ class GeminiClient:
     # Helper methods for part type checking
     def _is_text_part(self, part) -> bool:
         """Check if part contains text content"""
-        return hasattr(part, "text") and part.text is not None
+        return (
+            hasattr(part, "text")
+            and part.text is not None
+            and isinstance(part.text, str)
+        )
 
     def _is_file_part(self, part) -> bool:
         """Check if part contains file data"""
@@ -791,4 +808,33 @@ class GeminiClient:
 
     def _is_large_text_part(self, part, threshold=LARGE_TEXT_THRESHOLD) -> bool:
         """Check if part contains large text content"""
-        return self._is_text_part(part) and len(part.text) > threshold
+        if not self._is_text_part(part):
+            return False
+
+        # Handle non-string types safely
+        try:
+            text_length = len(part.text)
+            return text_length > threshold
+        except (TypeError, AttributeError):
+            # Objects that don't support len() comparison
+            return False
+
+    @property
+    def model_name(self) -> str:
+        """Get the current model name"""
+        return self.config.model_name
+
+    @property
+    def api_key(self) -> str:
+        """Get the API key"""
+        return self.config.api_key
+
+    @property
+    def rate_limit_requests(self) -> int:
+        """Get the rate limit for requests per minute"""
+        return self.rate_limiter.requests_per_minute
+
+    @property
+    def rate_limit_tokens(self) -> int:
+        """Get the rate limit for tokens per minute"""
+        return self.rate_limiter.tokens_per_minute

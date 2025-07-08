@@ -8,8 +8,10 @@ from pathlib import Path
 import time
 from typing import Any, Dict, List, Optional, Tuple, Union
 
+from .analysis.schema_analyzer import SchemaAnalyzer
 from .efficiency import track_efficiency
 from .gemini_client import GeminiClient
+from .prompts import BatchPromptBuilder, StructuredPromptBuilder
 from .response import ResponseProcessor
 
 
@@ -86,17 +88,33 @@ class ResultBuilder:
         config: ProcessingOptions,
     ) -> Dict[str, Any]:
         """Build result for standard processing mode"""
-        efficiency = self.efficiency_calculator(individual_metrics, batch_metrics)
+        # Check if batch processing failed (0 calls) and we have individual metrics
+        if batch_metrics.calls == 0 and individual_metrics.calls > 0:
+            # Batch failed, use individual metrics as primary
+            efficiency = self.efficiency_calculator(individual_metrics, batch_metrics)
 
-        result = {
-            "question_count": len(questions),
-            "answers": batch_answers,
-            "efficiency": efficiency,
-            "metrics": {
-                "batch": batch_metrics.to_dict(),
-                "individual": individual_metrics.to_dict(),
-            },
-        }
+            result = {
+                "question_count": len(questions),
+                "answers": batch_answers,  # These are actually individual answers
+                "efficiency": efficiency,
+                "metrics": {
+                    "batch": batch_metrics.to_dict(),
+                    "individual": individual_metrics.to_dict(),
+                },
+            }
+        else:
+            # Normal batch processing
+            efficiency = self.efficiency_calculator(individual_metrics, batch_metrics)
+
+            result = {
+                "question_count": len(questions),
+                "answers": batch_answers,
+                "efficiency": efficiency,
+                "metrics": {
+                    "batch": batch_metrics.to_dict(),
+                    "individual": individual_metrics.to_dict(),
+                },
+            }
 
         # Add cache summary if caching was used
         if batch_metrics.cached_tokens > 0 or individual_metrics.cached_tokens > 0:
@@ -185,6 +203,10 @@ class BatchProcessor:
 
         self.response_processor = ResponseProcessor()
         self.result_builder = ResultBuilder(self._calculate_efficiency)
+        self.schema_analyzer = SchemaAnalyzer()
+
+        # Initialize metrics tracking for testing
+        self.individual_calls = 0
 
     @contextmanager
     def _metrics_tracker(self, call_count: int = 1):
@@ -286,15 +308,29 @@ class BatchProcessor:
     ) -> Tuple[List[str], ProcessingMetrics]:
         """Process all questions in a single batch call"""
         with self._metrics_tracker(call_count=1) as metrics:
+            # 1. Select prompt builder and (optionally) analyze schema
+            if config.response_schema:
+                self.schema_analyzer.analyze(config.response_schema)
+                prompt_builder = StructuredPromptBuilder(config.response_schema)
+            else:
+                prompt_builder = BatchPromptBuilder()
+
+            # 2. Create the prompt text
+            batch_prompt = prompt_builder.create_prompt(questions)
+
             try:
+                # 3. Call client, passing the schema
                 response = self.client.generate_batch(
                     content=content,
-                    questions=questions,
+                    questions=[
+                        batch_prompt
+                    ],  # The builder combines questions into one prompt
                     return_usage=True,
-                    response_schema=config.response_schema,
+                    response_schema=config.response_schema,  # Pass schema down
                     **config.options,
                 )
 
+                # 4. Process the response (which is now more reliable)
                 extraction_result = (
                     self.response_processor.extract_answers_from_response(
                         response, len(questions), config.response_schema
@@ -304,9 +340,7 @@ class BatchProcessor:
                 usage_metrics = extraction_result.usage
                 metrics.prompt_tokens = usage_metrics.get("prompt_tokens", 0)
                 metrics.output_tokens = usage_metrics.get("output_tokens", 0)
-                metrics.cached_tokens = usage_metrics.get(
-                    "cached_tokens", 0
-                )
+                metrics.cached_tokens = usage_metrics.get("cached_tokens", 0)
 
                 if extraction_result.structured_quality:
                     metrics.structured_output = extraction_result.structured_quality
@@ -321,7 +355,12 @@ class BatchProcessor:
 
             except Exception:
                 # Fallback to individual processing
-                return self._process_individual(content, questions, config)
+                individual_answers, individual_metrics = self._process_individual(
+                    content, questions, config
+                )
+
+                # Return individual answers but with individual metrics (not batch metrics)
+                return individual_answers, individual_metrics
 
     def _process_individual(
         self,
@@ -362,9 +401,7 @@ class BatchProcessor:
                     usage_metrics = extraction_result.usage
                     metrics.prompt_tokens += usage_metrics.get("prompt_tokens", 0)
                     metrics.output_tokens += usage_metrics.get("output_tokens", 0)
-                    metrics.cached_tokens += usage_metrics.get(
-                        "cached_tokens", 0
-                    )
+                    metrics.cached_tokens += usage_metrics.get("cached_tokens", 0)
 
                 except Exception as e:
                     answers.append(f"Error: {str(e)}")

@@ -1,5 +1,9 @@
 """
 Response processing types and result containers
+
+This module defines the core data structures used throughout the response
+processing system, including extraction results, processed responses,
+and validation outcomes.
 """
 
 from dataclasses import dataclass
@@ -8,7 +12,7 @@ from typing import Any, Dict, List, Optional, Union
 
 @dataclass
 class ExtractionResult:
-    """Result from unified response extraction"""
+    """Result from response extraction with usage metrics and quality data"""
 
     answers: Union[
         List[str], str
@@ -24,7 +28,7 @@ class ExtractionResult:
 
 @dataclass
 class ProcessedResponse:
-    """Unified result from response processing"""
+    """Complete processed response with metadata and quality metrics"""
 
     # Core results
     answers: List[str]
@@ -59,7 +63,7 @@ class ProcessedResponse:
 
     @property
     def has_structured_data(self) -> bool:
-        """Whether structured data was successfully extracted"""
+        """Whether structured data was successfully extracted and validated"""
         return self.structured_data is not None and self.schema_validation_success
 
     @property
@@ -70,7 +74,7 @@ class ProcessedResponse:
 
 @dataclass
 class ValidationResult:
-    """Internal validation result"""
+    """Result from schema validation with confidence and error details"""
 
     success: bool
     parsed_data: Any
@@ -82,7 +86,7 @@ class ValidationResult:
 
 @dataclass
 class ParsingResult:
-    """Internal parsing result"""
+    """Result from JSON parsing with method and error information"""
 
     success: bool
     parsed_data: Any
