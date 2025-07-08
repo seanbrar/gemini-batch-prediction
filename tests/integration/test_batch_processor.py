@@ -27,19 +27,19 @@ class TestBatchProcessorIntegration:
             individual_response
         ] * len(sample_questions)
 
-        results = batch_processor.process_text_questions(
+        results = batch_processor.process_questions(
             sample_content, sample_questions, compare_methods=True
         )
 
         # Verify structure
         assert "efficiency" in results
-        assert "batch_answers" in results
+        assert "answers" in results
         assert "individual_answers" in results
         assert "metrics" in results
 
         # Verify comparison was actually performed
         assert results["efficiency"]["comparison_available"] is True
-        assert len(results["batch_answers"]) == len(sample_questions)
+        assert len(results["answers"]) == len(sample_questions)
         assert len(results["individual_answers"]) == len(sample_questions)
 
         # Verify API was called the expected number of times
@@ -61,18 +61,18 @@ class TestBatchProcessorIntegration:
             Exception("Batch processing failed"),  # Retry 2 (final)
         ] + [SAMPLE_RESPONSES["simple_answer"]] * len(sample_questions)
 
-        results = batch_processor.process_text_questions(
+        results = batch_processor.process_questions(
             sample_content, sample_questions
         )
 
         # Verify fallback occurred by checking the call pattern
-        # 3 batch attempts (with retries) + N individual calls
-        expected_calls = 3 + len(sample_questions)
+        # 1 batch attempt (no retry on generic exception) + N individual calls
+        expected_calls = 1 + len(sample_questions)
         assert mock_genai_client.models.generate_content.call_count == expected_calls
 
         # Verify results structure
-        assert "batch_answers" in results
-        assert len(results["batch_answers"]) == len(sample_questions)
+        assert "answers" in results
+        assert len(results["answers"]) == len(sample_questions)
 
         # Verify metrics show the fallback behavior
         assert results["metrics"]["batch"]["calls"] == len(
@@ -107,11 +107,11 @@ class TestBatchProcessorIntegration:
 
         mock_genai_client.models.generate_content.return_value = batch_response
 
-        results = batch_processor.process_text_questions(content, questions)
+        results = batch_processor.process_questions(content, questions)
 
         # Verify all answers were extracted properly
-        assert len(results["batch_answers"]) == 3
-        for i, answer in enumerate(results["batch_answers"], 1):
+        assert len(results["answers"]) == 3
+        for i, answer in enumerate(results["answers"], 1):
             assert f"Answer {i}:" not in answer  # Prefixes should be stripped
             assert len(answer.strip()) > 10  # Should have substantial content
 

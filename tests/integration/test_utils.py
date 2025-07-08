@@ -1,10 +1,11 @@
+import json
 from unittest.mock import patch
 
+from gemini_batch.efficiency.tracking import track_efficiency
+from gemini_batch.response.processor import ResponseProcessor
 from gemini_batch.utils import (
-    extract_answers,
     get_env_with_fallback,
     parse_env_bool,
-    track_efficiency,
     validate_api_key_format,
 )
 
@@ -82,27 +83,26 @@ class TestUtilityIntegration:
     def test_answer_extraction_handles_various_formats_robustly(self):
         """Should robustly handle various answer formats that might occur in practice"""
         # Test realistic mixed format responses
-        mixed_response = """
-        Let me answer your questions:
+        mixed_response = {
+            "text": json.dumps(
+                [
+                    "This is a detailed response about the first topic with multiple sentences and technical details.",
+                    "For the second question, I'll provide this answer in a different format but still meaningful.",
+                    "The third response is also comprehensive and provides useful information.",
+                ]
+            )
+        }
 
-        Answer 1: This is a detailed response about the first topic with multiple sentences and technical details.
+        processor = ResponseProcessor()
+        result = processor.process_response(mixed_response, expected_questions=3)
 
-        Answer 2: For the second question, I'll provide this answer in a different format but still meaningful.
-
-        Answer 3: The third response is also comprehensive and provides useful information.
-
-        Some additional text that shouldn't be included.
-        """
-
-        answers = extract_answers(mixed_response, 3)
-
-        assert len(answers) == 3
-        assert "detailed response about the first topic" in answers[0]
-        assert "second question" in answers[1]
-        assert "third response is also comprehensive" in answers[2]
+        assert len(result.answers) == 3
+        assert "detailed response about the first topic" in result.answers[0]
+        assert "second question" in result.answers[1]
+        assert "third response is also comprehensive" in result.answers[2]
 
         # Verify all answers are substantive (not just "No answer found")
-        assert all("No answer found" not in answer for answer in answers)
+        assert all("No answer found" not in answer for answer in result.answers)
 
     def test_complete_workflow_integration(self):
         """Should handle complete workflow from environment setup through efficiency tracking"""
@@ -123,14 +123,19 @@ class TestUtilityIntegration:
             assert validate_api_key_format(api_key) is True
 
             # 3. Simulate processing and answer extraction
-            batch_response = """
-            Answer 1: Machine learning enables pattern recognition in data.
-            Answer 2: AI systems can process natural language effectively.
-            Answer 3: Neural networks form the backbone of modern AI.
-            """
+            batch_response = json.dumps(
+                [
+                    "Machine learning enables pattern recognition in data.",
+                    "AI systems can process natural language effectively.",
+                    "Neural networks form the backbone of modern AI.",
+                ]
+            )
 
-            answers = extract_answers(batch_response, 3)
-            assert len(answers) == 3
+            processor = ResponseProcessor()
+            result = processor.process_response(
+                {"text": batch_response}, expected_questions=3
+            )
+            assert len(result.answers) == 3
 
             # 4. Track efficiency (if metrics enabled)
             if enable_metrics:

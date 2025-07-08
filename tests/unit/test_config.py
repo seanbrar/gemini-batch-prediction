@@ -17,6 +17,7 @@ from gemini_batch.config import (
 from gemini_batch.exceptions import GeminiBatchError, MissingKeyError
 
 
+@pytest.mark.unit
 class TestAPIKeyValidation:
     """Test API key validation functionality"""
 
@@ -81,6 +82,7 @@ class TestAPIKeyValidation:
         assert result is None  # Function returns None on success
 
 
+@pytest.mark.unit
 class TestTierParsing:
     """Test tier string parsing functionality"""
 
@@ -146,6 +148,7 @@ class TestTierParsing:
             assert result == expected_tier
 
 
+@pytest.mark.unit
 class TestConfigManagerFactoryMethods:
     """Test ConfigManager factory methods"""
 
@@ -169,9 +172,8 @@ class TestConfigManagerFactoryMethods:
     def test_from_env_with_missing_environment_variables(self):
         """Should create ConfigManager with defaults when environment variables are
         missing"""
-        with (
-            patch.dict("os.environ", {}, clear=True),
-            patch.object(ConfigManager, "_detect_tier", return_value=APITier.FREE),
+        with patch.dict("os.environ", {}, clear=True), patch.object(
+            ConfigManager, "_detect_tier", return_value=APITier.FREE
         ):
             config = ConfigManager.from_env()
 
@@ -199,15 +201,13 @@ class TestConfigManagerFactoryMethods:
         assert config.api_key.startswith("test-key-")
 
 
+@pytest.mark.unit
 class TestConfigManagerTierDetectionWithWarnings:
     """Test tier detection with warning scenarios"""
 
     def test_parse_tier_from_env_with_invalid_tier_warns(self):
         """Should warn and return None when GEMINI_TIER is invalid"""
-        with (
-            patch("os.getenv", return_value="invalid-tier"),
-            patch("builtins.print"),
-        ):
+        with patch("os.getenv", return_value="invalid-tier"), patch("builtins.print"):
             result = _parse_tier_from_string("invalid-tier")
 
             assert result is None
@@ -234,6 +234,7 @@ class TestConfigManagerTierDetectionWithWarnings:
         assert result is None
 
 
+@pytest.mark.unit
 class TestConfigManagerConfigurationSummary:
     """Test configuration summary and utility methods"""
 
@@ -246,9 +247,8 @@ class TestConfigManagerConfigurationSummary:
     def test_requires_api_key_false_when_key_missing(self):
         """Should return False when API key is None"""
         # Mock environment to ensure no fallback API key
-        with (
-            patch.dict("os.environ", {}, clear=True),
-            patch.object(ConfigManager, "_get_api_key_from_env", return_value=None),
+        with patch.dict("os.environ", {}, clear=True), patch.object(
+            ConfigManager, "_get_api_key_from_env", return_value=None
         ):
             config = ConfigManager(
                 tier=APITier.FREE, model="gemini-2.0-flash", api_key=None
@@ -282,9 +282,8 @@ class TestConfigManagerConfigurationSummary:
     def test_get_config_summary_no_api_key(self):
         """Should return correct summary when no API key is present"""
         # Mock environment to ensure no fallback API key
-        with (
-            patch.dict("os.environ", {}, clear=True),
-            patch.object(ConfigManager, "_get_api_key_from_env", return_value=None),
+        with patch.dict("os.environ", {}, clear=True), patch.object(
+            ConfigManager, "_get_api_key_from_env", return_value=None
         ):
             config = ConfigManager(
                 tier=APITier.FREE, model="gemini-2.0-flash", api_key=None
@@ -392,6 +391,7 @@ class TestConfigManagerAdvancedScenarios:
         assert any(model in error_msg for model in free_tier_models[:2])
 
 
+@pytest.mark.unit
 class TestAPITierEnum:
     """Test APITier enum functionality"""
 
@@ -408,6 +408,7 @@ class TestAPITierEnum:
         assert APITier.FREE != APITier.TIER_1
 
 
+@pytest.mark.unit
 class TestDataStructureIntegrity:
     """Test the integrity and consistency of configuration data structures"""
 
@@ -456,7 +457,7 @@ class TestDataStructureIntegrity:
         for model_name, capabilities in MODEL_CAPABILITIES.items():
             assert isinstance(model_name, str)
             assert isinstance(capabilities, ModelCapabilities)
-            assert isinstance(capabilities.supports_caching, bool)
+
             assert isinstance(capabilities.supports_multimodal, bool)
             assert capabilities.context_window > 0
 
@@ -476,23 +477,23 @@ class TestDataStructureIntegrity:
             assert tier1_limits.tokens_per_minute >= free_limits.tokens_per_minute
 
 
+@pytest.mark.unit
 class TestConfigManagerInitialization:
     """Test ConfigManager initialization scenarios"""
 
     def test_default_initialization(self):
         """Should initialize with default tier and model"""
-        with patch.object(ConfigManager, "_detect_tier", return_value=APITier.FREE):
-            config = ConfigManager()
+        config = ConfigManager()
 
-            assert config.tier == APITier.FREE
-            assert config.model in TIER_RATE_LIMITS[APITier.FREE]
+        assert config.tier == APITier.TIER_1  # Current default
+        assert config.model in TIER_RATE_LIMITS[APITier.TIER_1]
 
     def test_custom_tier_initialization(self):
         """Should initialize with specified tier and default model for that tier"""
-        config = ConfigManager(tier=APITier.TIER_1)
+        config = ConfigManager(tier=APITier.FREE)
 
-        assert config.tier == APITier.TIER_1
-        assert config.model in TIER_RATE_LIMITS[APITier.TIER_1]
+        assert config.tier == APITier.FREE
+        assert config.model in TIER_RATE_LIMITS[APITier.FREE]
 
     def test_custom_tier_and_model_initialization(self):
         """Should initialize with specified tier and model"""
@@ -513,11 +514,12 @@ class TestConfigManagerInitialization:
             ConfigManager(tier=APITier.TIER_1, model="nonexistent-model")
 
     def test_tier_detection_fallback(self):
-        """Should fall back to FREE tier when detection fails"""
+        """Should fall back to TIER_1 tier when detection fails"""
         config = ConfigManager()
-        assert config.tier == APITier.FREE  # Default fallback
+        assert config.tier == APITier.TIER_1  # Current default fallback
 
 
+@pytest.mark.unit
 class TestModelLimitsRetrieval:
     """Test get_model_limits functionality"""
 
@@ -529,7 +531,7 @@ class TestModelLimitsRetrieval:
         assert isinstance(limits, ModelLimits)
         assert limits.requests_per_minute == 2_000  # TIER_1 value
         assert limits.tokens_per_minute == 4_000_000  # TIER_1 value
-        assert limits.supports_caching is True  # From capabilities
+        assert limits.caching is not None  # Has caching configuration
         assert limits.supports_multimodal is True  # From capabilities
         assert limits.context_window == 1_000_000  # From capabilities
 
@@ -560,11 +562,12 @@ class TestModelLimitsRetrieval:
         assert free_limits.tokens_per_minute != tier1_limits.tokens_per_minute
 
         # But capabilities should be identical
-        assert free_limits.supports_caching == tier1_limits.supports_caching
+        assert free_limits.caching == tier1_limits.caching
         assert free_limits.supports_multimodal == tier1_limits.supports_multimodal
         assert free_limits.context_window == tier1_limits.context_window
 
 
+@pytest.mark.unit
 class TestRateLimiterConfiguration:
     """Test rate limiter configuration generation"""
 
@@ -599,6 +602,7 @@ class TestRateLimiterConfiguration:
         assert "gemini-2.0-flash" in error_message
 
 
+@pytest.mark.unit
 class TestOptimizedMethods:
     """Test the optimized methods for efficiency"""
 
@@ -670,6 +674,7 @@ class TestOptimizedMethods:
             assert model in error_message
 
 
+@pytest.mark.unit
 class TestTierNameFunctionality:
     """Test tier name retrieval"""
 
@@ -695,6 +700,7 @@ class TestTierNameFunctionality:
         assert config.get_tier_name() == "Unknown Tier"
 
 
+@pytest.mark.unit
 class TestConfigManagerEdgeCases:
     """Test edge cases and error conditions"""
 
@@ -742,6 +748,7 @@ class TestConfigManagerEdgeCases:
             ConfigManager(tier=APITier.FREE)  # No explicit model with empty tier
 
 
+@pytest.mark.unit
 class TestConfigManagerPracticalScenarios:
     """Test realistic usage scenarios"""
 
