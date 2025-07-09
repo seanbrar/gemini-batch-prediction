@@ -31,9 +31,7 @@ class BatchProcessor:
         self.client = (
             client
             if client
-            else GeminiClient(
-                api_key=api_key or self.config.google_api_key, config=self.config
-            )
+            else GeminiClient.from_env(api_key=api_key or self.config.api_key)
         )
         self.response_processor = ResponseProcessor()
         self.result_builder = ResultBuilder(self._calculate_efficiency)
@@ -138,13 +136,19 @@ class BatchProcessor:
         # --- Primary Execution Path ---
         try:
             # Attempt batch processing first - this either succeeds or raises BatchProcessingError
-            batch_answers, batch_metrics = self._process_batch(content, questions, config)
+            batch_answers, batch_metrics = self._process_batch(
+                content, questions, config
+            )
             batch_succeeded = True
 
         except BatchProcessingError as e:
             # Batch processing failed - explicitly fall back to individual processing
-            print(f"Batch processing failed, falling back to individual processing: {e}")
-            individual_answers, individual_metrics = self._process_individual(content, questions, config)
+            print(
+                f"Batch processing failed, falling back to individual processing: {e}"
+            )
+            individual_answers, individual_metrics = self._process_individual(
+                content, questions, config
+            )
 
             # Use individual results as the primary result
             batch_answers = individual_answers
@@ -158,15 +162,17 @@ class BatchProcessor:
         # --- Comparison Run (if requested and batch succeeded) ---
         if config.compare_methods and batch_succeeded:
             # Only run comparison if batch processing actually succeeded
-            individual_answers, individual_metrics = self._process_individual(content, questions, config)
+            individual_answers, individual_metrics = self._process_individual(
+                content, questions, config
+            )
 
         # --- Result Building ---
         return self.result_builder.build_standard_result(
             questions,
-            batch_answers,        # The definitive answers (batch or fallback)
-            batch_metrics,        # The metrics for the definitive answers
-            individual_metrics,   # Populated ONLY if comparison was run
-            individual_answers,   # Populated ONLY if comparison was run
+            batch_answers,  # The definitive answers (batch or fallback)
+            batch_metrics,  # The metrics for the definitive answers
+            individual_metrics,  # Populated ONLY if comparison was run
+            individual_answers,  # Populated ONLY if comparison was run
             config,
         )
 
@@ -192,7 +198,9 @@ class BatchProcessor:
                 # 3. Make the API call - this is the critical operation that can fail
                 response = self.client.generate_batch(
                     content=content,
-                    questions=[batch_prompt],  # The builder combines questions into one prompt
+                    questions=[
+                        batch_prompt
+                    ],  # The builder combines questions into one prompt
                     return_usage=False,  # Let ResponseProcessor handle usage extraction
                     response_schema=config.response_schema,
                     **config.options,
