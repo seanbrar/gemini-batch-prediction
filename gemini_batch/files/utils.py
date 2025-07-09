@@ -446,6 +446,7 @@ def is_youtube_url(url: str) -> bool:
         "youtube.com/watch?v=",
         "youtu.be/",
         "youtube.com/embed/",
+        "youtube.com/v/",
         "youtube.com/v=",
     ]
     url_lower = url.lower()

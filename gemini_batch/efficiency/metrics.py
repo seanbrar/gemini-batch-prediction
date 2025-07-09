@@ -39,7 +39,8 @@ def extract_usage_metrics(response) -> Dict[str, int]:
         "prompt_tokens": prompt_tokens,
         "output_tokens": output_tokens,
         "cached_tokens": cached_tokens,
-        "total_tokens": (prompt_tokens - cached_tokens) + output_tokens,
+        "total_tokens": prompt_tokens + output_tokens,
+        "effective_tokens": (prompt_tokens - cached_tokens) + output_tokens,
         "effective_prompt_tokens": prompt_tokens - cached_tokens,
         "cache_hit_ratio": cached_tokens / max(prompt_tokens, 1),
         "cache_enabled": cached_tokens > 0,
@@ -75,10 +76,11 @@ def calculate_cache_savings(
     time_savings_estimate = cached_tokens * 0.9  # 90% time reduction for cached portion
 
     # Cache effectiveness (how much of the potential was cached)
-    # If prompt_tokens is 0 but cached_tokens > 0, use cached_tokens / 1
-    cache_effectiveness = (
-        cached_tokens / max(prompt_tokens, 1) if cached_tokens > 0 else 0.0
-    )
+    # Handle zero prompt_tokens case correctly
+    if prompt_tokens == 0:
+        cache_effectiveness = 0.0
+    else:
+        cache_effectiveness = cached_tokens / prompt_tokens
 
     return {
         "tokens_saved": tokens_saved,

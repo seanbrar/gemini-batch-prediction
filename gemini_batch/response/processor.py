@@ -209,7 +209,12 @@ class ResponseProcessor:
         else:
             # Path B: Parse response.text as JSON with validation
             try:
-                response_text = getattr(response, "text", "")
+                # Handle both string responses and response objects
+                if isinstance(response, str):
+                    response_text = response
+                else:
+                    response_text = getattr(response, "text", "")
+
                 if response_text:
                     loaded_json = json.loads(response_text)
                     if response_schema:
@@ -238,47 +243,51 @@ class ResponseProcessor:
             elif isinstance(parsed_data, list):
                 # Default case: a list of string answers
                 answers = [str(item) for item in parsed_data]
-        else:
-            # If all parsing and validation fails
-            answers = [f"Error: Could not parse response. Details: {errors}"]
+        elif errors:
+            # If parsing fails, return the raw text as the answer
+            answers = [getattr(response, "text", "")]
 
-        # Handle individual vs batch response format
-        if not is_batch and len(answers) == 1:
-            # For individual questions, return the single answer as a string
-            final_answers = answers[0]
-        else:
-            # For batch questions, return the list of answers
-            final_answers = answers
-
-        # Set up structured quality data if we have a schema
-        if response_schema:
+        # Simplified quality/confidence logic for this method
+        if errors:
             structured_quality = {
-                "confidence": 0.9
-                if not errors
-                else 0.3,  # High confidence if no errors
-                "method": "structured_validation" if not errors else "fallback_parsing",
+                "confidence": 0.8 if not errors else 0.2,  # Simplified confidence
                 "errors": errors,
-                "structured_data": parsed_data,
             }
+        else:
+            structured_quality = {"confidence": 0.9, "errors": []}
 
         return ExtractionResult(
-            answers=final_answers,
-            usage=usage,
+            answers=answers,
             structured_quality=structured_quality,
+            usage=usage,
         )
-
-    # Convenience methods for specific use cases
 
     def extract_structured_data(
         self, response, schema: Any, return_confidence: bool = True
     ) -> ProcessedResponse:
-        """Extract and validate structured data from response using provided schema"""
-        return self.process_response(
-            response=response,
-            expected_questions=0,
-            schema=schema,
-            return_confidence=return_confidence,
-        )
+        """
+        Extracts structured data from a model's response using Pydantic.
+        """
+        # Simplified and corrected logic for structured data extraction
+        try:
+            # Assuming response.text contains the JSON string
+            json_data = json.loads(response.text)
+            model = schema.model_validate(json_data)
+            return ProcessedResponse(
+                answers=[str(model)],
+                success=True,
+                confidence=0.95 if return_confidence else None,
+                processing_method="pydantic_validation",
+                structured_data=model.model_dump(),
+            )
+        except (json.JSONDecodeError, ValidationError) as e:
+            return ProcessedResponse(
+                answers=[],
+                success=False,
+                confidence=0.1 if return_confidence else None,
+                processing_method="pydantic_validation",
+                errors=[str(e)],
+            )
 
     def extract_text_answers(
         self,
@@ -286,10 +295,20 @@ class ResponseProcessor:
         question_count: int,
         comparison_answers: Optional[List[str]] = None,
     ) -> ProcessedResponse:
-        """Extract text answers without structured schema validation"""
-        return self.process_response(
-            response=response,
-            expected_questions=question_count,
-            schema=None,
-            comparison_answers=comparison_answers,
+        """
+        Extracts plain text answers from a response, assuming a simple format.
+        """
+        # Simplified logic for text extraction
+        answers = [line.strip() for line in response.text.split("\n") if line.strip()]
+        success = len(answers) == question_count
+        quality_score = None
+        if comparison_answers:
+            quality_score = calculate_quality_score(comparison_answers, answers)
+
+        return ProcessedResponse(
+            answers=answers,
+            success=success,
+            confidence=0.7 if success else 0.4,
+            quality_score=quality_score,
+            processing_method="text_parsing",
         )

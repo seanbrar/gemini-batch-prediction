@@ -9,8 +9,14 @@ class GeminiBatchError(Exception):
     pass
 
 
-class APIError(GeminiBatchError):
-    """Raised when API calls fail"""
+class APIError(Exception):
+    """Custom exception for API-related errors"""
+
+    pass
+
+
+class BatchProcessingError(Exception):
+    """Custom exception for batch processing errors"""
 
     pass
 

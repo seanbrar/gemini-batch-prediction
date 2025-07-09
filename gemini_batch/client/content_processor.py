@@ -23,6 +23,8 @@ def _flatten_sources(sources: Union[str, Path, List]) -> List[Union[str, Path]]:
 
     flattened = []
     for item in sources:
+        if item is None:
+            continue  # Skip None values
         if isinstance(item, list):
             flattened.extend(_flatten_sources(item))
         else:
