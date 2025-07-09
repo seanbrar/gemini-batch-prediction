@@ -1,5 +1,5 @@
 """
-Batch processor for text content analysis
+Batch processor for multimodal content analysis
 """
 
 from contextlib import contextmanager
@@ -38,9 +38,6 @@ class BatchProcessor:
         self.response_processor = ResponseProcessor()
         self.result_builder = ResultBuilder(self._calculate_efficiency)
         self.schema_analyzer = SchemaAnalyzer()
-
-        # Initialize metrics tracking for testing
-        self.individual_calls = 0
 
     @contextmanager
     def _metrics_tracker(self, call_count: int = 1):
@@ -86,7 +83,6 @@ class BatchProcessor:
             response_schema=response_schema,
         )
 
-        # Always use standard processing with integrated ResponseProcessor
         return self._process_standard(content, questions, config)
 
     def process_questions_multi_source(
@@ -125,43 +121,52 @@ class BatchProcessor:
         questions: List[str],
         config: ProcessingOptions,
     ) -> Dict[str, Any]:
-        """Standard processing path using integrated ResponseProcessor"""
-        # Process batch first
-        try:
-            batch_answers, batch_metrics = self._process_batch(
-                content, questions, config
-            )
-        except BatchProcessingError:
-            # Fallback to individual processing
-            batch_answers = []
-            batch_metrics = ProcessingMetrics.empty()
+        """
+        Standard processing path with explicit fallback and comparison logic.
 
-        # If comparison is enabled, run individual processing
-        individual_metrics = ProcessingMetrics.empty()
+        This method has clear, linear control flow:
+        1. Try batch processing first
+        2. If batch fails, explicitly fall back to individual processing
+        3. If comparison requested and batch succeeded, run individual for comparison
+        4. Build and return results
+        """
+        batch_answers = []
+        batch_metrics = ProcessingMetrics.empty()
         individual_answers = None
-        batch_failed = False
+        individual_metrics = ProcessingMetrics.empty()
 
-        # If batch_metrics is actually from individual fallback, assign to individual
-        if batch_metrics.calls == len(questions) and batch_metrics.prompt_tokens > 0:
-            # This is a fallback case - individual processing was used
-            individual_metrics = batch_metrics
-            batch_metrics = ProcessingMetrics.empty()
-            individual_answers = batch_answers
-            # Do not replace batch_answers with None; keep the actual answers for the result
-            batch_failed = True
+        # --- Primary Execution Path ---
+        try:
+            # Attempt batch processing first - this either succeeds or raises BatchProcessingError
+            batch_answers, batch_metrics = self._process_batch(content, questions, config)
+            batch_succeeded = True
 
-        if config.compare_methods and not batch_failed:
-            individual_answers, individual_metrics = self._process_individual(
-                content, questions, config
-            )
+        except BatchProcessingError as e:
+            # Batch processing failed - explicitly fall back to individual processing
+            print(f"Batch processing failed, falling back to individual processing: {e}")
+            individual_answers, individual_metrics = self._process_individual(content, questions, config)
 
-        # Build and return result
+            # Use individual results as the primary result
+            batch_answers = individual_answers
+            batch_metrics = individual_metrics
+
+            # Clear individual results since they're now the primary result
+            individual_answers = None
+            individual_metrics = ProcessingMetrics.empty()
+            batch_succeeded = False
+
+        # --- Comparison Run (if requested and batch succeeded) ---
+        if config.compare_methods and batch_succeeded:
+            # Only run comparison if batch processing actually succeeded
+            individual_answers, individual_metrics = self._process_individual(content, questions, config)
+
+        # --- Result Building ---
         return self.result_builder.build_standard_result(
             questions,
-            batch_answers,
-            batch_metrics,
-            individual_metrics,
-            individual_answers,
+            batch_answers,        # The definitive answers (batch or fallback)
+            batch_metrics,        # The metrics for the definitive answers
+            individual_metrics,   # Populated ONLY if comparison was run
+            individual_answers,   # Populated ONLY if comparison was run
             config,
         )
 
@@ -171,31 +176,29 @@ class BatchProcessor:
         questions: List[str],
         config: ProcessingOptions,
     ) -> Tuple[List[str], ProcessingMetrics]:
-        """Process all questions in a single batch call"""
+        """Process all questions in a single batch call."""
         with self._metrics_tracker(call_count=1) as metrics:
-            # 1. Select prompt builder and (optionally) analyze schema
+            # 1. Select prompt builder and analyze schema if needed
             if config.response_schema:
                 self.schema_analyzer.analyze(config.response_schema)
                 prompt_builder = StructuredPromptBuilder(config.response_schema)
             else:
                 prompt_builder = BatchPromptBuilder()
 
-            # 2. Create the prompt text
+            # 2. Create the batch prompt
             batch_prompt = prompt_builder.create_prompt(questions)
 
             try:
-                # 3. Call client, passing the schema
+                # 3. Make the API call - this is the critical operation that can fail
                 response = self.client.generate_batch(
                     content=content,
-                    questions=[
-                        batch_prompt
-                    ],  # The builder combines questions into one prompt
+                    questions=[batch_prompt],  # The builder combines questions into one prompt
                     return_usage=False,  # Let ResponseProcessor handle usage extraction
-                    response_schema=config.response_schema,  # Pass schema down
+                    response_schema=config.response_schema,
                     **config.options,
                 )
 
-                # 4. Process the response (which is now more reliable)
+                # 4. Process the successful response
                 extraction_result = self._extract_and_track_response(
                     response, len(questions), metrics, config
                 )
@@ -209,16 +212,13 @@ class BatchProcessor:
                     if extraction_result.is_batch_result
                     else [extraction_result.answers]
                 )
+
                 return answers, metrics
 
-            except Exception:
-                # Fallback to individual processing
-                individual_answers, individual_metrics = self._process_individual(
-                    content, questions, config
-                )
-
-                # Return individual answers but with individual metrics (not batch metrics)
-                return individual_answers, individual_metrics
+            except Exception as e:
+                # Any failure in batch processing should be re-raised as BatchProcessingError
+                # This makes the failure explicit and allows the caller to handle it appropriately
+                raise BatchProcessingError(f"Batch API call failed: {str(e)}") from e
 
     def _process_individual(
         self,
@@ -226,7 +226,12 @@ class BatchProcessor:
         questions: List[str],
         config: ProcessingOptions,
     ) -> Tuple[List[str], ProcessingMetrics]:
-        """Process questions individually for comparison or fallback"""
+        """
+        Process questions individually.
+
+        This method is used either as a fallback when batch processing fails,
+        or for comparison when compare_methods=True.
+        """
         with self._metrics_tracker(call_count=len(questions)) as metrics:
             answers = []
 
@@ -241,10 +246,7 @@ class BatchProcessor:
                     )
 
                     extraction_result = self._extract_and_track_response(
-                        response,
-                        1,
-                        metrics,
-                        config,
+                        response, 1, metrics, config
                     )
 
                     # For individual processing, we always get a single answer (str)
@@ -256,6 +258,8 @@ class BatchProcessor:
                     answers.append(answer)
 
                 except Exception as e:
+                    # For individual processing, we can continue with other questions
+                    # even if one fails
                     answers.append(f"Error: {str(e)}")
 
             return answers, metrics
@@ -279,7 +283,6 @@ class BatchProcessor:
         )
 
     # Cache management methods
-
     def get_cache_efficiency_summary(self) -> Optional[Dict[str, Any]]:
         """Get cache efficiency summary from the underlying client"""
         if hasattr(self.client, "get_cache_metrics"):
