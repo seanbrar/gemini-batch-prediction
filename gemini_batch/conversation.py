@@ -10,6 +10,7 @@ from gemini_batch import BatchProcessor
 @dataclass
 class ConversationTurn:
     """Single turn in conversation history"""
+
     question: str
     answer: str
     timestamp: datetime = field(default_factory=lambda: datetime.now(timezone.utc))
@@ -19,24 +20,31 @@ class ConversationTurn:
 
 
 class ConversationSession:
-    def __init__(self, sources, processor: Optional[BatchProcessor] = None):
+    def __init__(
+        self,
+        sources,
+        processor: Optional[BatchProcessor] = None,
+        client: Optional[Any] = None,
+        max_history_turns: int = 5,
+    ):
         """Initialize conversation session."""
         self.sources = sources if isinstance(sources, list) else [sources]
         self.history: List[ConversationTurn] = []
         self.session_id = str(uuid4())
+        self.metadata: Dict[str, Any] = {}
+        self.max_history_turns = max_history_turns
 
         # Create or use provided processor (dependency injection)
-        self.processor = processor if processor is not None else BatchProcessor()
-
-        # Initialize context synthesizer
-        self._context_synthesizer = ConversationContextSynthesizer()
+        self.processor = (
+            processor if processor is not None else BatchProcessor(client=client)
+        )
 
     def ask(self, question: str, **options) -> str:
         """Ask single question with full conversation context"""
         try:
             # Pass raw sources to BatchProcessor for proper file handling
             # Add conversation history as additional context
-            history_context = self._build_history_context_for_question(question)
+            history_context = self._build_history_context()
 
             # Prepare options with system instruction if history exists
             processor_options = options.copy()
@@ -51,12 +59,18 @@ class ConversationSession:
             )
 
             # Extract answer and record successful turn
-            answer = result["answers"][0]
-            self._record_successful_turn(question, answer, result)
+            try:
+                answer = result["answers"][0]
+                self._record_successful_turn(question, answer, result)
+            except IndexError:
+                error_message = f"No answer found for question: '{question}'"
+                self._record_failed_turn(question, error_message)
+                raise ValueError(error_message)
 
             return answer
 
         except Exception as e:
+            self._record_failed_turn(question, str(e))
             raise e
 
     def ask_multiple(self, questions: List[str], **options) -> List[str]:
@@ -64,7 +78,7 @@ class ConversationSession:
         try:
             # Pass raw sources to BatchProcessor for proper file handling
             # Add conversation history as additional context
-            history_context = self._build_history_context_for_questions(questions)
+            history_context = self._build_history_context()
 
             # Prepare options with system instruction if history exists
             processor_options = options.copy()
@@ -80,16 +94,26 @@ class ConversationSession:
 
             # Record all successful turns
             answers = result["answers"]
+            if len(answers) != len(questions):
+                error_message = (
+                    f"Received {len(answers)} answers for {len(questions)} questions."
+                )
+                for q in questions:
+                    self._record_failed_turn(q, error_message)
+                raise ValueError(error_message)
+
             for question, answer in zip(questions, answers):
                 self._record_successful_turn(question, answer, result)
 
             return answers
 
         except Exception as e:
+            for question in questions:
+                self._record_failed_turn(question, str(e))
             raise e
 
-    def _build_history_context_for_question(self, question: str) -> Optional[str]:
-        """Build conversation history context for a single question"""
+    def _build_history_context(self) -> Optional[str]:
+        """Builds context from recent, successful conversation history."""
         if not self.history:
             return None
 
@@ -97,34 +121,7 @@ class ConversationSession:
         successful_history = [turn for turn in self.history if turn.error is None]
 
         # Use recent history to stay within context limits
-        recent_history = successful_history[
-            -self._context_synthesizer.max_history_turns :
-        ]
-
-        if not recent_history:
-            return None
-
-        history_parts = []
-        for i, turn in enumerate(recent_history, 1):
-            history_parts.append(f"Previous Q{i}: {turn.question}")
-            history_parts.append(f"Previous A{i}: {turn.answer}")
-
-        return "Conversation History:\n" + "\n".join(history_parts)
-
-    def _build_history_context_for_questions(
-        self, questions: List[str]
-    ) -> Optional[str]:
-        """Build conversation history context for multiple questions"""
-        if not self.history:
-            return None
-
-        # Only include successful turns
-        successful_history = [turn for turn in self.history if turn.error is None]
-
-        # Use recent history to stay within context limits
-        recent_history = successful_history[
-            -self._context_synthesizer.max_history_turns :
-        ]
+        recent_history = successful_history[-self.max_history_turns :]
 
         if not recent_history:
             return None
@@ -141,7 +138,6 @@ class ConversationSession:
         question: str,
         answer: str,
         result: Dict[str, Any],
-        cache_info: Optional[Dict[str, Any]] = None,
     ):
         """Record a successful conversation turn"""
         turn = ConversationTurn(
@@ -269,7 +265,9 @@ class ConversationSession:
             "cache_efficiency": cache_hits / total_turns if total_turns > 0 else 0,
             "session_duration": (
                 self.history[-1].timestamp - self.history[0].timestamp
-            ).total_seconds() if self.history else 0
+            ).total_seconds()
+            if self.history
+            else 0,
         }
 
     def clear_history(self) -> None:
@@ -277,71 +275,9 @@ class ConversationSession:
         self.history.clear()
 
 
-class ConversationContextSynthesizer:
-    """
-    Handles context synthesis for conversation sessions.
-
-    Component used by ConversationSession to build enhanced context
-    that includes both sources and conversation history.
-    """
-
-    def __init__(self, max_history_turns: int = 5):
-        self.max_history_turns = max_history_turns
-
-    def synthesize_context(
-        self, sources, history, current_question=None, current_questions=None
-    ) -> str:
-        """
-        Build enhanced context from sources + conversation history.
-
-        Strategy:
-        1. Always include all sources (primary content)
-        2. Add recent successful conversation history
-        3. Provide clear section demarcation for the AI model
-        """
-        context_parts = []
-
-        # Add primary sources
-        if isinstance(sources, list):
-            for i, source in enumerate(sources):
-                context_parts.append(f"=== SOURCE {i + 1} ===")
-                context_parts.append(str(source))
-        else:
-            context_parts.append("=== PRIMARY CONTENT ===")
-            context_parts.append(str(sources))
-
-        # Add conversation history if available
-        if history:
-            history_context = self._build_history_context(history)
-            if history_context:
-                context_parts.append("=== CONVERSATION HISTORY ===")
-                context_parts.append(history_context)
-                context_parts.append("=== END CONVERSATION HISTORY ===")
-
-        return "\n\n".join(context_parts)
-
-    def _build_history_context(self, history: List[ConversationTurn]) -> str:
-        """Build conversation history context with turn limiting"""
-        if not history:
-            return ""
-
-        # Only include successful turns
-        successful_history = [turn for turn in history if turn.error is None]
-
-        # Use recent history to stay within context limits
-        recent_history = successful_history[-self.max_history_turns:]
-
-        history_parts = []
-        for i, turn in enumerate(recent_history, 1):
-            history_parts.append(f"Previous Q{i}: {turn.question}")
-            history_parts.append(f"Previous A{i}: {turn.answer}")
-
-        return "\n".join(history_parts)
-
-
-def create_conversation(sources, **processor_options) -> ConversationSession:
+def create_conversation(sources, **kwargs) -> "ConversationSession":
     """Factory function to create a new conversation session."""
-    processor = BatchProcessor(**processor_options)
+    processor = BatchProcessor(**kwargs)
     return ConversationSession(sources, processor)
 
 
