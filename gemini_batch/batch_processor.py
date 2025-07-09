@@ -3,6 +3,7 @@ Batch processor for multimodal content analysis
 """
 
 from contextlib import contextmanager
+import logging
 from pathlib import Path
 import time
 from typing import Any, Dict, List, Optional, Tuple, Union
@@ -16,6 +17,8 @@ from .prompts import BatchPromptBuilder, StructuredPromptBuilder
 from .response import ResponseProcessor
 from .response.result_builder import ResultBuilder
 from .response.types import ProcessingMetrics, ProcessingOptions
+
+log = logging.getLogger(__name__)
 
 
 class BatchProcessor:
@@ -73,6 +76,7 @@ class BatchProcessor:
         This method orchestrates the entire process, from content processing
         to response extraction and result building.
         """
+        log.info("Starting question processing for %d questions.", len(questions))
         if client:
             self.client = client
 
@@ -136,6 +140,7 @@ class BatchProcessor:
         # --- Primary Execution Path ---
         try:
             # Attempt batch processing first - this either succeeds or raises BatchProcessingError
+            log.info("Attempting batch processing.")
             batch_answers, batch_metrics = self._process_batch(
                 content, questions, config
             )
@@ -143,8 +148,9 @@ class BatchProcessor:
 
         except BatchProcessingError as e:
             # Batch processing failed - explicitly fall back to individual processing
-            print(
-                f"Batch processing failed, falling back to individual processing: {e}"
+            log.warning(
+                "Batch processing failed, falling back to individual calls. Reason: %s",
+                e,
             )
             individual_answers, individual_metrics = self._process_individual(
                 content, questions, config
@@ -161,6 +167,9 @@ class BatchProcessor:
 
         # --- Comparison Run (if requested and batch succeeded) ---
         if config.compare_methods and batch_succeeded:
+            log.debug(
+                "Comparison mode enabled, running individual processing for metrics."
+            )
             # Only run comparison if batch processing actually succeeded
             individual_answers, individual_metrics = self._process_individual(
                 content, questions, config
@@ -188,8 +197,10 @@ class BatchProcessor:
             if config.response_schema:
                 self.schema_analyzer.analyze(config.response_schema)
                 prompt_builder = StructuredPromptBuilder(config.response_schema)
+                log.debug("Using StructuredPromptBuilder for response schema.")
             else:
                 prompt_builder = BatchPromptBuilder()
+                log.debug("Using BatchPromptBuilder.")
 
             # 2. Create the batch prompt
             batch_prompt = prompt_builder.create_prompt(questions)

@@ -2,6 +2,7 @@
 Main Gemini API client for content generation and batch processing
 """
 
+import logging
 from pathlib import Path
 import time
 from typing import Any, Callable, Dict, List, Optional, Union
@@ -26,10 +27,11 @@ from .constants import (
     LARGE_TEXT_THRESHOLD,
     MAX_RETRIES,
     MIN_TEXT_LENGTH_FOR_CACHE_ANALYSIS,
-    RATE_LIMIT_RETRY_DELAY,
     RETRY_BASE_DELAY,
 )
 from .exceptions import APIError
+
+log = logging.getLogger(__name__)
 
 
 class GeminiClient:
@@ -39,6 +41,11 @@ class GeminiClient:
         """Initialize client with configuration"""
         self.config = config
         self.config.validate()
+        log.debug(
+            "GeminiClient initialized with model '%s'. Caching: %s.",
+            self.config.model_name,
+            self.config.enable_caching,
+        )
 
         # Core components (always available)
         self.client = genai.Client(api_key=self.config.api_key)
@@ -335,19 +342,19 @@ class GeminiClient:
                 )
 
     def _should_attempt_caching(self, parts: List[types.Part]) -> bool:
-        """Quick check if content is worth analyzing for caching"""
+        """Determine if caching should be attempted based on config and content"""
         if not self.config.enable_caching or not self.cache_manager:
             return False
 
-        # Simple heuristic: only analyze for caching if we have substantial content
-        total_text_length = sum(
-            len(part.text) for part in parts if self._is_text_part(part)
-        )
-
-        # Only attempt caching analysis for content that might meet minimum thresholds
-        return total_text_length > MIN_TEXT_LENGTH_FOR_CACHE_ANALYSIS or any(
-            self._is_file_part(part) for part in parts
-        )
+        # Simplified check: if any part is a large text part, attempt caching.
+        # This avoids re-implementing complex token counting here.
+        # The cache_manager will perform the detailed analysis.
+        for part in parts:
+            if self._is_large_text_part(
+                part, min_len=MIN_TEXT_LENGTH_FOR_CACHE_ANALYSIS
+            ):
+                return True
+        return False
 
     def _try_cached_generation(
         self,
@@ -357,31 +364,29 @@ class GeminiClient:
         response_schema: Optional[Any] = None,
         **options,
     ) -> Optional[Union[str, Dict[str, Any]]]:
-        """
-        Attempt cached generation with graceful fallback.
-
-        Returns:
-            Generated content if caching succeeds, None if fallback needed
-        """
+        """Attempt cached generation with graceful fallback."""
+        if not self.cache_manager:
+            return None
         try:
-            # Analyze caching strategy
+            # Analyze caching strategy with correct parameter order
             cache_strategy = self.cache_manager.analyze_cache_strategy(
                 model=self.config.model_name,
-                content=parts,  # Pass parts for analysis
+                content=parts,
                 prefer_explicit=True,
+            )
+            log.debug(
+                "Cache analysis result: strategy=%s, tokens=%d, reason='%s'",
+                cache_strategy.strategy_type,
+                cache_strategy.estimated_tokens,
+                cache_strategy.reason,
             )
 
             if not cache_strategy.should_cache:
+                log.debug("Content not suitable for caching, proceeding without cache.")
                 return None  # Fall back to non-cached generation
 
-            # For implicit caching, structure content optimally and use regular flow
-            if cache_strategy.strategy_type == "implicit":
-                return self._generate_with_implicit_cache(
-                    parts, system_instruction, return_usage, response_schema, **options
-                )
-
-            # For explicit caching, manage cache lifecycle
-            elif cache_strategy.strategy_type == "explicit":
+            if cache_strategy.strategy_type == "explicit":
+                log.info("Using explicit context caching for this request.")
                 return self._generate_with_explicit_cache(
                     parts,
                     cache_strategy,
@@ -391,11 +396,20 @@ class GeminiClient:
                     **options,
                 )
 
+            # For implicit caching, structure content optimally and use regular flow
+            elif cache_strategy.strategy_type == "implicit":
+                return self._generate_with_implicit_cache(
+                    parts, system_instruction, return_usage, response_schema, **options
+                )
+
             # Unknown strategy, fall back
             return None
 
-        except Exception:
-            # Any caching error should fall back gracefully
+        except Exception as e:
+            log.warning(
+                "Cache generation attempt failed, falling back to standard generation. Reason: %s",
+                e,
+            )
             return None
 
     def _generate_with_implicit_cache(
@@ -699,39 +713,48 @@ class GeminiClient:
         """Execute API call with exponential backoff retry logic"""
         for attempt in range(max_retries + 1):
             try:
-                return api_call_func()
+                # Use rate limiter before making the call
+                with self.rate_limiter.request_context():
+                    return api_call_func()
             except Exception as error:
                 if attempt == max_retries:
-                    # Final attempt failed
+                    # Final attempt failed, log and re-raise
+                    log.error(
+                        "API call failed after %d retries.", max_retries, exc_info=True
+                    )
                     raise
 
                 # Check if it's a retryable error
                 error_str = str(error).lower()
-                if any(
-                    retryable in error_str
-                    for retryable in [
-                        "rate limit",
-                        "429",
-                        "quota",
-                        "timeout",
-                        "temporary",
-                        "service unavailable",
-                        "500",
-                        "502",
-                        "503",
-                        "504",
-                    ]
-                ):
-                    # Calculate delay with exponential backoff
-                    if "rate limit" in error_str or "429" in error_str:
-                        delay = RATE_LIMIT_RETRY_DELAY
-                    else:
-                        delay = RETRY_BASE_DELAY * (2**attempt)
+                retryable_terms = [
+                    "rate limit",
+                    "429",
+                    "quota",
+                    "timeout",
+                    "temporary",
+                    "service unavailable",
+                    "500",
+                    "502",
+                    "503",
+                    "504",
+                ]
 
+                if any(term in error_str for term in retryable_terms):
+                    # Calculate delay with exponential backoff
+                    delay = RETRY_BASE_DELAY * (2**attempt)
+                    log.warning(
+                        "API call failed with retryable error. Retrying in %.2fs (Attempt %d/%d)",
+                        delay,
+                        attempt + 2,
+                        max_retries + 1,
+                    )
                     time.sleep(delay)
                     continue
                 else:
-                    # Non-retryable error
+                    # Non-retryable error, log and re-raise
+                    log.error(
+                        "API call failed with non-retryable error.", exc_info=True
+                    )
                     raise
 
     # Public cache management methods

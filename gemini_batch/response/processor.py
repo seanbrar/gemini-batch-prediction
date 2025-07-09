@@ -7,12 +7,16 @@ text parsing, with built-in quality assessment and error handling.
 """
 
 import json
+import logging
 from typing import Any, Dict, List, Optional
 
 from pydantic import ValidationError
 
+from ..efficiency.metrics import extract_usage_metrics
 from .quality import calculate_quality_score
 from .types import ExtractionResult, ProcessedResponse
+
+log = logging.getLogger(__name__)
 
 
 class ResponseProcessor:
@@ -171,15 +175,23 @@ class ResponseProcessor:
         data from response.parsed, then falls back to parsing response.text as JSON
         if needed. Validates against provided schema when available.
         """
+
+        response_text_preview = str(getattr(response, "text", ""))[:200]
+        log.debug(
+            "Extracting answers from response. type=%s, schema=%s, preview='%s...'",
+            type(response).__name__,
+            response_schema.__name__ if response_schema else "None",
+            response_text_preview,
+        )
+
         # Extract usage metrics with enhanced cache awareness
         usage = {
             "prompt_tokens": 0,
             "output_tokens": 0,
             "cached_tokens": 0,
-        }  # Default with cache
+        }
 
         if isinstance(response, dict):
-            # Enhanced usage extraction
             response_usage = response.get("usage", {})
             usage.update(
                 {
@@ -191,8 +203,6 @@ class ResponseProcessor:
                 }
             )
         else:
-            # Extract from response object using enhanced metrics extraction
-            from ..efficiency.metrics import extract_usage_metrics
 
             usage = extract_usage_metrics(response)
 
@@ -205,56 +215,71 @@ class ResponseProcessor:
 
         # Path A: Use structured data from response.parsed if available
         if hasattr(response, "parsed") and response.parsed:
+            log.debug("Using pre-parsed data from `response.parsed` attribute.")
             parsed_data = response.parsed
         else:
-            # Path B: Parse response.text as JSON with validation
-            try:
-                # Handle both string responses and response objects
-                if isinstance(response, str):
-                    response_text = response
-                else:
-                    response_text = getattr(response, "text", "")
-
-                if response_text:
+            # Path B: Parse response.text
+            response_text = getattr(response, "text", "")
+            if response_text:
+                try:
+                    # The prompt asks for JSON, so we try this first.
+                    log.debug("Attempting to parse response text as JSON.")
                     loaded_json = json.loads(response_text)
                     if response_schema:
-                        # Validate the JSON against the provided schema
-                        try:
-                            parsed_data = response_schema.model_validate(loaded_json)
-                        except ValidationError as e:
-                            errors.append(
-                                f"Response JSON did not match the provided schema: {e}"
-                            )
+                        log.debug("Validating JSON against provided Pydantic schema.")
+                        parsed_data = response_schema.model_validate(loaded_json)
                     else:
-                        # Use as default response format (list of strings)
+                        # Default batch response should be a list of strings
                         parsed_data = loaded_json
-                else:
-                    errors.append("Response was empty.")
-            except json.JSONDecodeError as e:
-                errors.append(f"Failed to decode JSON from response text: {e}")
-            except Exception as e:
-                errors.append(f"An unexpected error occurred during JSON parsing: {e}")
+                except json.JSONDecodeError:
+                    log.warning(
+                        "Failed to decode JSON from response. Treating as single raw text answer."
+                    )
+                    errors.append("Response was not valid JSON.")
+                    parsed_data = [response_text] # Fallback to a list with one item
+                except ValidationError as e:
+                    log.error("Response JSON did not match the provided schema.", exc_info=True)
+                    errors.append(f"Schema validation failed: {e}")
+                    parsed_data = [response_text] # Fallback
+                except Exception as e:
+                    log.exception("An unexpected error occurred during response parsing.")
+                    errors.append(f"Unexpected parsing error: {e}")
+                    parsed_data = [response_text] # Fallback
+            else:
+                log.warning("Response text was empty.")
+                errors.append("Response was empty.")
 
         # Convert final parsed data to answer list
         if parsed_data:
             if response_schema:
                 # For custom schemas, the whole object is the "answer"
+                log.debug("Extracted single structured answer from schema.")
                 answers = [str(parsed_data)]
             elif isinstance(parsed_data, list):
-                # Default case: a list of string answers
+                log.debug("Extracted %d answers from JSON list.", len(parsed_data))
                 answers = [str(item) for item in parsed_data]
+            else:
+                # This case might occur if the JSON was valid but not a list
+                log.warning("Parsed data was not a list as expected. Treating as single answer.")
+                answers = [str(parsed_data)]
         elif errors:
-            # If parsing fails, return the raw text as the answer
+            log.debug("No parsed data available, using raw response text as fallback answer.")
             answers = [getattr(response, "text", "")]
 
-        # Simplified quality/confidence logic for this method
-        if errors:
-            structured_quality = {
-                "confidence": 0.8 if not errors else 0.2,  # Simplified confidence
-                "errors": errors,
-            }
+        # Simplified quality/confidence logic
+        structured_quality = {
+            "confidence": 0.9 if not errors else 0.2,
+            "errors": errors,
+        }
+
+        if not errors:
+            log.debug("Successfully extracted %d answers with no errors.", len(answers))
         else:
-            structured_quality = {"confidence": 0.9, "errors": []}
+            log.warning(
+                "Finished extraction with %d error(s). Extracted %d answers.",
+                len(errors),
+                len(answers)
+            )
 
         return ExtractionResult(
             answers=answers,

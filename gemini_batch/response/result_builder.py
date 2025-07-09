@@ -1,6 +1,9 @@
+import logging
 from typing import Any, Dict, List, Optional
 
 from .types import ProcessingMetrics, ProcessingOptions
+
+log = logging.getLogger(__name__)
 
 
 class ResultBuilder:
@@ -61,6 +64,14 @@ class ResultBuilder:
             }
         else:
             result["cache_summary"] = {"cache_enabled": False}
+
+        if efficiency.get("comparison_available"):
+            log.info(
+                "Batch processing completed successfully. Token efficiency: %.2fx",
+                efficiency["token_efficiency_ratio"],
+            )
+        else:
+            log.info("Batch processing completed successfully.")
 
         self._add_optional_data(result, batch_metrics, individual_answers, config)
         return result

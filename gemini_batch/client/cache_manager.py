@@ -9,6 +9,7 @@ from contextlib import suppress
 from dataclasses import dataclass
 from datetime import datetime, timedelta, timezone
 import hashlib
+import logging
 import time
 from typing import Dict, List, Optional, Union
 
@@ -16,6 +17,8 @@ from google import genai
 from google.genai import types
 
 from ..config import ConfigManager
+
+log = logging.getLogger(__name__)
 
 
 @dataclass
@@ -188,6 +191,11 @@ class CacheManager:
             return None
 
         cache_info = self.active_caches[cache_name]
+        log.debug(
+            "Cache hit for content hash '%s' -> cache_name '%s'",
+            content_hash[:8],
+            cache_name,
+        )
 
         # Check if cache is still valid
         if not self._is_cache_valid(cache_info):
@@ -212,6 +220,11 @@ class CacheManager:
     ) -> CacheResult:
         """Create new explicit cache"""
         start_time = time.time()
+        log.info(
+            "Creating new explicit cache for model '%s' with TTL %ds.",
+            model,
+            strategy.ttl_seconds,
+        )
 
         try:
             # Create cache configuration
@@ -256,6 +269,7 @@ class CacheManager:
             )
 
         except Exception as e:
+            log.exception("Failed to create cache for model '%s'.", model)
             return CacheResult(
                 success=False,
                 fallback_required=True,
@@ -301,28 +315,27 @@ class CacheManager:
             return self.default_ttl_seconds  # 1 hour for smaller content
 
     def _is_cache_valid(self, cache_info: CacheInfo) -> bool:
-        """Check if cache is still valid (not expired)"""
-        now = datetime.now(timezone.utc)
-        expiry_time = cache_info.created_at + timedelta(seconds=cache_info.ttl_seconds)
-        return now < expiry_time
+        """Check if cache is within TTL"""
+        return datetime.now(timezone.utc) < cache_info.created_at + timedelta(
+            seconds=cache_info.ttl_seconds
+        )
 
     def cleanup_expired_caches(self) -> int:
-        """Clean up expired caches and return number cleaned"""
-        expired_caches = [
-            cache_name
-            for cache_name, cache_info in self.active_caches.items()
-            if not self._is_cache_valid(cache_info)
-        ]
-
+        """Cleanup expired caches and return count of cleaned caches."""
         cleaned_count = 0
-        for cache_name in expired_caches:
-            if self._cleanup_cache(cache_name):
-                cleaned_count += 1
+        # Iterate over a copy of keys since we might modify the dict
+        for cache_name in list(self.active_caches.keys()):
+            cache_info = self.active_caches.get(cache_name)
+            if cache_info and not self._is_cache_valid(cache_info):
+                if self._cleanup_cache(cache_name):
+                    cleaned_count += 1
 
+        if cleaned_count > 0:
+            log.info("Cleaned up %d expired caches.", cleaned_count)
         return cleaned_count
 
     def _cleanup_cache(self, cache_name: str) -> bool:
-        """Clean up a specific cache"""
+        """Cleanup a single cache entry and associated mappings."""
         try:
             # Remove from API (ignore errors - cache may be auto-expired)
             with suppress(Exception):

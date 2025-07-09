@@ -4,6 +4,7 @@ into processed ExtractedContent objects for API consumption
 """
 
 import io
+import logging
 from pathlib import Path
 from typing import Any, List, Optional, Union
 
@@ -30,6 +31,9 @@ def _flatten_sources(sources: Union[str, Path, List]) -> List[Union[str, Path]]:
         else:
             flattened.append(item)
     return flattened
+
+
+log = logging.getLogger(__name__)
 
 
 class ContentProcessor:
@@ -102,6 +106,7 @@ class ContentProcessor:
     ) -> List[ExtractedContent]:
         """Expand a directory marker into individual file extractions"""
         directory_path = Path(directory_extract.metadata["directory_path"])
+        log.debug("Expanding directory: %s", directory_path)
 
         try:
             # Use file operations to scan the directory
@@ -176,10 +181,15 @@ class ContentProcessor:
             List of Gemini API Part objects
         """
         api_parts = []
+        is_multimodal = any(
+            self.file_ops.is_multimodal_content(e) for e in extracted_contents
+        )
 
         for extracted in extracted_contents:
             # Make upload decision based on strategy and caching
-            strategy = self._determine_processing_strategy(extracted, cache_enabled)
+            strategy = self._determine_processing_strategy(
+                extracted, cache_enabled, is_multimodal
+            )
 
             # Create appropriate API part
             if strategy == "text_only":
@@ -196,23 +206,20 @@ class ContentProcessor:
         return api_parts
 
     def _determine_processing_strategy(
-        self, extracted: ExtractedContent, cache_enabled: bool
+        self, extracted: ExtractedContent, cache_enabled: bool, is_multimodal: bool
     ) -> str:
-        """
-        Coordinate processing strategy decisions.
-        Uses existing file_ops for multimodal detection.
-        """
-        base_strategy = extracted.processing_strategy
-
-        # If caching enabled and multimodal content would be inline, force upload
-        if (
-            cache_enabled
-            and base_strategy == "inline"
-            and self.file_ops.is_multimodal_content(extracted)
-        ):
+        """Determine processing strategy, forcing upload for multimodal if caching."""
+        strategy = extracted.processing_strategy
+        if cache_enabled and strategy == "inline" and is_multimodal:
+            log.debug("Forcing upload strategy for multimodal content due to caching.")
             return "upload"
 
-        return base_strategy
+        log.debug(
+            "Determined processing strategy '%s' for source '%s'",
+            strategy,
+            extracted.file_info.path,
+        )
+        return strategy
 
     def _create_upload_part(
         self, extracted: ExtractedContent, client: Optional[Any]

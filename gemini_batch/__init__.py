@@ -3,6 +3,7 @@ Gemini Batch Processing Framework
 """
 
 import importlib.metadata
+import logging
 
 from .analysis.schema_analyzer import SchemaAnalyzer
 from .batch_processor import BatchProcessor
@@ -18,6 +19,10 @@ from .exceptions import APIError, GeminiBatchError, MissingKeyError, NetworkErro
 from .files import FileType
 from .gemini_client import GeminiClient
 from .prompts import BatchPromptBuilder, StructuredPromptBuilder
+
+# Set up a null handler for the library's root logger.
+# This prevents 'No handler found' errors if the consuming app has no logging configured.
+logging.getLogger(__name__).addHandler(logging.NullHandler())
 
 try:
     __version__ = importlib.metadata.version("gemini-batch")
