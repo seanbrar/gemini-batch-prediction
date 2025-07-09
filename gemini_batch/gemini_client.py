@@ -351,7 +351,7 @@ class GeminiClient:
         # The cache_manager will perform the detailed analysis.
         for part in parts:
             if self._is_large_text_part(
-                part, min_len=MIN_TEXT_LENGTH_FOR_CACHE_ANALYSIS
+                part, threshold=MIN_TEXT_LENGTH_FOR_CACHE_ANALYSIS
             ):
                 return True
         return False

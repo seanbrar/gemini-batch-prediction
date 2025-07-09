@@ -70,11 +70,21 @@ class BatchProcessor:
         compare_methods: bool = False,
         response_schema: Optional[Any] = None,
         client: Optional[GeminiClient] = None,
+        **kwargs,  # Accept additional parameters for flexibility
     ) -> Dict[str, Any]:
         """
         Process a list of questions against a body of text content.
         This method orchestrates the entire process, from content processing
         to response extraction and result building.
+
+        Args:
+            content: Content to process (text, files, URLs, etc.)
+            questions: List of questions to ask
+            compare_methods: Whether to run individual comparison
+            response_schema: Optional schema for structured output
+            client: Optional client override
+            **kwargs: Additional parameters passed to underlying processors
+                     (e.g., system_instruction, return_usage, etc.)
         """
         log.info("Starting question processing for %d questions.", len(questions))
         if client:
@@ -83,6 +93,7 @@ class BatchProcessor:
         config = ProcessingOptions(
             compare_methods=compare_methods,
             response_schema=response_schema,
+            options=kwargs,  # Pass through all extra parameters
         )
 
         return self._process_standard(content, questions, config)
@@ -206,13 +217,11 @@ class BatchProcessor:
             batch_prompt = prompt_builder.create_prompt(questions)
 
             try:
-                # 3. Make the API call - this is the critical operation that can fail
-                response = self.client.generate_batch(
+                # 3. Make the API call - use generate_content since we have a single combined prompt
+                response = self.client.generate_content(
                     content=content,
-                    questions=[
-                        batch_prompt
-                    ],  # The builder combines questions into one prompt
-                    return_usage=False,  # Let ResponseProcessor handle usage extraction
+                    prompt=batch_prompt,  # Single combined prompt, not multiple questions
+                    return_usage=True,  # Need full response object for ResponseProcessor
                     response_schema=config.response_schema,
                     **config.options,
                 )
@@ -259,7 +268,7 @@ class BatchProcessor:
                     response = self.client.generate_content(
                         content=content,
                         prompt=question,
-                        return_usage=False,  # Let ResponseProcessor handle usage extraction
+                        return_usage=True,  # Need full response object for ResponseProcessor
                         response_schema=config.response_schema,
                         **config.options,
                     )

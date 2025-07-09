@@ -203,7 +203,6 @@ class ResponseProcessor:
                 }
             )
         else:
-
             usage = extract_usage_metrics(response)
 
         # Auto-detect batch vs individual
@@ -218,13 +217,28 @@ class ResponseProcessor:
             log.debug("Using pre-parsed data from `response.parsed` attribute.")
             parsed_data = response.parsed
         else:
-            # Path B: Parse response.text
-            response_text = getattr(response, "text", "")
+            # Path B: Parse response.text (handle both dict and object responses)
+            if isinstance(response, dict):
+                response_text = response.get("text", "")
+            else:
+                response_text = getattr(response, "text", "")
             if response_text:
                 try:
                     # The prompt asks for JSON, so we try this first.
                     log.debug("Attempting to parse response text as JSON.")
-                    loaded_json = json.loads(response_text)
+
+                    # Handle markdown-wrapped JSON (common with Gemini API)
+                    json_text = response_text.strip()
+                    if json_text.startswith("```json") and json_text.endswith("```"):
+                        # Extract JSON from markdown code block
+                        json_text = json_text[7:-3].strip()  # Remove ```json and ```
+                        log.debug("Extracted JSON from markdown wrapper.")
+                    elif json_text.startswith("```") and json_text.endswith("```"):
+                        # Handle generic code block
+                        json_text = json_text[3:-3].strip()  # Remove ``` and ```
+                        log.debug("Extracted content from generic markdown wrapper.")
+
+                    loaded_json = json.loads(json_text)
                     if response_schema:
                         log.debug("Validating JSON against provided Pydantic schema.")
                         parsed_data = response_schema.model_validate(loaded_json)
@@ -236,15 +250,20 @@ class ResponseProcessor:
                         "Failed to decode JSON from response. Treating as single raw text answer."
                     )
                     errors.append("Response was not valid JSON.")
-                    parsed_data = [response_text] # Fallback to a list with one item
+                    parsed_data = [response_text]  # Fallback to a list with one item
                 except ValidationError as e:
-                    log.error("Response JSON did not match the provided schema.", exc_info=True)
+                    log.error(
+                        "Response JSON did not match the provided schema.",
+                        exc_info=True,
+                    )
                     errors.append(f"Schema validation failed: {e}")
-                    parsed_data = [response_text] # Fallback
+                    parsed_data = [response_text]  # Fallback
                 except Exception as e:
-                    log.exception("An unexpected error occurred during response parsing.")
+                    log.exception(
+                        "An unexpected error occurred during response parsing."
+                    )
                     errors.append(f"Unexpected parsing error: {e}")
-                    parsed_data = [response_text] # Fallback
+                    parsed_data = [response_text]  # Fallback
             else:
                 log.warning("Response text was empty.")
                 errors.append("Response was empty.")
@@ -260,11 +279,31 @@ class ResponseProcessor:
                 answers = [str(item) for item in parsed_data]
             else:
                 # This case might occur if the JSON was valid but not a list
-                log.warning("Parsed data was not a list as expected. Treating as single answer.")
+                log.warning(
+                    "Parsed data was not a list as expected. Treating as single answer."
+                )
                 answers = [str(parsed_data)]
         elif errors:
-            log.debug("No parsed data available, using raw response text as fallback answer.")
-            answers = [getattr(response, "text", "")]
+            log.debug(
+                "No parsed data available, using raw response text as fallback answer."
+            )
+            if isinstance(response, dict):
+                raw_text = response.get("text", "")
+            else:
+                raw_text = getattr(response, "text", "")
+
+            # For batch processing, we need to provide the expected number of answers
+            if question_count > 1:
+                log.debug(
+                    "Creating %d placeholder answers for empty batch response.",
+                    question_count,
+                )
+                answers = [
+                    f"Error: {raw_text or 'Empty response'}"
+                    for _ in range(question_count)
+                ]
+            else:
+                answers = [raw_text]
 
         # Simplified quality/confidence logic
         structured_quality = {
@@ -278,7 +317,7 @@ class ResponseProcessor:
             log.warning(
                 "Finished extraction with %d error(s). Extracted %d answers.",
                 len(errors),
-                len(answers)
+                len(answers),
             )
 
         return ExtractionResult(

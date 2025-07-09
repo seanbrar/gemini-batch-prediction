@@ -49,7 +49,12 @@ class ConversationSession:
             # Prepare options with system instruction if history exists
             processor_options = options.copy()
             if history_context:
-                processor_options["system_instruction"] = history_context
+                # Fix: Merge system instruction instead of overwriting
+                existing = processor_options.get("system_instruction", "")
+                combined = (
+                    f"{existing}\n\n{history_context}" if existing else history_context
+                )
+                processor_options["system_instruction"] = combined
 
             # Delegate to BatchProcessor for actual processing
             result = self.processor.process_questions(
@@ -83,7 +88,12 @@ class ConversationSession:
             # Prepare options with system instruction if history exists
             processor_options = options.copy()
             if history_context:
-                processor_options["system_instruction"] = history_context
+                # Fix: Merge system instruction instead of overwriting
+                existing = processor_options.get("system_instruction", "")
+                combined = (
+                    f"{existing}\n\n{history_context}" if existing else history_context
+                )
+                processor_options["system_instruction"] = combined
 
             # Delegate to BatchProcessor
             result = self.processor.process_questions(
@@ -176,15 +186,18 @@ class ConversationSession:
     # Session persistence
     def save(self, path: Optional[str] = None) -> str:
         """Save conversation session to file"""
+        # Fix: Convert sources to strings for JSON serialization
+        serializable_sources = [str(s) for s in self.sources]
+
         session_data = {
             "session_id": self.session_id,
-            "sources": self.sources,
+            "sources": serializable_sources,
             "history": [
                 {
                     "question": turn.question,
                     "answer": turn.answer,
                     "timestamp": turn.timestamp.isoformat(),
-                    "sources_snapshot": turn.sources_snapshot,
+                    "sources_snapshot": [str(s) for s in turn.sources_snapshot],
                     "cache_info": turn.cache_info,
                     "error": turn.error,
                 }
