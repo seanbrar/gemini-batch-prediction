@@ -27,7 +27,7 @@ logging.getLogger(__name__).addHandler(logging.NullHandler())
 try:
     __version__ = importlib.metadata.version("gemini-batch")
 except importlib.metadata.PackageNotFoundError:
-    __version__ = "0.5.0"  # fallback version
+    __version__ = "0.6.0"  # fallback version
 
 __all__ = [
     "GeminiClient",
