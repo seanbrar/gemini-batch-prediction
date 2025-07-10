@@ -4,10 +4,15 @@ Configuration system for rate limiting and model capabilities
 
 from dataclasses import dataclass
 from enum import Enum
+import logging
 import os
 from typing import Dict, Optional, Union
 
+from gemini_batch.constants import MIN_CACHING_THRESHOLD
+
 from .exceptions import GeminiBatchError, MissingKeyError
+
+log = logging.getLogger(__name__)
 
 
 class APITier(Enum):
@@ -69,16 +74,16 @@ class ModelCapabilities:
 
 
 @dataclass
-class RateLimits:
-    """Tier-specific rate limits for a model"""
+class TierRateLimits:
+    """Rate limits for a specific model in a specific tier"""
 
     requests_per_minute: int
     tokens_per_minute: int
 
 
 @dataclass
-class ModelLimits:
-    """Combined model capabilities and rate limits"""
+class ModelTierLimits:
+    """Combined model capabilities and rate limits for a specific tier"""
 
     requests_per_minute: int
     tokens_per_minute: int
@@ -87,33 +92,32 @@ class ModelLimits:
     caching: Optional[CachingCapabilities] = None
 
 
-# Helper factory functions for common caching patterns
+def _explicit_only_caching() -> CachingCapabilities:
+    """Standard explicit-only caching configuration"""
+    return CachingCapabilities(
+        supports_implicit=False,
+        supports_explicit=True,
+        explicit_minimum_tokens=4096,
+    )
+
+
 def _gemini_25_flash_caching() -> CachingCapabilities:
-    """Caching capabilities for Gemini 2.5 Flash models"""
+    """Gemini 2.5 Flash caching configuration with implicit support"""
     return CachingCapabilities(
         supports_implicit=True,
         supports_explicit=True,
-        implicit_minimum_tokens=1024,
-        explicit_minimum_tokens=1024,
+        implicit_minimum_tokens=2048,  # Correct threshold
+        explicit_minimum_tokens=4096,
     )
 
 
 def _gemini_25_pro_caching() -> CachingCapabilities:
-    """Caching capabilities for Gemini 2.5 Pro models"""
+    """Gemini 2.5 Pro caching configuration with implicit support"""
     return CachingCapabilities(
         supports_implicit=True,
         supports_explicit=True,
-        implicit_minimum_tokens=2048,
-        explicit_minimum_tokens=2048,
-    )
-
-
-def _explicit_only_caching(minimum_tokens: int = 4096) -> CachingCapabilities:
-    """Caching capabilities for explicit-only models (2.0, 1.5 family)"""
-    return CachingCapabilities(
-        supports_implicit=False,
-        supports_explicit=True,
-        explicit_minimum_tokens=minimum_tokens,
+        implicit_minimum_tokens=2048,  # Correct threshold
+        explicit_minimum_tokens=4096,
     )
 
 
@@ -159,35 +163,35 @@ MODEL_CAPABILITIES = {
 # Tier-specific rate limits (only what varies by tier)
 TIER_RATE_LIMITS = {
     APITier.FREE: {
-        "gemini-2.5-flash-preview-05-20": RateLimits(10, 250_000),
-        "gemini-2.0-flash": RateLimits(15, 1_000_000),
-        "gemini-2.0-flash-lite": RateLimits(30, 1_000_000),
-        "gemini-1.5-flash": RateLimits(15, 250_000),
-        "gemini-1.5-flash-8b": RateLimits(15, 250_000),
+        "gemini-2.5-flash-preview-05-20": TierRateLimits(10, 250_000),
+        "gemini-2.0-flash": TierRateLimits(15, 1_000_000),
+        "gemini-2.0-flash-lite": TierRateLimits(30, 1_000_000),
+        "gemini-1.5-flash": TierRateLimits(15, 250_000),
+        "gemini-1.5-flash-8b": TierRateLimits(15, 250_000),
     },
     APITier.TIER_1: {
-        "gemini-2.5-flash-preview-05-20": RateLimits(1_000, 1_000_000),
-        "gemini-2.5-pro-preview-06-05": RateLimits(150, 2_000_000),
-        "gemini-2.0-flash": RateLimits(2_000, 4_000_000),
-        "gemini-2.0-flash-lite": RateLimits(4_000, 4_000_000),
-        "gemini-1.5-flash": RateLimits(2_000, 4_000_000),
-        "gemini-1.5-flash-8b": RateLimits(4_000, 4_000_000),
-        "gemini-1.5-pro": RateLimits(1_000, 4_000_000),
+        "gemini-2.5-flash-preview-05-20": TierRateLimits(1_000, 1_000_000),
+        "gemini-2.5-pro-preview-06-05": TierRateLimits(150, 2_000_000),
+        "gemini-2.0-flash": TierRateLimits(2_000, 4_000_000),
+        "gemini-2.0-flash-lite": TierRateLimits(4_000, 4_000_000),
+        "gemini-1.5-flash": TierRateLimits(2_000, 4_000_000),
+        "gemini-1.5-flash-8b": TierRateLimits(4_000, 4_000_000),
+        "gemini-1.5-pro": TierRateLimits(1_000, 4_000_000),
     },
     APITier.TIER_2: {
-        "gemini-2.5-flash-preview-05-20": RateLimits(2_000, 3_000_000),
-        "gemini-2.5-pro-preview-06-05": RateLimits(1_000, 5_000_000),
-        "gemini-2.0-flash": RateLimits(10_000, 10_000_000),
-        "gemini-2.0-flash-lite": RateLimits(20_000, 10_000_000),
-        "gemini-1.5-flash": RateLimits(2_000, 4_000_000),
-        "gemini-1.5-flash-8b": RateLimits(4_000, 4_000_000),
-        "gemini-1.5-pro": RateLimits(1_000, 4_000_000),
+        "gemini-2.5-flash-preview-05-20": TierRateLimits(2_000, 3_000_000),
+        "gemini-2.5-pro-preview-06-05": TierRateLimits(1_000, 5_000_000),
+        "gemini-2.0-flash": TierRateLimits(10_000, 10_000_000),
+        "gemini-2.0-flash-lite": TierRateLimits(20_000, 10_000_000),
+        "gemini-1.5-flash": TierRateLimits(2_000, 4_000_000),
+        "gemini-1.5-flash-8b": TierRateLimits(4_000, 4_000_000),
+        "gemini-1.5-pro": TierRateLimits(1_000, 4_000_000),
     },
     APITier.TIER_3: {
-        "gemini-2.5-flash-preview-05-20": RateLimits(10_000, 8_000_000),
-        "gemini-2.5-pro-preview-06-05": RateLimits(2_000, 8_000_000),
-        "gemini-2.0-flash": RateLimits(30_000, 30_000_000),
-        "gemini-2.0-flash-lite": RateLimits(30_000, 30_000_000),
+        "gemini-2.5-flash-preview-05-20": TierRateLimits(10_000, 8_000_000),
+        "gemini-2.5-pro-preview-06-05": TierRateLimits(2_000, 8_000_000),
+        "gemini-2.0-flash": TierRateLimits(30_000, 30_000_000),
+        "gemini-2.0-flash-lite": TierRateLimits(30_000, 30_000_000),
     },
 }
 
@@ -234,6 +238,12 @@ def _parse_tier_from_string(tier_str: str) -> Optional[APITier]:
     return tier_mapping.get(tier_str)
 
 
+def _parse_enable_caching_from_env() -> bool:
+    """Parse GEMINI_ENABLE_CACHING environment variable"""
+    env_value = os.getenv("GEMINI_ENABLE_CACHING", "").lower().strip()
+    return env_value in ("true", "1", "yes", "on")
+
+
 class ConfigManager:
     """Manages API configuration including environment variable integration"""
 
@@ -242,6 +252,7 @@ class ConfigManager:
         tier: Optional[APITier] = None,
         model: Optional[str] = None,
         api_key: Optional[str] = None,
+        enable_caching: Optional[bool] = None,
     ):
         """Initialize configuration with explicit parameters or environment fallback"""
         # API key resolution and validation
@@ -255,6 +266,13 @@ class ConfigManager:
         # Model resolution with environment fallback
         self.model = model or self._get_model_from_env() or self._get_default_model()
 
+        # Caching configuration with environment fallback
+        self.enable_caching = (
+            enable_caching
+            if enable_caching is not None
+            else _parse_enable_caching_from_env()
+        )
+
         # Validate that the selected model is available in the selected tier
         if self.model and not self.get_model_limits(self.model):
             available_models = self._get_available_models()
@@ -262,6 +280,35 @@ class ConfigManager:
                 f"Model '{self.model}' is not available in {self.tier.value} tier. "
                 f"Available models: {', '.join(available_models)}"
             )
+
+        # Validate caching configuration
+        self._validate_caching_configuration()
+
+        # Log configuration
+        log.debug(
+            "ConfigManager initialized: model=%s, tier=%s, caching=%s",
+            self.model,
+            self.tier.value,
+            self.enable_caching,
+        )
+
+    def _validate_caching_configuration(self) -> None:
+        """Validate caching configuration is consistent"""
+        if not self.enable_caching:
+            return
+
+        # Check if model supports any caching
+        caching_support = self.can_use_caching(self.model, MIN_CACHING_THRESHOLD)
+        supports_any = caching_support.get("explicit") or caching_support.get(
+            "implicit"
+        )
+
+        if not supports_any:
+            log.warning(
+                "Caching enabled but model %s doesn't support it. Disabling caching.",
+                self.model,
+            )
+            self.enable_caching = False  # Auto-disable rather than just warn
 
     @classmethod
     def from_env(cls) -> "ConfigManager":
@@ -318,7 +365,7 @@ class ConfigManager:
             )
         return self._cached_available_models
 
-    def get_model_limits(self, model: str) -> Optional[ModelLimits]:
+    def get_model_limits(self, model: str) -> Optional[ModelTierLimits]:
         """Get combined rate limits and capabilities for specific model and tier"""
         # Get tier-specific rate limits
         tier_limits = TIER_RATE_LIMITS.get(self.tier, {})
@@ -331,8 +378,8 @@ class ConfigManager:
         if not capabilities:
             return None
 
-        # Combine into ModelLimits
-        return ModelLimits(
+        # Combine into ModelTierLimits
+        return ModelTierLimits(
             requests_per_minute=rate_limits.requests_per_minute,
             tokens_per_minute=rate_limits.tokens_per_minute,
             supports_multimodal=capabilities.supports_multimodal,
@@ -421,12 +468,30 @@ class ConfigManager:
             else None,
         }
 
+    def validate_configuration(self) -> list[str]:
+        """Validate entire configuration and return issues"""
+        issues = []
+
+        if not self.api_key:
+            issues.append("Missing API key")
+
+        if not self.get_model_limits(self.model):
+            issues.append(f"Model {self.model} not available in {self.tier.value} tier")
+
+        if self.enable_caching:
+            caching_support = self.can_use_caching(self.model, MIN_CACHING_THRESHOLD)
+            if not (caching_support.get("explicit") or caching_support.get("implicit")):
+                issues.append(f"Caching enabled but not supported by {self.model}")
+
+        return issues
+
     def get_config_summary(self) -> Dict[str, str]:
         """Get summary of current configuration for debugging"""
         return {
             "tier": self.tier.value,
             "tier_name": self.get_tier_name(),
             "model": self.model,
+            "enable_caching": self.enable_caching,
             "api_key_present": bool(self.api_key),
             "api_key_length": len(self.api_key) if self.api_key else 0,
         }

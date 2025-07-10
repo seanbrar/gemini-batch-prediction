@@ -12,7 +12,8 @@ pip install -e .
 
 Get your API key from [Google AI Studio](https://ai.dev/) and configure it using one of these methods:
 
-**Environment Variables (Recommended)**
+#### Environment Variables (Recommended)
+
 ```bash
 # Create .env file or export directly
 GEMINI_API_KEY=your_api_key_here
@@ -168,14 +169,16 @@ except APIError as e:
 
 ### Common Issues
 
-**"API key required" error**
+#### "API key required" error
+
 ```python
 # Verify your API key is set
 import os
 print("API key present:", bool(os.getenv('GEMINI_API_KEY')))
 ```
 
-**Rate limit errors**
+#### Rate limit errors
+
 ```python
 # Check your current tier configuration
 client = GeminiClient.from_env()
@@ -184,7 +187,8 @@ print(f"Tier: {config['tier_name']}")
 print(f"Rate limit: {client.rate_limit_requests} requests/minute")
 ```
 
-**Model not available errors**
+#### Model not available errors
+
 - Some models require billing enabled (TIER_1+)
 - Use `config.get_model_limits(model_name)` to check availability
 

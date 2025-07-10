@@ -79,6 +79,8 @@ MIN_CACHE_TTL = 300  # 5 minutes minimum
 
 # Cache size thresholds
 MIN_CACHEABLE_TOKENS = 1024  # Minimum tokens worth caching
+MIN_CACHING_THRESHOLD = 4096
+CACHING_VALIDATION_THRESHOLD = 32_768
 LARGE_CONTENT_THRESHOLD = 50_000  # Tokens considered "large content"
 HUGE_CONTENT_THRESHOLD = 100_000  # Tokens considered "huge content"
 

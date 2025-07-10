@@ -31,6 +31,7 @@ mixed_source = ["text content", "file.pdf", "https://youtube.com/watch?v=xyz"]
 ## Multi-Source Processing
 
 ### Single Batch Processing
+
 Process multiple distinct source collections in one call:
 
 ```python
@@ -52,6 +53,7 @@ result = processor.process_questions_multi_source(sources, questions)
 ```
 
 ### Consecutive Processing
+
 Process multiple sources one at a time:
 
 ```python
@@ -74,12 +76,14 @@ result = processor.process_questions(sources, questions)
 ## Basic Usage Examples
 
 ### Single Source Type
+
 ```python
 # Single document analysis
 result = processor.process_questions("document.pdf", questions)
 ```
 
 ### Multiple Files
+
 ```python
 # Multiple files as one dataset
 files = ["report1.pdf", "report2.docx", "data.csv"]
@@ -87,6 +91,7 @@ result = processor.process_questions(files, questions)
 ```
 
 ### Mixed Content Types
+
 ```python
 # Mixed content types in one analysis
 content = [
@@ -96,6 +101,21 @@ content = [
     "data_directory/"
 ]
 result = processor.process_questions(content, questions)
+```
+
+### Directory Processing
+
+```python
+# Process entire directory with filtering
+processor = BatchProcessor()
+
+# All files in directory
+result = processor.process_questions("research_papers/", questions)
+
+# With file type filtering (via file operations)
+from gemini_batch.files import scan_directory
+pdf_files = scan_directory("documents/", extensions=[".pdf"])
+result = processor.process_questions(pdf_files, questions)
 ```
 
 ## Response Structure
@@ -112,4 +132,4 @@ All source handling methods return the same structure:
 }
 ```
 
-The system automatically optimizes API calls regardless of source complexity. 
+The system automatically optimizes API calls regardless of source complexity.

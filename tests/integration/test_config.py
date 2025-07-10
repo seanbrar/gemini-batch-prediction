@@ -136,6 +136,6 @@ class TestConfigManagerIntegration:
             limits = config.get_model_limits("gemini-2.0-flash")
             assert limits.requests_per_minute == reference_limits.requests_per_minute
             assert limits.tokens_per_minute == reference_limits.tokens_per_minute
-            assert limits.supports_caching == reference_limits.supports_caching
+            assert limits.caching == reference_limits.caching
             assert limits.supports_multimodal == reference_limits.supports_multimodal
             assert limits.context_window == reference_limits.context_window

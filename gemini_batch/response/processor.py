@@ -1,18 +1,26 @@
 """
-Central response processor that coordinates validation, parsing, extraction, and quality assessment
+Response processor for structured JSON outputs from the Gemini API
+
+This module handles the extraction, validation, and packaging of responses
+from the Gemini API. It supports both structured JSON responses and fallback
+text parsing, with built-in quality assessment and error handling.
 """
 
+import json
+import logging
 from typing import Any, Dict, List, Optional
 
-from .extraction import extract_answers
-from .parsing import parse_text_with_schema_awareness
+from pydantic import ValidationError
+
+from ..efficiency.metrics import extract_usage_metrics
 from .quality import calculate_quality_score
 from .types import ExtractionResult, ProcessedResponse
-from .validation import validate_against_schema, validate_structured_response
+
+log = logging.getLogger(__name__)
 
 
 class ResponseProcessor:
-    """Central processor for handling all types of response processing"""
+    """Processes and validates responses from the Gemini API"""
 
     def __init__(self):
         """Initialize the response processor"""
@@ -28,7 +36,7 @@ class ResponseProcessor:
         api_call_time: Optional[float] = None,
     ) -> Dict[str, Any]:
         """
-        Process a raw batch API response with complete integration handling
+        Process a raw batch API response with comprehensive result packaging
 
         This is the primary integration method that BatchProcessor should use.
         It handles all response processing, packaging, and result formatting.
@@ -36,7 +44,7 @@ class ResponseProcessor:
         Args:
             raw_response: Raw API response from batch call
             questions: List of questions that were asked
-            response_schema: Optional schema for structured output
+            response_schema: Optional schema for structured output validation
             return_usage: Whether to include usage metrics
             comparison_answers: Optional answers for quality comparison
             api_call_time: Total time for API call (if provided, used instead of processing time)
@@ -48,12 +56,11 @@ class ResponseProcessor:
 
         start_time = time.time()
 
-        # Process the response using existing logic
+        # Process the response using simplified logic
         processed_response = self.process_response(
             response=raw_response,
             expected_questions=len(questions),
             schema=response_schema,
-            is_structured=response_schema is not None,
             comparison_answers=comparison_answers,
             return_confidence=True,
         )
@@ -93,226 +100,98 @@ class ResponseProcessor:
         response,
         expected_questions: int,
         schema: Optional[Any] = None,
-        is_structured: bool = None,
         comparison_answers: Optional[List[str]] = None,
         return_confidence: bool = True,
     ) -> ProcessedResponse:
         """
-        Process an API response with unified handling for both structured and unstructured responses
+        Process an API response with structured validation and quality assessment
 
         Args:
             response: The API response object
             expected_questions: Number of questions/answers expected
             schema: Optional schema for structured validation
-            is_structured: Whether to treat as structured response (auto-detected if None)
             comparison_answers: Optional answers for quality comparison
             return_confidence: Whether to calculate confidence metrics
 
         Returns:
             ProcessedResponse with all relevant data and metadata
         """
-
-        # Auto-detect structured response if not specified
-        if is_structured is None:
-            is_structured = schema is not None or (
-                hasattr(response, "parsed") and response.parsed is not None
-            )
-
-        # Process based on type
-        if is_structured and schema is not None:
-            return self._process_structured_response(
-                response,
-                expected_questions,
-                schema,
-                comparison_answers,
-                return_confidence,
-            )
-        else:
-            return self._process_text_response(
-                response, expected_questions, comparison_answers, return_confidence
-            )
-
-    def _process_structured_response(
-        self,
-        response,
-        expected_questions: int,
-        schema: Any,
-        comparison_answers: Optional[List[str]],
-        return_confidence: bool,
-    ) -> ProcessedResponse:
-        """Process a structured response with schema validation"""
-
-        # Step 1: Try direct validation of response.parsed
-        validation_result = validate_structured_response(response, schema)
-
-        if validation_result.success:
-            # Direct validation succeeded
-            response_data = {
-                "parsed": validation_result.parsed_data,
-                "text": validation_result.raw_text,
-            }
-            answers = extract_answers(
-                response_data, expected_questions, is_structured=True
-            )
-
-            return ProcessedResponse(
-                answers=answers,
-                success=True,
-                confidence=validation_result.confidence if return_confidence else None,
-                processing_method=validation_result.validation_method,
-                question_count=expected_questions,
-                structured_data=validation_result.parsed_data,
-                schema_validation_success=True,
-                quality_score=self._calculate_quality_if_needed(
-                    answers, comparison_answers
-                ),
-                metadata={
-                    "validation_method": validation_result.validation_method,
-                    "raw_text_length": len(validation_result.raw_text),
-                    "structured": True,
-                },
-                errors=validation_result.errors,
-            )
-        else:
-            # Direct validation failed - try parsing text then validating
-            return self._fallback_parse_then_validate(
-                response,
-                expected_questions,
-                schema,
-                comparison_answers,
-                return_confidence,
-            )
-
-    def _fallback_parse_then_validate(
-        self,
-        response,
-        expected_questions: int,
-        schema: Any,
-        comparison_answers: Optional[List[str]],
-        return_confidence: bool,
-    ) -> ProcessedResponse:
-        """Fallback: parse text then validate the result"""
-
-        raw_text = getattr(response, "text", str(response))
-
-        # Step 1: Parse text
-        parsing_result = parse_text_with_schema_awareness(raw_text, schema)
-
-        if parsing_result.success:
-            # Step 2: Validate parsed result
-            try:
-                validated_data = validate_against_schema(
-                    parsing_result.parsed_data, schema
-                )
-
-                # Create structured response
-                response_data = {"parsed": validated_data, "text": raw_text}
-                answers = extract_answers(
-                    response_data, expected_questions, is_structured=True
-                )
-
-                return ProcessedResponse(
-                    answers=answers,
-                    success=True,
-                    confidence=parsing_result.confidence if return_confidence else None,
-                    processing_method=f"parse_then_validate_{parsing_result.method}",
-                    question_count=expected_questions,
-                    structured_data=validated_data,
-                    schema_validation_success=True,
-                    quality_score=self._calculate_quality_if_needed(
-                        answers, comparison_answers
-                    ),
-                    metadata={
-                        "parsing_method": parsing_result.method,
-                        "raw_text_length": len(raw_text),
-                        "structured": True,
-                    },
-                    errors=[],
-                )
-
-            except Exception:
-                # Validation failed - fall back to text processing
-                return self._process_text_response(
-                    response, expected_questions, comparison_answers, return_confidence
-                )
-        else:
-            # Parsing failed - fall back to text processing
-            return self._process_text_response(
-                response, expected_questions, comparison_answers, return_confidence
-            )
-
-    def _process_text_response(
-        self,
-        response,
-        expected_questions: int,
-        comparison_answers: Optional[List[str]],
-        return_confidence: bool,
-    ) -> ProcessedResponse:
-        """Process a text-based response"""
-
-        # Extract answers using text extraction
-        answers = extract_answers(response, expected_questions, is_structured=False)
-
-        # Basic success check - did we get reasonable answers?
-        success = len(answers) > 0 and not all(
-            "No answer found" in answer for answer in answers
+        # Extract answers using simplified logic
+        extraction_result = self.extract_answers_from_response(
+            response, expected_questions, schema
         )
+
+        # Determine success based on errors
+        success = (
+            not extraction_result.structured_quality
+            or not extraction_result.structured_quality.get("errors")
+        )
+
+        # Calculate confidence
+        confidence = None
+        if return_confidence:
+            if extraction_result.structured_quality:
+                confidence = extraction_result.structured_quality.get("confidence", 0.5)
+            else:
+                confidence = 0.8 if success else 0.3
+
+        # Calculate quality score if comparison available
+        quality_score = None
+        if comparison_answers and extraction_result.answers:
+            if isinstance(extraction_result.answers, list):
+                quality_score = calculate_quality_score(
+                    comparison_answers, extraction_result.answers
+                )
 
         return ProcessedResponse(
-            answers=answers,
+            answers=extraction_result.answers
+            if isinstance(extraction_result.answers, list)
+            else [extraction_result.answers],
             success=success,
-            confidence=0.8 if success else 0.3,  # Basic confidence estimate
-            processing_method="text_extraction",
+            confidence=confidence,
+            processing_method="simplified_structured",
             question_count=expected_questions,
-            structured_data=None,
-            schema_validation_success=False,
-            quality_score=self._calculate_quality_if_needed(
-                answers, comparison_answers
-            ),
+            structured_data=extraction_result.structured_quality.get("structured_data")
+            if extraction_result.structured_quality
+            else None,
+            schema_validation_success=success,
+            quality_score=quality_score,
             metadata={
-                "text_length": len(str(response)),
-                "structured": False,
+                "method": "simplified_structured",
+                "structured": schema is not None,
             },
-            errors=[],
+            errors=extraction_result.structured_quality.get("errors", [])
+            if extraction_result.structured_quality
+            else [],
         )
-
-    def _calculate_quality_if_needed(
-        self, answers: List[str], comparison_answers: Optional[List[str]]
-    ) -> Optional[float]:
-        """Calculate quality score if comparison answers are provided"""
-        if comparison_answers is not None:
-            return calculate_quality_score(comparison_answers, answers)
-        return None
 
     def extract_answers_from_response(
         self, response: Any, question_count: int, response_schema: Optional[Any] = None
     ) -> ExtractionResult:
         """
-        Unified response extraction that handles all ResponseExtractor functionality
+        Extract answers from API response using structured validation with fallback parsing
 
-        This method auto-detects batch vs individual responses based on question_count
-        and handles both structured and unstructured responses.
-
-        Args:
-            response: Raw API response object or dict
-            question_count: Number of questions asked (determines batch vs individual handling)
-            response_schema: Optional schema for structured response validation
-
-        Returns:
-            ExtractionResult object containing:
-            - answers: Union[List[str], str] - List for batch, str for individual
-            - usage: Dict[str, int] - Token usage metrics
-            - structured_quality: Optional[Dict[str, Any]] - Quality data for structured responses
+        Implements a "Trust, but Verify" approach: first attempts to use structured
+        data from response.parsed, then falls back to parsing response.text as JSON
+        if needed. Validates against provided schema when available.
         """
+
+        response_text_preview = str(getattr(response, "text", ""))[:200]
+        log.debug(
+            "Extracting answers from response. type=%s, schema=%s, preview='%s...'",
+            type(response).__name__,
+            response_schema.__name__ if response_schema else "None",
+            response_text_preview,
+        )
+
         # Extract usage metrics with enhanced cache awareness
         usage = {
             "prompt_tokens": 0,
             "output_tokens": 0,
             "cached_tokens": 0,
-        }  # Default with cache
+        }
 
         if isinstance(response, dict):
-            # Enhanced usage extraction
             response_usage = response.get("usage", {})
             usage.update(
                 {
@@ -324,99 +203,162 @@ class ResponseProcessor:
                 }
             )
         else:
-            # Extract from response object using enhanced metrics extraction
-            from ..efficiency.metrics import extract_usage_metrics
-
             usage = extract_usage_metrics(response)
 
         # Auto-detect batch vs individual
         is_batch = question_count > 1
         structured_quality = None
+        parsed_data = None
+        answers = []
+        errors = []
 
-        # Handle structured responses
-        if response_schema:
-            if isinstance(response, dict):
-                if response.get("structured_success"):
-                    parsed_data = response.get("parsed")
-
-                    if is_batch:
-                        answers = (
-                            [str(parsed_data)]
-                            if parsed_data
-                            else ["No structured data"]
-                        )
-                    else:  # Individual response
-                        answers = (
-                            str(parsed_data)
-                            if parsed_data is not None
-                            else response.get("text", "")
-                        )
-
-                    structured_quality = {
-                        "confidence": response.get("structured_confidence", 0.0),
-                        "method": response.get("validation_method", "unknown"),
-                        "errors": response.get("validation_errors", []),
-                        "structured_data": parsed_data,
-                    }
-                else:
-                    # Fallback to text extraction
-                    response_text = response.get("text", "")
-
-                    if is_batch:
-                        answers = extract_answers(
-                            response_text, question_count, is_structured=False
-                        )
-                    else:  # Individual response
-                        answers = response_text
-
-                    structured_quality = {
-                        "confidence": 0.3,  # Lower confidence for text fallback
-                        "method": "text_fallback",
-                        "errors": response.get(
-                            "validation_errors", ["Structured parsing failed"]
-                        ),
-                    }
-            else:
-                # Simple response handling for structured
-                if is_batch:
-                    answers = extract_answers(
-                        response, question_count, is_structured=False
-                    )
-                else:  # Individual response
-                    answers = str(response) if response is not None else ""
+        # Path A: Use structured data from response.parsed if available
+        if hasattr(response, "parsed") and response.parsed:
+            log.debug("Using pre-parsed data from `response.parsed` attribute.")
+            parsed_data = response.parsed
         else:
-            # Handle unstructured responses
+            # Path B: Parse response.text (handle both dict and object responses)
             if isinstance(response, dict):
                 response_text = response.get("text", "")
             else:
-                response_text = str(response) if response is not None else ""
+                response_text = getattr(response, "text", "")
+            if response_text:
+                try:
+                    # The prompt asks for JSON, so we try this first.
+                    log.debug("Attempting to parse response text as JSON.")
 
-            if is_batch:
-                answers = extract_answers(
-                    response_text, question_count, is_structured=False
+                    # Handle markdown-wrapped JSON (common with Gemini API)
+                    json_text = response_text.strip()
+                    if json_text.startswith("```json") and json_text.endswith("```"):
+                        # Extract JSON from markdown code block
+                        json_text = json_text[7:-3].strip()  # Remove ```json and ```
+                        log.debug("Extracted JSON from markdown wrapper.")
+                    elif json_text.startswith("```") and json_text.endswith("```"):
+                        # Handle generic code block
+                        json_text = json_text[3:-3].strip()  # Remove ``` and ```
+                        log.debug("Extracted content from generic markdown wrapper.")
+
+                    loaded_json = json.loads(json_text)
+                    if response_schema:
+                        log.debug("Validating JSON against provided Pydantic schema.")
+                        parsed_data = response_schema.model_validate(loaded_json)
+                    else:
+                        # Default batch response should be a list of strings
+                        parsed_data = loaded_json
+                except json.JSONDecodeError:
+                    log.warning(
+                        "Failed to decode JSON from response. Treating as single raw text answer."
+                    )
+                    errors.append("Response was not valid JSON.")
+                    parsed_data = [response_text]  # Fallback to a list with one item
+                except ValidationError as e:
+                    log.error(
+                        "Response JSON did not match the provided schema.",
+                        exc_info=True,
+                    )
+                    errors.append(f"Schema validation failed: {e}")
+                    parsed_data = [response_text]  # Fallback
+                except Exception as e:
+                    log.exception(
+                        "An unexpected error occurred during response parsing."
+                    )
+                    errors.append(f"Unexpected parsing error: {e}")
+                    parsed_data = [response_text]  # Fallback
+            else:
+                log.warning("Response text was empty.")
+                errors.append("Response was empty.")
+
+        # Convert final parsed data to answer list
+        actual_structured_data = None
+        if parsed_data:
+            if response_schema:
+                # For custom schemas, the whole object is the "answer"
+                log.debug("Extracted single structured answer from schema.")
+                answers = [str(parsed_data)]
+                # Store the actual Pydantic object for structured_data field
+                actual_structured_data = parsed_data
+            elif isinstance(parsed_data, list):
+                log.debug("Extracted %d answers from JSON list.", len(parsed_data))
+                answers = [str(item) for item in parsed_data]
+            else:
+                # This case might occur if the JSON was valid but not a list
+                log.warning(
+                    "Parsed data was not a list as expected. Treating as single answer."
                 )
-            else:  # Individual response
-                answers = response_text
+                answers = [str(parsed_data)]
+        elif errors:
+            log.debug(
+                "No parsed data available, using raw response text as fallback answer."
+            )
+            if isinstance(response, dict):
+                raw_text = response.get("text", "")
+            else:
+                raw_text = getattr(response, "text", "")
+
+            # For batch processing, we need to provide the expected number of answers
+            if question_count > 1:
+                log.debug(
+                    "Creating %d placeholder answers for empty batch response.",
+                    question_count,
+                )
+                answers = [
+                    f"Error: {raw_text or 'Empty response'}"
+                    for _ in range(question_count)
+                ]
+            else:
+                answers = [raw_text]
+
+        # Simplified quality/confidence logic
+        structured_quality = {
+            "confidence": 0.9 if not errors else 0.2,
+            "errors": errors,
+        }
+
+        # Add structured data if available
+        if actual_structured_data is not None:
+            structured_quality["structured_data"] = actual_structured_data
+
+        if not errors:
+            log.debug("Successfully extracted %d answers with no errors.", len(answers))
+        else:
+            log.warning(
+                "Finished extraction with %d error(s). Extracted %d answers.",
+                len(errors),
+                len(answers),
+            )
 
         return ExtractionResult(
             answers=answers,
-            usage=usage,
             structured_quality=structured_quality,
+            usage=usage,
         )
-
-    # Convenience methods for specific use cases
 
     def extract_structured_data(
         self, response, schema: Any, return_confidence: bool = True
     ) -> ProcessedResponse:
-        """Extract structured data without answer extraction"""
-        return self.process_response(
-            response=response,
-            expected_questions=0,
-            schema=schema,
-            is_structured=True,
-            return_confidence=return_confidence,
-        )
+        """
+        Extracts structured data from a model's response using Pydantic.
+        """
+        # Simplified and corrected logic for structured data extraction
+        try:
+            # Assuming response.text contains the JSON string
+            json_data = json.loads(response.text)
+            model = schema.model_validate(json_data)
+            return ProcessedResponse(
+                answers=[str(model)],
+                success=True,
+                confidence=0.95 if return_confidence else None,
+                processing_method="pydantic_validation",
+                structured_data=model.model_dump(),
+            )
+        except (json.JSONDecodeError, ValidationError) as e:
+            return ProcessedResponse(
+                answers=[],
+                success=False,
+                confidence=0.1 if return_confidence else None,
+                processing_method="pydantic_validation",
+                errors=[str(e)],
+            )
 
     def extract_text_answers(
         self,
@@ -424,11 +366,20 @@ class ResponseProcessor:
         question_count: int,
         comparison_answers: Optional[List[str]] = None,
     ) -> ProcessedResponse:
-        """Extract text answers without structured processing"""
-        return self.process_response(
-            response=response,
-            expected_questions=question_count,
-            schema=None,
-            is_structured=False,
-            comparison_answers=comparison_answers,
+        """
+        Extracts plain text answers from a response, assuming a simple format.
+        """
+        # Simplified logic for text extraction
+        answers = [line.strip() for line in response.text.split("\n") if line.strip()]
+        success = len(answers) == question_count
+        quality_score = None
+        if comparison_answers:
+            quality_score = calculate_quality_score(comparison_answers, answers)
+
+        return ProcessedResponse(
+            answers=answers,
+            success=success,
+            confidence=0.7 if success else 0.4,
+            quality_score=quality_score,
+            processing_method="text_parsing",
         )

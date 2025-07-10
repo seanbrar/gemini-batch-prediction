@@ -6,8 +6,10 @@ efficiency gains and provide insights into content complexity.
 """
 
 from .content import ContentAnalyzer, SourceSummary
+from .schema_analyzer import SchemaAnalyzer
 
 __all__ = [
     "ContentAnalyzer",
     "SourceSummary",
+    "SchemaAnalyzer",
 ]

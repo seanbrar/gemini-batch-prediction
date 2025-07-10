@@ -1,6 +1,6 @@
 from unittest.mock import patch
 
-from gemini_batch.client import GeminiClient
+from gemini_batch import GeminiClient
 from gemini_batch.config import APITier, ConfigManager
 from tests.fixtures.api_responses import SAMPLE_RESPONSES
 
@@ -14,7 +14,7 @@ class TestGeminiClientIntegration:
         config = ConfigManager.for_testing(
             tier=APITier.TIER_1, model="gemini-2.0-flash"
         )
-        client = GeminiClient.from_config(config)
+        client = GeminiClient.from_config_manager(config)
 
         # Setup realistic batch response
         batch_response = type(SAMPLE_RESPONSES["batch_answer"])(

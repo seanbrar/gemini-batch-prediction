@@ -27,7 +27,8 @@ GEMINI_MODEL=gemini-2.5-flash-preview-05-20  # Supports implicit + explicit
 GEMINI_MODEL=gemini-2.0-flash                # Supports explicit only
 ```
 
-**Model Caching Capabilities:**
+### Model Caching Capabilities
+
 - **Gemini 2.5 Flash/Pro**: Both implicit and explicit caching
 - **Gemini 2.0 Flash**: Explicit caching only  
 - **Gemini 1.5 Pro/Flash**: Explicit caching only
@@ -70,13 +71,13 @@ for cache in cache_list:
 
 ## Best Practices
 
-1. **Large Content**: Caching provides most benefit for large documents, videos, or images
-2. **Repeated Analysis**: Multiple questions about the same content show highest efficiency gains  
-3. **TTL Selection**: Longer TTL for content analyzed repeatedly over time
-4. **Model Selection**: Gemini 2.5 models provide both implicit and explicit caching
+- **Large Content**: Most benefit for large documents, videos, or images
+- **Repeated Analysis**: Highest efficiency with multiple questions on same content
+- **Model Selection**: Gemini 2.5 models provide both implicit and explicit caching
+- **TTL Selection**: Use longer TTL for content analyzed repeatedly over time
 
 ## Troubleshooting
 
 - **Cache not enabled**: Check model supports caching and `enable_caching=True`
 - **Low cache hit ratio**: Content may be below minimum token threshold
-- **Cache errors**: Framework automatically falls back to non-cached generation 
+- **Cache errors**: Framework automatically falls back to non-cached generation

@@ -1,9 +1,10 @@
 """
-Client configuration classes for API connection and settings
+Client configuration handling for Gemini API integration
 """
 
-from dataclasses import asdict, dataclass, field
-from typing import Any, Dict, Optional
+from dataclasses import asdict, dataclass
+from typing import Any, Dict, Optional, Union
+import warnings
 
 from ..config import APITier, ConfigManager
 from ..constants import RATE_LIMIT_WINDOW
@@ -12,50 +13,24 @@ from ..exceptions import MissingKeyError
 
 @dataclass
 class ClientConfiguration:
-    """Client configuration for API connection and model settings"""
+    """Configuration for GeminiClient initialization"""
 
     api_key: str
-    model_name: str
+    model: str
     enable_caching: bool = False
-    tier: Optional[APITier] = None
-    custom_options: Dict[str, Any] = field(default_factory=dict)
+    tier: APITier = APITier.FREE
 
-    @classmethod
-    def from_config_manager(
-        cls, config_manager: ConfigManager, **overrides
-    ) -> "ClientConfiguration":
-        """Create configuration from ConfigManager with optional parameter overrides"""
-        return cls(
-            api_key=overrides.get("api_key") or config_manager.api_key,
-            model_name=overrides.get("model_name") or config_manager.model,
-            tier=overrides.get("tier"),
-            enable_caching=overrides.get("enable_caching", False),
-            custom_options=overrides.get("custom_options", {}),
-        )
-
-    @classmethod
-    def from_parameters(
-        cls,
-        api_key: str = None,
-        model_name: str = None,
-        tier: Optional[APITier] = None,
-        **kwargs,
-    ) -> "ClientConfiguration":
-        """Create configuration from individual parameters with defaults"""
-        # Create ConfigManager to handle defaults and environment
-        config_manager = ConfigManager(tier=tier, model=model_name, api_key=api_key)
-
-        return cls(
-            api_key=api_key or config_manager.api_key,
-            model_name=model_name or config_manager.model,
-            tier=tier,
-            enable_caching=kwargs.get("enable_caching", False),
-            custom_options={k: v for k, v in kwargs.items() if k != "enable_caching"},
-        )
-
-    def get_summary(self) -> Dict[str, Any]:
-        """Get configuration summary for debugging and inspection"""
-        return asdict(self)
+    @property
+    def model_name(self) -> str:
+        """Compatibility property for GeminiClient"""
+        if not getattr(self, '_model_name_warned', False):
+            warnings.warn(
+                "The 'model_name' property is deprecated. Use 'model' instead.",
+                DeprecationWarning,
+                stacklevel=2,
+            )
+            self._model_name_warned = True
+        return self.model
 
     def validate(self) -> None:
         """Validate configuration has required values"""
@@ -64,6 +39,45 @@ class ClientConfiguration:
                 "API key required. Provide via parameter, ConfigManager, "
                 "or GEMINI_API_KEY environment variable."
             )
+
+    def get_summary(self) -> Dict[str, Any]:
+        """Get configuration summary for debugging and inspection"""
+        return asdict(self)
+
+    @classmethod
+    def from_parameters(
+        cls,
+        api_key: Optional[str] = None,
+        model: Optional[str] = None,
+        tier: Optional[Union[str, APITier]] = None,
+        enable_caching: Optional[bool] = None,
+        config_manager: Optional[ConfigManager] = None,
+    ) -> "ClientConfiguration":
+        """Create configuration from parameters with ConfigManager fallback"""
+        config = config_manager or ConfigManager.from_env()
+
+        return cls(
+            api_key=api_key or config.api_key,
+            model=model or config.model,
+            tier=tier or config.tier,
+            enable_caching=enable_caching
+            if enable_caching is not None
+            else config.enable_caching,
+        )
+
+    @classmethod
+    def from_config_manager(
+        cls, config_manager: ConfigManager, **overrides
+    ) -> "ClientConfiguration":
+        """Create configuration from ConfigManager with optional parameter overrides"""
+        return cls(
+            api_key=overrides.get("api_key") or config_manager.api_key,
+            model=overrides.get("model") or config_manager.model,
+            tier=overrides.get("tier") or config_manager.tier,
+            enable_caching=overrides.get(
+                "enable_caching", config_manager.enable_caching
+            ),
+        )
 
 
 @dataclass

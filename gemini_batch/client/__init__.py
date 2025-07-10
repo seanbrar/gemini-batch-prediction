@@ -19,8 +19,10 @@ from .configuration import ClientConfiguration, RateLimitConfig
 # Specialized components for custom integrations
 from .content_processor import ContentProcessor
 from .error_handler import GenerationErrorHandler
+from .file_upload_manager import FileUploadManager
 from .prompt_builder import PromptBuilder
 from .rate_limiter import RateLimiter
+from .token_counter import TokenCounter
 
 # Public API - supporting components only
 # For GeminiClient, use: from gemini_batch import GeminiClient
@@ -30,9 +32,11 @@ __all__ = [
     "RateLimitConfig",
     # Advanced components (for custom extensions)
     "ContentProcessor",
+    "FileUploadManager",
     "GenerationErrorHandler",
     "PromptBuilder",
     "RateLimiter",
+    "TokenCounter",
     # Cache management
     "CacheManager",
     "CacheStrategy",

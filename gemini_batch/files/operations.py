@@ -2,6 +2,7 @@
 File operations for the Gemini Batch Framework
 """
 
+import logging
 from pathlib import Path
 from typing import Any, Dict, Union
 
@@ -9,6 +10,8 @@ from ..exceptions import FileError
 from . import utils
 from .extractors import ContentExtractorManager, ExtractedContent
 from .scanner import DirectoryScanner, FileInfo, FileType
+
+log = logging.getLogger(__name__)
 
 
 class FileOperations:
@@ -105,7 +108,14 @@ class FileOperations:
 
     def process_source(self, source: Union[str, Path]) -> ExtractedContent:
         """Process any source type (text, URLs, files, directories) using appropriate extractors"""
-        return self.extractor_manager.process_source(source)
+        result = self.extractor_manager.process_source(source)
+        log.debug(
+            "Processed source '%s': %s -> %s",
+            source,
+            result.extraction_method,
+            result.file_info.file_type.value,
+        )
+        return result
 
     def is_multimodal_content(self, extracted_content: ExtractedContent) -> bool:
         """Check if extracted content is multimodal (PDF, image, video, audio)"""
