@@ -269,11 +269,14 @@ class ResponseProcessor:
                 errors.append("Response was empty.")
 
         # Convert final parsed data to answer list
+        actual_structured_data = None
         if parsed_data:
             if response_schema:
                 # For custom schemas, the whole object is the "answer"
                 log.debug("Extracted single structured answer from schema.")
                 answers = [str(parsed_data)]
+                # Store the actual Pydantic object for structured_data field
+                actual_structured_data = parsed_data
             elif isinstance(parsed_data, list):
                 log.debug("Extracted %d answers from JSON list.", len(parsed_data))
                 answers = [str(item) for item in parsed_data]
@@ -310,6 +313,10 @@ class ResponseProcessor:
             "confidence": 0.9 if not errors else 0.2,
             "errors": errors,
         }
+
+        # Add structured data if available
+        if actual_structured_data is not None:
+            structured_quality["structured_data"] = actual_structured_data
 
         if not errors:
             log.debug("Successfully extracted %d answers with no errors.", len(answers))

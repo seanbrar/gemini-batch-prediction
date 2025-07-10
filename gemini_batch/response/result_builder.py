@@ -50,6 +50,9 @@ class ResultBuilder:
                 },
             }
 
+        # Add processing time from the primary metrics
+        result["processing_time"] = batch_metrics.time
+
         # Add cache summary if caching was used
         if batch_metrics.cached_tokens > 0 or individual_metrics.cached_tokens > 0:
             result["cache_summary"] = {

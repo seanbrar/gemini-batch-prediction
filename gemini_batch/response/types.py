@@ -120,6 +120,7 @@ class ProcessingMetrics:
             "output_tokens": self.output_tokens,
             "cached_tokens": self.cached_tokens,
             "total_tokens": self.total_tokens,
+            "tokens": self.total_tokens,  # Alias for backward compatibility
             "effective_tokens": self.effective_tokens,
             "cache_hit_ratio": self.cache_hit_ratio,
             "time": self.time,

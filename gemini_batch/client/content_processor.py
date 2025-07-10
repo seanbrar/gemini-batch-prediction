@@ -142,7 +142,7 @@ class ContentProcessor:
             file_extracts = []
             for file_info in all_files:
                 try:
-                    file_extract = self.file_ops.extract_content(file_info)
+                    file_extract = self.file_ops.extract_content(file_info.path)
                     file_extracts.append(file_extract)
                 except Exception as e:
                     # Create error extract for this specific file
@@ -299,8 +299,12 @@ class ContentProcessor:
             file=doc_io, config={"mime_type": "application/pdf"}
         )
 
-        # Return the uploaded file reference (this becomes a Part automatically)
-        return uploaded_file
+        # Return proper Part with file data (fixed: was returning raw uploaded_file)
+        return types.Part(
+            file_data=types.FileData(
+                file_uri=uploaded_file.uri, mime_type="application/pdf"
+            )
+        )
 
     def _create_url_part(self, extracted: ExtractedContent) -> types.Part:
         """Create part from URL-based content (YouTube, PDF URLs)"""
