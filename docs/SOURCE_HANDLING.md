@@ -103,6 +103,21 @@ content = [
 result = processor.process_questions(content, questions)
 ```
 
+### Directory Processing
+
+```python
+# Process entire directory with filtering
+processor = BatchProcessor()
+
+# All files in directory
+result = processor.process_questions("research_papers/", questions)
+
+# With file type filtering (via file operations)
+from gemini_batch.files import scan_directory
+pdf_files = scan_directory("documents/", extensions=[".pdf"])
+result = processor.process_questions(pdf_files, questions)
+```
+
 ## Response Structure
 
 All source handling methods return the same structure:
