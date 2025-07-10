@@ -133,18 +133,6 @@ class GeminiClient:
         else:
             # Use environment-based configuration
             config_manager = ConfigManager.from_env()
-
-            # Check for cache enabling environment variable
-            import os
-
-            env_caching = os.getenv("GEMINI_ENABLE_CACHING", "").lower() in (
-                "true",
-                "1",
-                "yes",
-            )
-            if env_caching and "enable_caching" not in overrides:
-                overrides["enable_caching"] = True
-
             return cls.from_config_manager(config_manager, **overrides)
 
     def get_config_summary(self) -> Dict[str, Any]:

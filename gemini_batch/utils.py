@@ -3,7 +3,7 @@ Core utilities for the Gemini Batch Framework
 """
 
 import os
-from typing import Optional
+from typing import Any, Dict, List, Optional, Union
 
 from .exceptions import MissingKeyError
 
@@ -31,3 +31,23 @@ def validate_api_key_format(api_key: str) -> bool:
 
     return True
 
+
+def validate_inputs(inputs: List[Union[str, Dict[str, Any]]]) -> None:
+    """Validate batch processing inputs"""
+    if not inputs:
+        raise ValueError("Inputs list cannot be empty")
+
+    if not isinstance(inputs, list):
+        raise ValueError("Inputs must be a list")
+
+    for i, input_item in enumerate(inputs):
+        if not isinstance(input_item, (str, dict)):
+            raise ValueError(
+                f"Input {i} must be a string or dictionary, got {type(input_item)}"
+            )
+
+        if isinstance(input_item, str) and not input_item.strip():
+            raise ValueError(f"Input {i} cannot be empty string")
+
+        if isinstance(input_item, dict) and not input_item:
+            raise ValueError(f"Input {i} cannot be empty dictionary")
