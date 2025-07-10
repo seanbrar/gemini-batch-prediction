@@ -114,7 +114,7 @@ def main():
     else:
         print("  ⚠️  Caching not active (content may be below threshold)")
 
-    print(f"\n✨ Total tokens used: {results['metrics']['batch']['tokens']:,}")
+    print(f"\n✨ Total tokens used: {results['metrics']['batch']['total_tokens']:,}")
 
 
 if __name__ == "__main__":
