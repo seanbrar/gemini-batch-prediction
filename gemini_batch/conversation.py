@@ -2,13 +2,10 @@ from dataclasses import dataclass, field
 from datetime import datetime, timezone
 import json
 import logging
-import os
 from typing import Any, Dict, List, Optional, Tuple
 from uuid import uuid4
 
 from gemini_batch import BatchProcessor
-
-from .gemini_client import GeminiClient
 
 log = logging.getLogger(__name__)
 
@@ -32,6 +29,7 @@ class ConversationSession:
         processor: Optional[BatchProcessor] = None,
         client: Optional[Any] = None,
         max_history_turns: int = 5,
+        **processor_kwargs,
     ):
         """Initialize conversation session."""
         self.sources = sources if isinstance(sources, list) else [sources]
@@ -40,10 +38,13 @@ class ConversationSession:
         self.metadata: Dict[str, Any] = {}
         self.max_history_turns = max_history_turns
 
-        # Create or use provided processor (dependency injection)
-        self.processor = (
-            processor if processor is not None else BatchProcessor(client=client)
-        )
+        # Use dependency injection or delegate to BatchProcessor
+        if processor is not None:
+            self.processor = processor
+        else:
+            # Let BatchProcessor handle all configuration logic
+            # This respects environment variables and configuration automatically
+            self.processor = BatchProcessor(client=client, **processor_kwargs)
 
     def ask(self, question: str, **options) -> str:
         """Ask single question with full conversation context"""
@@ -301,8 +302,7 @@ class ConversationSession:
 
 def create_conversation(sources, **kwargs) -> "ConversationSession":
     """Factory function to create a new conversation session."""
-    processor = BatchProcessor(**kwargs)
-    return ConversationSession(sources, processor)
+    return ConversationSession(sources, **kwargs)
 
 
 def load_conversation(

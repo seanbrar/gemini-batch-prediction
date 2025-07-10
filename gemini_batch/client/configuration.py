@@ -3,7 +3,7 @@ Client configuration handling for Gemini API integration
 """
 
 from dataclasses import asdict, dataclass
-from typing import Any, Dict, Optional
+from typing import Any, Dict, Optional, Union
 import warnings
 
 from ..config import APITier, ConfigManager
@@ -17,17 +17,19 @@ class ClientConfiguration:
 
     api_key: str
     model: str
-    tier: APITier
     enable_caching: bool = False
+    tier: APITier = APITier.FREE
 
     @property
     def model_name(self) -> str:
         """Compatibility property for GeminiClient"""
-        warnings.warn(
-            "The 'model_name' property is deprecated. Use 'model' instead.",
-            DeprecationWarning,
-            stacklevel=2,
-        )
+        if not getattr(self, '_model_name_warned', False):
+            warnings.warn(
+                "The 'model_name' property is deprecated. Use 'model' instead.",
+                DeprecationWarning,
+                stacklevel=2,
+            )
+            self._model_name_warned = True
         return self.model
 
     def validate(self) -> None:
@@ -47,7 +49,7 @@ class ClientConfiguration:
         cls,
         api_key: Optional[str] = None,
         model: Optional[str] = None,
-        tier: Optional[str] = None,
+        tier: Optional[Union[str, APITier]] = None,
         enable_caching: Optional[bool] = None,
         config_manager: Optional[ConfigManager] = None,
     ) -> "ClientConfiguration":

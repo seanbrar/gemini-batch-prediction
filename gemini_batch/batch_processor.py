@@ -9,9 +9,9 @@ import time
 from typing import Any, Dict, List, Optional, Tuple, Union
 
 from .analysis.schema_analyzer import SchemaAnalyzer
-from .config import ConfigManager
+from .config import APITier, ConfigManager
 from .efficiency import track_efficiency
-from .exceptions import BatchProcessingError
+from .exceptions import BatchProcessingError, GeminiBatchError
 from .gemini_client import GeminiClient
 from .prompts import BatchPromptBuilder, StructuredPromptBuilder
 from .response import ResponseProcessor
@@ -29,13 +29,61 @@ class BatchProcessor:
         api_key: Optional[str] = None,
         config: Optional[ConfigManager] = None,
         client: Optional[Any] = None,
+        # Explicit client configuration parameters
+        model: Optional[str] = None,
+        tier: Optional[Union[str, APITier]] = None,
+        enable_caching: Optional[bool] = None,
     ):
-        self.config = config or ConfigManager()
-        self.client = (
-            client
-            if client
-            else GeminiClient.from_env(api_key=api_key or self.config.api_key)
-        )
+        """
+        Initialize BatchProcessor with clean parameter separation.
+
+        Args:
+            api_key: API key for authentication
+            config: Pre-configured ConfigManager instance
+            client: Pre-configured GeminiClient instance
+            model: Model name override
+            tier: API tier override
+            enable_caching: Caching preference override
+        """
+        # Configuration resolution with clear precedence
+        if config is not None:
+            self.config = config
+        else:
+            # Create config from explicit parameters
+            config_params = {}
+            if api_key is not None:
+                config_params["api_key"] = api_key
+            if model is not None:
+                config_params["model"] = model
+            if tier is not None:
+                config_params["tier"] = tier
+            if enable_caching is not None:
+                config_params["enable_caching"] = enable_caching
+
+            self.config = (
+                ConfigManager(**config_params)
+                if config_params
+                else ConfigManager.from_env()
+            )
+
+        # Client creation with clear configuration
+        if client is not None:
+            self.client = client
+        else:
+            try:
+                self.client = GeminiClient.from_env(
+                    api_key=api_key or self.config.api_key,
+                    enable_caching=enable_caching
+                    if enable_caching is not None
+                    else self.config.enable_caching,
+                )
+            except Exception as e:
+                raise GeminiBatchError(
+                    f"Failed to initialize GeminiClient: {e}. "
+                    f"Check API key and model configuration."
+                ) from e
+
+        # Initialize processing components
         self.response_processor = ResponseProcessor()
         self.result_builder = ResultBuilder(self._calculate_efficiency)
         self.schema_analyzer = SchemaAnalyzer()
@@ -93,7 +141,8 @@ class BatchProcessor:
         config = ProcessingOptions(
             compare_methods=compare_methods,
             response_schema=response_schema,
-            options=kwargs,  # Pass through all extra parameters
+            return_usage=kwargs.pop("return_usage", False),  # Extract return_usage flag
+            options=kwargs,  # Pass through remaining parameters
         )
 
         return self._process_standard(content, questions, config)
@@ -218,12 +267,16 @@ class BatchProcessor:
 
             try:
                 # 3. Make the API call - use generate_content since we have a single combined prompt
+                # Always request usage internally, but filter user's return_usage to avoid conflicts
+                api_options = {
+                    k: v for k, v in config.options.items() if k != "return_usage"
+                }
                 response = self.client.generate_content(
                     content=content,
                     prompt=batch_prompt,  # Single combined prompt, not multiple questions
                     return_usage=True,  # Need full response object for ResponseProcessor
                     response_schema=config.response_schema,
-                    **config.options,
+                    **api_options,
                 )
 
                 # 4. Process the successful response
@@ -265,12 +318,16 @@ class BatchProcessor:
 
             for question in questions:
                 try:
+                    # Always request usage internally, but filter user's return_usage to avoid conflicts
+                    api_options = {
+                        k: v for k, v in config.options.items() if k != "return_usage"
+                    }
                     response = self.client.generate_content(
                         content=content,
                         prompt=question,
                         return_usage=True,  # Need full response object for ResponseProcessor
                         response_schema=config.response_schema,
-                        **config.options,
+                        **api_options,
                     )
 
                     extraction_result = self._extract_and_track_response(
@@ -322,3 +379,20 @@ class BatchProcessor:
         if hasattr(self.client, "cleanup_expired_caches"):
             return self.client.cleanup_expired_caches()
         return 0
+
+    def get_config_summary(self) -> Dict[str, Any]:
+        """Get configuration summary for debugging"""
+        summary = {
+            "config": self.config.get_config_summary(),
+            "client_model": getattr(self.client, "model_name", "unknown"),
+            "client_caching": getattr(self.client, "config", {}).get(
+                "enable_caching", False
+            ),
+            "config_issues": self.config.validate_configuration(),
+        }
+
+        # Add client-specific information if available
+        if hasattr(self.client, "get_config_summary"):
+            summary["client_details"] = self.client.get_config_summary()
+
+        return summary
