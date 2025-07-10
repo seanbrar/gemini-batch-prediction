@@ -1,10 +1,16 @@
 from dataclasses import dataclass, field
 from datetime import datetime, timezone
 import json
+import logging
+import os
 from typing import Any, Dict, List, Optional, Tuple
 from uuid import uuid4
 
 from gemini_batch import BatchProcessor
+
+from .gemini_client import GeminiClient
+
+log = logging.getLogger(__name__)
 
 
 @dataclass
@@ -80,6 +86,10 @@ class ConversationSession:
 
     def ask_multiple(self, questions: List[str], **options) -> List[str]:
         """Ask batch of questions with conversation context"""
+        log.debug(
+            "Processing %d questions with %d sources", len(questions), len(self.sources)
+        )
+
         try:
             # Pass raw sources to BatchProcessor for proper file handling
             # Add conversation history as additional context
@@ -118,6 +128,7 @@ class ConversationSession:
             return answers
 
         except Exception as e:
+            log.error("Conversation processing failed: %s", e, exc_info=True)
             for question in questions:
                 self._record_failed_turn(question, str(e))
             raise e

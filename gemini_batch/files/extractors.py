@@ -4,6 +4,7 @@ Content extraction from various file types with multimodal support
 
 from abc import ABC, abstractmethod
 from dataclasses import dataclass
+import logging
 from pathlib import Path
 from typing import Any, Dict, List, Optional, Union
 
@@ -12,6 +13,8 @@ import httpx
 from ..exceptions import GeminiBatchError
 from . import utils
 from .scanner import FileInfo, FileType
+
+log = logging.getLogger(__name__)
 
 
 @dataclass
@@ -138,6 +141,13 @@ class MediaExtractor(BaseExtractor):
 
     def extract(self, file_info: FileInfo) -> ExtractedContent:
         """Prepare media file for processing (inline or API upload based on size)"""
+        log.debug(
+            "Processing %s file: %s (%d bytes)",
+            file_info.file_type.value,
+            file_info.path,
+            file_info.size,
+        )
+
         self._validate_file_size(file_info)
 
         # Get base metadata (includes size-based upload decision) and add media-specific info
@@ -148,13 +158,15 @@ class MediaExtractor(BaseExtractor):
             }
         )
 
-        return ExtractedContent(
+        extracted = ExtractedContent(
             content="",  # No text content - file will be processed
             metadata=metadata,
             file_info=file_info,
             file_path=file_info.path,
             extraction_method="media",
         )
+
+        return extracted
 
 
 class URLExtractor(BaseExtractor):
