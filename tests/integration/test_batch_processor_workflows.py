@@ -50,10 +50,10 @@ class TestBatchProcessorWorkflows:
     def test_compare_methods_triggers_both_paths(
         self, batch_processor, mock_genai_client
     ):
-        """Test that compare_methods triggers both batch and individual processing."""
-        # Setup both batch and individual responses
+        """Test that comparison mode triggers both batch and individual processing."""
+        # Setup responses for both batch and individual processing
         batch_response = Mock()
-        batch_response.text = "Batch answer 1\nBatch answer 2"
+        batch_response.text = "Batch answer"
         batch_response.usage_metadata = Mock()
         batch_response.usage_metadata.prompt_token_count = 200
         batch_response.usage_metadata.candidates_token_count = 100
@@ -66,8 +66,12 @@ class TestBatchProcessorWorkflows:
         individual_response.usage_metadata.candidates_token_count = 50
         individual_response.usage_metadata.cached_content_token_count = 0
 
-        mock_genai_client.generate_batch.return_value = batch_response
-        mock_genai_client.generate_content.return_value = individual_response
+        # Setup side effects for both batch and individual calls
+        mock_genai_client.models.generate_content.side_effect = [
+            batch_response,
+            individual_response,
+            individual_response,
+        ]
 
         content = EDUCATIONAL_CONTENT["medium_article"]
         questions = ["What is AI?", "What is ML?"]
@@ -77,8 +81,7 @@ class TestBatchProcessorWorkflows:
         )
 
         # Verify both methods were called
-        mock_genai_client.generate_batch.assert_called_once()
-        assert mock_genai_client.generate_content.call_count == 2
+        assert mock_genai_client.models.generate_content.call_count == 3
 
         # Verify result contains both batch and individual answers
         assert "answers" in result
@@ -107,7 +110,7 @@ class TestBatchProcessorWorkflows:
         multi_response.usage_metadata.candidates_token_count = 150
         multi_response.usage_metadata.cached_content_token_count = 0
 
-        mock_genai_client.generate_batch.return_value = multi_response
+        mock_genai_client.models.generate_content.return_value = multi_response
 
         sources = [
             EDUCATIONAL_CONTENT["short_lesson"],
@@ -124,7 +127,7 @@ class TestBatchProcessorWorkflows:
         assert len(result["answers"][0]) > 0
 
         # Verify batch processing was used
-        mock_genai_client.generate_batch.assert_called_once()
+        assert mock_genai_client.models.generate_content.call_count >= 1
 
         # Verify metrics
         assert result["metrics"]["batch"]["calls"] == 1

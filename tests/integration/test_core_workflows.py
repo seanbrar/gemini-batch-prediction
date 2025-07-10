@@ -33,7 +33,7 @@ class TestCoreWorkflows:
         mock_genai_client.models.generate_content.return_value = mock_response
 
         session = create_conversation(
-            EDUCATIONAL_CONTENT["short_lesson"], processor=batch_processor
+            EDUCATIONAL_CONTENT["short_lesson"], client=mock_genai_client
         )
 
         # Test basic question-answer flow
@@ -64,7 +64,7 @@ class TestCoreWorkflows:
         mock_genai_client.models.generate_content.return_value = mock_response
 
         session = create_conversation(
-            EDUCATIONAL_CONTENT["medium_article"], processor=batch_processor
+            EDUCATIONAL_CONTENT["medium_article"], client=mock_genai_client
         )
 
         # Build conversation history
@@ -134,7 +134,7 @@ class TestCoreWorkflows:
         ]
 
         session = create_conversation(
-            "Test content for error handling", processor=batch_processor
+            "Test content for error handling", client=mock_genai_client
         )
 
         # This should handle the error gracefully
@@ -191,7 +191,7 @@ class TestCoreWorkflows:
         mock_genai_client.models.generate_content.return_value = mock_response
 
         session = create_conversation(
-            "Content for persistence test", processor=batch_processor
+            "Content for persistence test", client=mock_genai_client
         )
 
         # Add some conversation history
@@ -221,7 +221,7 @@ class TestCoreWorkflows:
         mock_response.usage_metadata.cached_content_token_count = 0
         mock_genai_client.models.generate_content.return_value = mock_response
 
-        session = create_conversation("Initial content", processor=batch_processor)
+        session = create_conversation("Initial content", client=mock_genai_client)
 
         # Test initial state
         assert len(session.list_sources()) == 1
@@ -250,9 +250,7 @@ class TestCoreWorkflows:
         mock_response.usage_metadata.cached_content_token_count = 0
         mock_genai_client.models.generate_content.return_value = mock_response
 
-        session = create_conversation(
-            "Content for analytics", processor=batch_processor
-        )
+        session = create_conversation("Content for analytics", client=mock_genai_client)
 
         # Add some conversation turns
         session.ask("Question 1?")
@@ -293,7 +291,7 @@ class TestCoreWorkflows:
             mock_single.return_value = mock_response
 
             session = create_conversation(
-                EDUCATIONAL_CONTENT["conversation_context"], processor=batch_processor
+                EDUCATIONAL_CONTENT["conversation_context"], client=mock_genai_client
             )
 
             # Build conversation context
@@ -320,7 +318,7 @@ class TestCoreWorkflows:
         ]
 
         session = create_conversation(
-            "Error recovery test content", processor=batch_processor
+            "Error recovery test content", client=mock_genai_client
         )
 
         # Should recover from error
@@ -342,7 +340,7 @@ class TestCoreWorkflows:
         mock_response.usage_metadata.cached_content_token_count = 0
         mock_genai_client.models.generate_content.return_value = mock_response
 
-        session = create_conversation("Test content", processor=batch_processor)
+        session = create_conversation("Test content", client=mock_genai_client)
 
         # Add some history
         session.ask("Question 1?")

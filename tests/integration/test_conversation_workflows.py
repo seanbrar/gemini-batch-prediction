@@ -2,6 +2,7 @@
 Integration tests for conversation workflows.
 """
 
+import json
 import tempfile
 from unittest.mock import Mock, patch
 
@@ -21,24 +22,30 @@ class TestConversationWorkflows:
         """Test that conversation history is passed as context to subsequent questions."""
         # Setup responses for different turns
         first_response = Mock()
-        first_response.text = "Machine learning is a subset of AI."
+        first_response.text = json.dumps(["Machine learning is a subset of AI."])
         first_response.usage_metadata = Mock()
         first_response.usage_metadata.prompt_token_count = 100
         first_response.usage_metadata.candidates_token_count = 50
         first_response.usage_metadata.cached_content_token_count = 0
 
         second_response = Mock()
-        second_response.text = "Deep learning builds on machine learning concepts."
+        second_response.text = json.dumps(
+            ["Deep learning builds on machine learning concepts."]
+        )
         second_response.usage_metadata = Mock()
         second_response.usage_metadata.prompt_token_count = 150
         second_response.usage_metadata.candidates_token_count = 75
         second_response.usage_metadata.cached_content_token_count = 0
 
         # Setup mock to return different responses
-        mock_genai_client.generate_batch.side_effect = [first_response, second_response]
+        mock_genai_client.generate_content.side_effect = [
+            first_response,
+            second_response,
+        ]
 
         session = create_conversation(
-            EDUCATIONAL_CONTENT["short_lesson"], processor=batch_processor
+            EDUCATIONAL_CONTENT["short_lesson"],
+            client=mock_genai_client,
         )
 
         # First question
@@ -56,10 +63,10 @@ class TestConversationWorkflows:
         assert len(history) == 2
 
         # Verify the second call included context from the first
-        assert mock_genai_client.generate_batch.call_count == 2
+        assert mock_genai_client.generate_content.call_count == 2
 
         # Check that the second call included more content (due to history)
-        second_call_args = mock_genai_client.generate_batch.call_args_list[1]
+        second_call_args = mock_genai_client.generate_content.call_args_list[1]
         # The second call should have more content due to history inclusion
         assert "machine learning" in str(second_call_args).lower()
 
@@ -67,16 +74,17 @@ class TestConversationWorkflows:
         """Test adding a source mid-conversation."""
         # Setup response
         response = Mock()
-        response.text = "Answer using both sources"
+        response.text = json.dumps(["Answer using both sources"])
         response.usage_metadata = Mock()
         response.usage_metadata.prompt_token_count = 200
         response.usage_metadata.candidates_token_count = 100
         response.usage_metadata.cached_content_token_count = 0
 
-        mock_genai_client.generate_batch.return_value = response
+        mock_genai_client.generate_content.return_value = response
 
         session = create_conversation(
-            EDUCATIONAL_CONTENT["short_lesson"], processor=batch_processor
+            EDUCATIONAL_CONTENT["short_lesson"],
+            client=mock_genai_client,
         )
 
         # Add a second source
@@ -89,7 +97,7 @@ class TestConversationWorkflows:
         assert len(answer) > 0
 
         # Verify the call included both sources
-        call_args = mock_genai_client.generate_batch.call_args
+        call_args = mock_genai_client.generate_content.call_args
         call_content = str(call_args)
 
         # Should include content from both sources
@@ -100,16 +108,17 @@ class TestConversationWorkflows:
         """Test conversation save and load functionality."""
         # Setup response
         response = Mock()
-        response.text = "Saved conversation answer"
+        response.text = json.dumps(["Saved conversation answer"])
         response.usage_metadata = Mock()
         response.usage_metadata.prompt_token_count = 100
         response.usage_metadata.candidates_token_count = 50
         response.usage_metadata.cached_content_token_count = 0
 
-        mock_genai_client.generate_batch.return_value = response
+        mock_genai_client.generate_content.return_value = response
 
         session = create_conversation(
-            EDUCATIONAL_CONTENT["short_lesson"], processor=batch_processor
+            EDUCATIONAL_CONTENT["short_lesson"],
+            client=mock_genai_client,
         )
 
         # Add some conversation history
@@ -122,7 +131,7 @@ class TestConversationWorkflows:
             save_path = f.name
 
         # Create new session and load
-        new_session = create_conversation(processor=batch_processor)
+        new_session = create_conversation(client=batch_processor)
         new_session.load(save_path)
 
         # Verify history was loaded
@@ -142,16 +151,17 @@ class TestConversationWorkflows:
         """Test clearing conversation history."""
         # Setup response
         response = Mock()
-        response.text = "Answer after clearing history"
+        response.text = json.dumps(["Answer after clearing history"])
         response.usage_metadata = Mock()
         response.usage_metadata.prompt_token_count = 100
         response.usage_metadata.candidates_token_count = 50
         response.usage_metadata.cached_content_token_count = 0
 
-        mock_genai_client.generate_batch.return_value = response
+        mock_genai_client.generate_content.return_value = response
 
         session = create_conversation(
-            EDUCATIONAL_CONTENT["short_lesson"], processor=batch_processor
+            EDUCATIONAL_CONTENT["short_lesson"],
+            client=mock_genai_client,
         )
 
         # Add some history
@@ -176,7 +186,7 @@ class TestConversationWorkflows:
         # Setup responses
         responses = [
             Mock(
-                text=f"Answer {i}",
+                text=json.dumps([f"Answer {i}"]),
                 usage_metadata=Mock(
                     prompt_token_count=100,
                     candidates_token_count=50,
@@ -186,10 +196,11 @@ class TestConversationWorkflows:
             for i in range(3)
         ]
 
-        mock_genai_client.generate_batch.side_effect = responses
+        mock_genai_client.generate_content.side_effect = responses
 
         session = create_conversation(
-            EDUCATIONAL_CONTENT["short_lesson"], processor=batch_processor
+            EDUCATIONAL_CONTENT["short_lesson"],
+            client=mock_genai_client,
         )
 
         # Ask multiple questions
@@ -210,10 +221,10 @@ class TestConversationWorkflows:
     def test_conversation_error_recovery(self, batch_processor, mock_genai_client):
         """Test conversation error recovery."""
         # Setup first call to fail, second to succeed
-        mock_genai_client.generate_batch.side_effect = [
+        mock_genai_client.generate_content.side_effect = [
             Exception("API Error"),
             Mock(
-                text="Recovered answer",
+                text=json.dumps(["Recovered answer"]),
                 usage_metadata=Mock(
                     prompt_token_count=100,
                     candidates_token_count=50,
@@ -223,7 +234,8 @@ class TestConversationWorkflows:
         ]
 
         session = create_conversation(
-            EDUCATIONAL_CONTENT["short_lesson"], processor=batch_processor
+            EDUCATIONAL_CONTENT["short_lesson"],
+            client=mock_genai_client,
         )
 
         # First question should fail
@@ -245,16 +257,21 @@ class TestConversationWorkflows:
         """Test conversation context synthesis."""
         # Setup response that shows context awareness
         response = Mock()
-        response.text = "Based on our previous discussion about AI and machine learning, deep learning is the next evolution."
+        response.text = json.dumps(
+            [
+                "Based on our previous discussion about AI and machine learning, deep learning is the next evolution."
+            ]
+        )
         response.usage_metadata = Mock()
         response.usage_metadata.prompt_token_count = 200
         response.usage_metadata.candidates_token_count = 100
         response.usage_metadata.cached_content_token_count = 0
 
-        mock_genai_client.generate_batch.return_value = response
+        mock_genai_client.generate_content.return_value = response
 
         session = create_conversation(
-            EDUCATIONAL_CONTENT["short_lesson"], processor=batch_processor
+            EDUCATIONAL_CONTENT["short_lesson"],
+            client=mock_genai_client,
         )
 
         # Build context through conversation
@@ -272,20 +289,20 @@ class TestConversationWorkflows:
         """Test conversation with multiple sources."""
         # Setup response
         response = Mock()
-        response.text = "Analysis covering multiple sources"
+        response.text = json.dumps(["Analysis covering multiple sources"])
         response.usage_metadata = Mock()
         response.usage_metadata.prompt_token_count = 300
         response.usage_metadata.candidates_token_count = 150
         response.usage_metadata.cached_content_token_count = 0
 
-        mock_genai_client.generate_batch.return_value = response
+        mock_genai_client.generate_content.return_value = response
 
         session = create_conversation(
             [
                 EDUCATIONAL_CONTENT["short_lesson"],
                 EDUCATIONAL_CONTENT["medium_article"],
             ],
-            processor=batch_processor,
+            client=mock_genai_client,
         )
 
         # Ask question about multiple sources
@@ -295,7 +312,7 @@ class TestConversationWorkflows:
         assert len(answer) > 0
 
         # Verify both sources were used
-        call_args = mock_genai_client.generate_batch.call_args
+        call_args = mock_genai_client.generate_content.call_args
         call_content = str(call_args)
 
         # Should include content from both sources
@@ -308,16 +325,17 @@ class TestConversationWorkflows:
         """Test conversation persistence with metadata."""
         # Setup response
         response = Mock()
-        response.text = "Answer with metadata"
+        response.text = json.dumps(["Answer with metadata"])
         response.usage_metadata = Mock()
         response.usage_metadata.prompt_token_count = 100
         response.usage_metadata.candidates_token_count = 50
         response.usage_metadata.cached_content_token_count = 0
 
-        mock_genai_client.generate_batch.return_value = response
+        mock_genai_client.generate_content.return_value = response
 
         session = create_conversation(
-            EDUCATIONAL_CONTENT["short_lesson"], processor=batch_processor
+            EDUCATIONAL_CONTENT["short_lesson"],
+            client=mock_genai_client,
         )
 
         # Add metadata
@@ -333,7 +351,7 @@ class TestConversationWorkflows:
             save_path = f.name
 
         # Load and verify metadata
-        new_session = create_conversation(processor=batch_processor)
+        new_session = create_conversation(client=batch_processor)
         new_session.load(save_path)
 
         # Verify metadata was preserved
@@ -353,16 +371,17 @@ class TestConversationWorkflows:
 
             # Setup response
             response = Mock()
-            response.text = "Rate limited answer"
+            response.text = json.dumps(["Rate limited answer"])
             response.usage_metadata = Mock()
             response.usage_metadata.prompt_token_count = 100
             response.usage_metadata.candidates_token_count = 50
             response.usage_metadata.cached_content_token_count = 0
 
-            mock_genai_client.generate_batch.return_value = response
+            mock_genai_client.generate_content.return_value = response
 
             session = create_conversation(
-                EDUCATIONAL_CONTENT["short_lesson"], processor=batch_processor
+                EDUCATIONAL_CONTENT["short_lesson"],
+                client=mock_genai_client,
             )
 
             # Ask multiple questions rapidly
@@ -380,42 +399,43 @@ class TestConversationWorkflows:
         """Test conversation source management."""
         # Setup response
         response = Mock()
-        response.text = "Answer with managed sources"
+        response.text = json.dumps(["Answer with managed sources"])
         response.usage_metadata = Mock()
         response.usage_metadata.prompt_token_count = 100
         response.usage_metadata.candidates_token_count = 50
         response.usage_metadata.cached_content_token_count = 0
 
-        mock_genai_client.generate_batch.return_value = response
+        mock_genai_client.generate_content.return_value = response
 
         session = create_conversation(
-            EDUCATIONAL_CONTENT["short_lesson"], processor=batch_processor
+            EDUCATIONAL_CONTENT["short_lesson"],
+            client=mock_genai_client,
         )
 
         # Verify initial sources
-        initial_sources = session.get_sources()
+        initial_sources = session.list_sources()
         assert len(initial_sources) > 0
 
         # Add a source
         session.add_source(EDUCATIONAL_CONTENT["medium_article"])
 
         # Verify source was added
-        updated_sources = session.get_sources()
+        updated_sources = session.list_sources()
         assert len(updated_sources) > len(initial_sources)
 
         # Remove a source
         session.remove_source(0)  # Remove first source
 
         # Verify source was removed
-        final_sources = session.get_sources()
-        assert len(final_sources) < len(updated_sources)
+        final_sources = session.list_sources()
+        assert len(final_sources) == 1
 
     def test_conversation_analytics(self, batch_processor, mock_genai_client):
         """Test conversation analytics and insights."""
         # Setup responses with different characteristics
         responses = [
             Mock(
-                text="Short answer",
+                text=json.dumps(["Short answer"]),
                 usage_metadata=Mock(
                     prompt_token_count=50,
                     candidates_token_count=25,
@@ -423,7 +443,9 @@ class TestConversationWorkflows:
                 ),
             ),
             Mock(
-                text="Long detailed answer about machine learning concepts",
+                text=json.dumps(
+                    ["Long detailed answer about machine learning concepts"]
+                ),
                 usage_metadata=Mock(
                     prompt_token_count=200,
                     candidates_token_count=100,
@@ -431,7 +453,7 @@ class TestConversationWorkflows:
                 ),
             ),
             Mock(
-                text="Medium answer",
+                text=json.dumps(["Medium answer"]),
                 usage_metadata=Mock(
                     prompt_token_count=100,
                     candidates_token_count=50,
@@ -440,10 +462,11 @@ class TestConversationWorkflows:
             ),
         ]
 
-        mock_genai_client.generate_batch.side_effect = responses
+        mock_genai_client.generate_content.side_effect = responses
 
         session = create_conversation(
-            EDUCATIONAL_CONTENT["short_lesson"], processor=batch_processor
+            EDUCATIONAL_CONTENT["short_lesson"],
+            client=mock_genai_client,
         )
 
         # Ask questions with different characteristics
