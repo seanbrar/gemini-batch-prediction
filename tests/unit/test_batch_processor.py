@@ -192,18 +192,27 @@ class TestBatchProcessorCoreFunctionality:
 
         mock_client = Mock()
 
-        # Use a response that extract_answers can actually parse
-        realistic_response = type(SAMPLE_RESPONSES["simple_answer"])(
-            text=json.dumps(["This is a comprehensive answer to the question."]),
-            usage_metadata=SAMPLE_RESPONSES["simple_answer"].usage_metadata,
+        # Create a proper mock response with usage_metadata for metrics tracking
+        mock_response = Mock()
+        mock_response.text = json.dumps(
+            ["This is a comprehensive answer to the question."]
         )
+        mock_response.usage_metadata = Mock()
+        mock_response.usage_metadata.prompt_token_count = 100
+        mock_response.usage_metadata.candidates_token_count = 50
+        mock_response.usage_metadata.cached_content_token_count = 0
+
         # Mock the GeminiClient methods
-        mock_client.generate_batch.return_value = realistic_response
+        mock_client.generate_batch.return_value = mock_response
 
         # Replace the client in the batch processor
         batch_processor.client = mock_client
 
         result = batch_processor.process_questions("Content", ["Single question?"])
+
+        print(f"DEBUG: result keys = {list(result.keys())}")
+        print(f"DEBUG: answers = {result.get('answers', 'NO ANSWERS')}")
+        print(f"DEBUG: metrics = {result.get('metrics', 'NO METRICS')}")
 
         assert len(result["answers"]) == 1
         assert "This is a comprehensive answer" in result["answers"][0]
@@ -219,19 +228,22 @@ class TestBatchProcessorCoreFunctionality:
 
         mock_client = Mock()
 
-        # Use a response that extract_answers can actually parse
-        realistic_response = type(SAMPLE_RESPONSES["batch_answer"])(
-            text=json.dumps(
-                [
-                    "First comprehensive answer.",
-                    "Second comprehensive answer.",
-                    "Third comprehensive answer.",
-                ]
-            ),
-            usage_metadata=SAMPLE_RESPONSES["batch_answer"].usage_metadata,
+        # Create a proper mock response with usage_metadata for metrics tracking
+        mock_response = Mock()
+        mock_response.text = json.dumps(
+            [
+                "First comprehensive answer.",
+                "Second comprehensive answer.",
+                "Third comprehensive answer.",
+            ]
         )
+        mock_response.usage_metadata = Mock()
+        mock_response.usage_metadata.prompt_token_count = 200
+        mock_response.usage_metadata.candidates_token_count = 100
+        mock_response.usage_metadata.cached_content_token_count = 0
+
         # Mock the GeminiClient methods
-        mock_client.generate_batch.return_value = realistic_response
+        mock_client.generate_batch.return_value = mock_response
 
         # Replace the client in the batch processor
         batch_processor.client = mock_client
@@ -255,12 +267,16 @@ class TestBatchProcessorCoreFunctionality:
 
         mock_client = Mock()
 
-        realistic_response = type(SAMPLE_RESPONSES["simple_answer"])(
-            text=json.dumps(["Standard batch processing answer."]),
-            usage_metadata=SAMPLE_RESPONSES["simple_answer"].usage_metadata,
-        )
+        # Create a proper mock response with usage_metadata for metrics tracking
+        mock_response = Mock()
+        mock_response.text = json.dumps(["Standard batch processing answer."])
+        mock_response.usage_metadata = Mock()
+        mock_response.usage_metadata.prompt_token_count = 100
+        mock_response.usage_metadata.candidates_token_count = 50
+        mock_response.usage_metadata.cached_content_token_count = 0
+
         # Mock the GeminiClient methods
-        mock_client.generate_batch.return_value = realistic_response
+        mock_client.generate_batch.return_value = mock_response
 
         # Replace the client in the batch processor
         batch_processor.client = mock_client
@@ -279,12 +295,16 @@ class TestBatchProcessorCoreFunctionality:
 
         mock_client = Mock()
 
-        realistic_response = type(SAMPLE_RESPONSES["simple_answer"])(
-            text=json.dumps(["Tracked answer."]),
-            usage_metadata=SAMPLE_RESPONSES["simple_answer"].usage_metadata,
-        )
+        # Create a proper mock response with usage_metadata for metrics tracking
+        mock_response = Mock()
+        mock_response.text = json.dumps(["Tracked answer."])
+        mock_response.usage_metadata = Mock()
+        mock_response.usage_metadata.prompt_token_count = 100
+        mock_response.usage_metadata.candidates_token_count = 50
+        mock_response.usage_metadata.cached_content_token_count = 0
+
         # Mock the GeminiClient methods
-        mock_client.generate_batch.return_value = realistic_response
+        mock_client.generate_batch.return_value = mock_response
 
         # Replace the client in the batch processor
         batch_processor.client = mock_client
@@ -313,16 +333,23 @@ class TestBatchProcessorErrorHandling:
         mock_client.generate_batch.side_effect = Exception(
             "Batch failed"
         )  # Batch call fails
-        mock_client.generate_content.side_effect = [
-            type(SAMPLE_RESPONSES["simple_answer"])(
-                text=json.dumps(["Individual answer 1."]),
-                usage_metadata=SAMPLE_RESPONSES["simple_answer"].usage_metadata,
-            ),
-            type(SAMPLE_RESPONSES["simple_answer"])(
-                text=json.dumps(["Individual answer 2."]),
-                usage_metadata=SAMPLE_RESPONSES["simple_answer"].usage_metadata,
-            ),
-        ]
+
+        # Create proper mock responses for individual processing
+        mock_response_1 = Mock()
+        mock_response_1.text = json.dumps(["Individual answer 1."])
+        mock_response_1.usage_metadata = Mock()
+        mock_response_1.usage_metadata.prompt_token_count = 100
+        mock_response_1.usage_metadata.candidates_token_count = 50
+        mock_response_1.usage_metadata.cached_content_token_count = 0
+
+        mock_response_2 = Mock()
+        mock_response_2.text = json.dumps(["Individual answer 2."])
+        mock_response_2.usage_metadata = Mock()
+        mock_response_2.usage_metadata.prompt_token_count = 100
+        mock_response_2.usage_metadata.candidates_token_count = 50
+        mock_response_2.usage_metadata.cached_content_token_count = 0
+
+        mock_client.generate_content.side_effect = [mock_response_1, mock_response_2]
 
         # Replace the client in the batch processor
         batch_processor.client = mock_client
@@ -330,15 +357,6 @@ class TestBatchProcessorErrorHandling:
         result = batch_processor.process_questions(
             "Content", ["Question 1?", "Question 2?"]
         )
-
-        print(f"DEBUG: result keys = {list(result.keys())}")
-        print(f"DEBUG: metrics = {result.get('metrics', 'NO METRICS')}")
-        if "metrics" in result:
-            print(f"DEBUG: metrics keys = {list(result['metrics'].keys())}")
-            if "individual" in result["metrics"]:
-                print(
-                    f"DEBUG: individual keys = {list(result['metrics']['individual'].keys())}"
-                )
 
         assert len(result["answers"]) == 2
         assert "Individual answer 1" in result["answers"][0]
@@ -356,12 +374,16 @@ class TestBatchProcessorErrorHandling:
 
         # Batch fails, individual calls succeed
         mock_client.generate_batch.side_effect = Exception("Batch processing failed")
-        mock_client.generate_content.side_effect = [
-            type(SAMPLE_RESPONSES["simple_answer"])(
-                text=json.dumps(["Fallback answer."]),
-                usage_metadata=SAMPLE_RESPONSES["simple_answer"].usage_metadata,
-            ),
-        ]
+
+        # Create proper mock response for individual processing
+        mock_response = Mock()
+        mock_response.text = json.dumps(["Fallback answer."])
+        mock_response.usage_metadata = Mock()
+        mock_response.usage_metadata.prompt_token_count = 100
+        mock_response.usage_metadata.candidates_token_count = 50
+        mock_response.usage_metadata.cached_content_token_count = 0
+
+        mock_client.generate_content.side_effect = [mock_response]
 
         # Replace the client in the batch processor
         batch_processor.client = mock_client

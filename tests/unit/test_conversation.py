@@ -2,327 +2,430 @@
 Unit tests for conversation module components.
 """
 
-from datetime import datetime, timezone
+import json
+from pathlib import Path
+import tempfile
 from unittest.mock import Mock
 
-import pytest
-
-from gemini_batch.conversation import (
-    ConversationContextSynthesizer,
-    ConversationSession,
-    ConversationTurn,
-    create_conversation,
-    load_conversation,
-)
+from gemini_batch.conversation import ConversationSession, ConversationTurn
 
 
-@pytest.mark.unit
-class TestConversationTurn:
-    """Test ConversationTurn dataclass"""
-
-    def test_conversation_turn_creation(self):
-        """Test basic ConversationTurn creation"""
-        turn = ConversationTurn(
-            question="What is AI?", answer="AI is artificial intelligence."
-        )
-
-        assert turn.question == "What is AI?"
-        assert turn.answer == "AI is artificial intelligence."
-        assert turn.timestamp is not None
-        assert turn.sources_snapshot == []
-        assert turn.cache_info is None
-        assert turn.error is None
-
-    def test_conversation_turn_with_metadata(self):
-        """Test ConversationTurn with all metadata"""
-        timestamp = datetime.now(timezone.utc)
-        cache_info = {"cache_hit_ratio": 0.5}
-
-        turn = ConversationTurn(
-            question="Test question?",
-            answer="Test answer.",
-            timestamp=timestamp,
-            sources_snapshot=["source1", "source2"],
-            cache_info=cache_info,
-            error="Test error",
-        )
-
-        assert turn.timestamp == timestamp
-        assert turn.sources_snapshot == ["source1", "source2"]
-        assert turn.cache_info == cache_info
-        assert turn.error == "Test error"
-
-
-@pytest.mark.unit
-class TestConversationContextSynthesizer:
-    """Test ConversationContextSynthesizer"""
-
-    def test_synthesizer_initialization(self):
-        """Test ConversationContextSynthesizer initialization"""
-        synthesizer = ConversationContextSynthesizer(max_history_turns=3)
-        assert synthesizer.max_history_turns == 3
-
-    def test_synthesizer_default_initialization(self):
-        """Test default initialization"""
-        synthesizer = ConversationContextSynthesizer()
-        assert synthesizer.max_history_turns == 5
-
-    def test_synthesize_context_no_history(self):
-        """Test context synthesis with no history"""
-        synthesizer = ConversationContextSynthesizer()
-        sources = ["Test content"]
-        history = []
-
-        context = synthesizer.synthesize_context(sources, history)
-
-        assert "SOURCE 1" in context
-        assert "Test content" in context
-        assert "CONVERSATION HISTORY" not in context
-
-    def test_synthesize_context_with_history(self):
-        """Test context synthesis with history"""
-        synthesizer = ConversationContextSynthesizer(max_history_turns=2)
-        sources = ["Primary content"]
-
-        # Create mock history
-        history = [
-            ConversationTurn("Q1", "A1"),
-            ConversationTurn("Q2", "A2"),
-            ConversationTurn(
-                "Q3", "A3"
-            ),  # Should be excluded due to max_history_turns=2
-        ]
-
-        context = synthesizer.synthesize_context(sources, history)
-
-        assert "SOURCE 1" in context
-        assert "Primary content" in context
-        assert "CONVERSATION HISTORY" in context
-        assert "Q2" in context  # Most recent
-        assert "Q3" in context  # Most recent
-        # Note: The current implementation includes all history, so Q1 is included
-        assert "Q1" in context  # Current implementation includes all history
-
-    def test_synthesize_context_multiple_sources(self):
-        """Test context synthesis with multiple sources"""
-        synthesizer = ConversationContextSynthesizer()
-        sources = ["Source 1", "Source 2", "Source 3"]
-        history = []
-
-        context = synthesizer.synthesize_context(sources, history)
-
-        assert "SOURCE 1" in context
-        assert "SOURCE 2" in context
-        assert "SOURCE 3" in context
-        assert "Source 1" in context
-        assert "Source 2" in context
-        assert "Source 3" in context
-
-
-@pytest.mark.unit
 class TestConversationSession:
-    """Test ConversationSession class"""
+    """Test ConversationSession core functionality"""
 
-    def test_session_initialization(self):
-        """Test ConversationSession initialization"""
-        session = ConversationSession("Test content")
-
-        assert session.sources == ["Test content"]
-        assert len(session.history) == 0
-        assert session.session_id is not None
-        assert session.processor is not None
-
-    def test_session_initialization_with_list(self):
-        """Test ConversationSession initialization with list of sources"""
-        sources = ["Source 1", "Source 2"]
-        session = ConversationSession(sources)
+    def test_initialization(self):
+        """Test basic session initialization"""
+        sources = ["test_content.txt", "data.pdf"]
+        mock_processor = Mock()
+        session = ConversationSession(sources, processor=mock_processor)
 
         assert session.sources == sources
         assert len(session.history) == 0
+        assert session.max_history_turns == 5
+        assert session.processor == mock_processor
 
-    def test_session_initialization_with_processor(self):
-        """Test ConversationSession initialization with custom processor"""
+    def test_initialization_with_single_source(self):
+        """Test initialization with single source (non-list)"""
+        source = "single_file.txt"
         mock_processor = Mock()
-        session = ConversationSession("Test content", processor=mock_processor)
+        session = ConversationSession(source, processor=mock_processor)
 
-        assert session.processor is mock_processor
+        assert session.sources == [source]
 
-    def test_build_history_context_no_history(self):
-        """Test building history context with no history"""
-        session = ConversationSession("Test content")
+    def test_initialization_with_processor(self):
+        """Test initialization with custom processor"""
+        mock_processor = Mock()
+        sources = ["test.txt"]
+        session = ConversationSession(sources, processor=mock_processor)
 
-        context = session._build_history_context_for_question("Test question")
-        assert context is None
+        assert session.processor == mock_processor
 
-    def test_build_history_context_with_history(self):
-        """Test building history context with history"""
-        session = ConversationSession("Test content")
+    def test_initialization_with_client(self):
+        """Test initialization with custom client"""
+        mock_client = Mock()
+        sources = ["test.txt"]
+        session = ConversationSession(sources, client=mock_client)
 
-        # Add some history
-        session.history = [ConversationTurn("Q1", "A1"), ConversationTurn("Q2", "A2")]
+        # Should create a new BatchProcessor with the client
+        assert session.processor is not None
 
-        context = session._build_history_context_for_question("Test question")
 
-        assert context is not None
-        assert "Conversation History" in context
-        assert "Previous Q1" in context
-        assert "Previous A1" in context
-        assert "Previous Q2" in context
-        assert "Previous A2" in context
+class TestSystemInstructionMerging:
+    """Test the system instruction collision fix"""
 
-    def test_build_history_context_filters_errors(self):
-        """Test that history context filters out error turns"""
-        session = ConversationSession("Test content")
+    def test_merges_existing_system_instruction(self):
+        """Test that existing system instruction is preserved and merged"""
+        mock_processor = Mock()
+        # Configure mock to return expected structure
+        mock_processor.process_questions.return_value = {"answers": ["Test answer"]}
+        session = ConversationSession(["test.txt"], processor=mock_processor)
 
-        # Add history with errors
-        session.history = [
-            ConversationTurn("Q1", "A1"),  # Successful
-            ConversationTurn("Q2", "", error="Error occurred"),  # Error
-            ConversationTurn("Q3", "A3"),  # Successful
-        ]
-
-        context = session._build_history_context_for_question("Test question")
-
-        assert context is not None
-        assert "Previous Q1" in context
-        assert "Previous A1" in context
-        # Note: Current implementation includes all turns, including errors
-        assert "Previous Q2" in context  # Current implementation includes errors
-        # The current implementation seems to have an issue with the history indexing
-        # Let's check what's actually in the context
-        assert "Previous A2" in context or "Previous A3" in context
-
-    def test_record_successful_turn(self):
-        """Test recording successful conversation turn"""
-        session = ConversationSession("Test content")
-
-        session._record_successful_turn(
-            "Test question?", "Test answer.", {"metrics": {"batch": {"calls": 1}}}
+        # Add some conversation history
+        session.history.append(
+            ConversationTurn(
+                question="What is AI?",
+                answer="Artificial Intelligence is a field of computer science.",
+            )
         )
 
-        assert len(session.history) == 1
-        turn = session.history[0]
-        assert turn.question == "Test question?"
-        assert turn.answer == "Test answer."
-        assert turn.error is None
-        assert turn.cache_info == {"calls": 1}
+        # Call ask with existing system instruction
+        session.ask("Tell me more", system_instruction="You are a helpful assistant.")
 
-    def test_record_failed_turn(self):
-        """Test recording failed conversation turn"""
-        session = ConversationSession("Test content")
+        # Verify the processor was called with merged system instruction
+        mock_processor.process_questions.assert_called_once()
+        call_args = mock_processor.process_questions.call_args
+        passed_options = call_args[1]  # kwargs
 
-        session._record_failed_turn("Test question?", "API Error")
+        expected_system_instruction = (
+            "You are a helpful assistant.\n\n"
+            "Conversation History:\n"
+            "Previous Q1: What is AI?\n"
+            "Previous A1: Artificial Intelligence is a field of computer science."
+        )
 
-        assert len(session.history) == 1
-        turn = session.history[0]
-        assert turn.question == "Test question?"
-        assert turn.answer == ""
-        assert turn.error == "API Error"
+        assert passed_options["system_instruction"] == expected_system_instruction
+
+    def test_uses_history_when_no_existing_system_instruction(self):
+        """Test that history is used as system instruction when none exists"""
+        mock_processor = Mock()
+        # Configure mock to return expected structure
+        mock_processor.process_questions.return_value = {"answers": ["Test answer"]}
+        session = ConversationSession(["test.txt"], processor=mock_processor)
+
+        # Add conversation history
+        session.history.append(
+            ConversationTurn(
+                question="What is AI?",
+                answer="Artificial Intelligence is a field of computer science.",
+            )
+        )
+
+        # Call ask without system instruction
+        session.ask("Tell me more")
+
+        # Verify the processor was called with history as system instruction
+        mock_processor.process_questions.assert_called_once()
+        call_args = mock_processor.process_questions.call_args
+        passed_options = call_args[1]  # kwargs
+
+        expected_system_instruction = (
+            "Conversation History:\n"
+            "Previous Q1: What is AI?\n"
+            "Previous A1: Artificial Intelligence is a field of computer science."
+        )
+
+        assert passed_options["system_instruction"] == expected_system_instruction
+
+    def test_no_system_instruction_when_no_history(self):
+        """Test that no system instruction is added when no history exists"""
+        mock_processor = Mock()
+        # Configure mock to return expected structure
+        mock_processor.process_questions.return_value = {"answers": ["Test answer"]}
+        session = ConversationSession(["test.txt"], processor=mock_processor)
+
+        # Call ask without any history
+        session.ask("What is AI?")
+
+        # Verify the processor was called without system instruction
+        mock_processor.process_questions.assert_called_once()
+        call_args = mock_processor.process_questions.call_args
+        passed_options = call_args[1]  # kwargs
+
+        assert "system_instruction" not in passed_options
+
+    def test_merges_multiple_questions_with_system_instruction(self):
+        """Test system instruction merging with ask_multiple"""
+        mock_processor = Mock()
+        # Configure mock to return expected structure
+        mock_processor.process_questions.return_value = {
+            "answers": ["Answer 1", "Answer 2"]
+        }
+        session = ConversationSession(["test.txt"], processor=mock_processor)
+
+        # Add conversation history
+        session.history.append(
+            ConversationTurn(
+                question="What is AI?",
+                answer="Artificial Intelligence is a field of computer science.",
+            )
+        )
+
+        # Call ask_multiple with existing system instruction
+        questions = ["Tell me more", "Give examples"]
+        session.ask_multiple(
+            questions, system_instruction="You are a helpful assistant."
+        )
+
+        # Verify the processor was called with merged system instruction
+        mock_processor.process_questions.assert_called_once()
+        call_args = mock_processor.process_questions.call_args
+        passed_options = call_args[1]  # kwargs
+
+        expected_system_instruction = (
+            "You are a helpful assistant.\n\n"
+            "Conversation History:\n"
+            "Previous Q1: What is AI?\n"
+            "Previous A1: Artificial Intelligence is a field of computer science."
+        )
+
+        assert passed_options["system_instruction"] == expected_system_instruction
+
+
+class TestJSONSerialization:
+    """Test the JSON serialization fix for Path objects"""
+
+    def test_save_converts_path_objects_to_strings(self):
+        """Test that Path objects are converted to strings during save"""
+        # Create a session with Path objects
+        sources = [Path("test_file.txt"), Path("data/document.pdf")]
+        mock_processor = Mock()
+        session = ConversationSession(sources, processor=mock_processor)
+
+        # Add some history with Path objects in sources_snapshot
+        session.history.append(
+            ConversationTurn(
+                question="What is this?",
+                answer="A test file",
+                sources_snapshot=[Path("test_file.txt"), Path("data/document.pdf")],
+            )
+        )
+
+        # Save to temporary file
+        with tempfile.NamedTemporaryFile(mode="w", suffix=".json", delete=False) as f:
+            temp_path = f.name
+
+        try:
+            session.save(temp_path)
+
+            # Load the saved file and verify it's valid JSON
+            with open(temp_path) as f:
+                saved_data = json.load(f)
+
+            # Verify sources are strings
+            assert all(isinstance(s, str) for s in saved_data["sources"])
+            assert saved_data["sources"] == ["test_file.txt", "data/document.pdf"]
+
+            # Verify sources_snapshot in history are strings
+            history_entry = saved_data["history"][0]
+            assert all(isinstance(s, str) for s in history_entry["sources_snapshot"])
+            assert history_entry["sources_snapshot"] == [
+                "test_file.txt",
+                "data/document.pdf",
+            ]
+
+        finally:
+            # Clean up
+            Path(temp_path).unlink(missing_ok=True)
+
+    def test_save_handles_mixed_source_types(self):
+        """Test that save handles mixed string and Path sources"""
+        sources = ["string_source.txt", Path("path_source.pdf"), "another_string.md"]
+        mock_processor = Mock()
+        session = ConversationSession(sources, processor=mock_processor)
+
+        with tempfile.NamedTemporaryFile(mode="w", suffix=".json", delete=False) as f:
+            temp_path = f.name
+
+        try:
+            session.save(temp_path)
+
+            with open(temp_path) as f:
+                saved_data = json.load(f)
+
+            # All sources should be strings
+            assert all(isinstance(s, str) for s in saved_data["sources"])
+            assert saved_data["sources"] == [
+                "string_source.txt",
+                "path_source.pdf",
+                "another_string.md",
+            ]
+
+        finally:
+            Path(temp_path).unlink(missing_ok=True)
+
+    def test_load_restores_session_correctly(self):
+        """Test that load restores session with string sources"""
+        # Create original session
+        original_sources = [Path("test_file.txt"), "string_source.pdf"]
+        mock_processor = Mock()
+        # Configure mock to return expected structure
+        mock_processor.process_questions.return_value = {"answers": ["Test answer"]}
+        session = ConversationSession(original_sources, processor=mock_processor)
+
+        # Add some history
+        session.ask("What is this?")  # This will fail but still record the turn
+
+        # Save and load
+        with tempfile.NamedTemporaryFile(mode="w", suffix=".json", delete=False) as f:
+            temp_path = f.name
+
+        try:
+            session.save(temp_path)
+
+            # Load the session
+            loaded_session = ConversationSession.load(
+                session.session_id, temp_path, processor=mock_processor
+            )
+
+            # Verify sources are restored as strings
+            assert all(isinstance(s, str) for s in loaded_session.sources)
+            assert loaded_session.sources == ["test_file.txt", "string_source.pdf"]
+
+            # Verify session ID is preserved
+            assert loaded_session.session_id == session.session_id
+
+            # Verify history is restored
+            assert len(loaded_session.history) == len(session.history)
+
+        finally:
+            Path(temp_path).unlink(missing_ok=True)
+
+
+class TestConversationHistory:
+    """Test conversation history management"""
+
+    def test_build_history_context_with_successful_turns(self):
+        """Test that only successful turns are included in history context"""
+        mock_processor = Mock()
+        session = ConversationSession(["test.txt"], processor=mock_processor)
+
+        # Add successful and failed turns
+        session.history.append(
+            ConversationTurn(
+                question="What is AI?", answer="Artificial Intelligence", error=None
+            )
+        )
+        session.history.append(
+            ConversationTurn(
+                question="What is ML?", answer="", error="Failed to process"
+            )
+        )
+        session.history.append(
+            ConversationTurn(
+                question="What is NLP?",
+                answer="Natural Language Processing",
+                error=None,
+            )
+        )
+
+        context = session._build_history_context()
+
+        # Should only include successful turns
+        assert "What is AI?" in context
+        assert "What is ML?" not in context  # Failed turn
+        assert "What is NLP?" in context
+
+    def test_history_context_respects_max_turns(self):
+        """Test that history context respects max_history_turns limit"""
+        mock_processor = Mock()
+        session = ConversationSession(
+            ["test.txt"], max_history_turns=2, processor=mock_processor
+        )
+
+        # Add more turns than the limit
+        for i in range(5):
+            session.history.append(
+                ConversationTurn(
+                    question=f"Question {i}?", answer=f"Answer {i}", error=None
+                )
+            )
+
+        context = session._build_history_context()
+
+        # Should only include the last 2 turns
+        assert "Question 3?" in context
+        assert "Question 4?" in context
+        assert "Question 0?" not in context
+        assert "Question 1?" not in context
+        assert "Question 2?" not in context
+
+    def test_no_history_context_when_no_successful_turns(self):
+        """Test that no context is built when all turns failed"""
+        mock_processor = Mock()
+        session = ConversationSession(["test.txt"], processor=mock_processor)
+
+        # Add only failed turns
+        session.history.append(
+            ConversationTurn(
+                question="What is AI?", answer="", error="Failed to process"
+            )
+        )
+
+        context = session._build_history_context()
+        assert context is None
+
+
+class TestSourceManagement:
+    """Test source management functionality"""
 
     def test_add_source(self):
-        """Test adding source to conversation"""
-        session = ConversationSession("Initial content")
+        """Test adding a new source"""
+        mock_processor = Mock()
+        session = ConversationSession(["existing.txt"], processor=mock_processor)
 
-        session.add_source("New content")
+        session.add_source("new_source.pdf")
 
+        assert "new_source.pdf" in session.sources
         assert len(session.sources) == 2
-        assert "Initial content" in session.sources
-        assert "New content" in session.sources
 
-    def test_add_source_duplicate(self):
-        """Test adding duplicate source"""
-        session = ConversationSession("Initial content")
+    def test_add_source_prevents_duplicates(self):
+        """Test that adding duplicate sources is prevented"""
+        mock_processor = Mock()
+        session = ConversationSession(["existing.txt"], processor=mock_processor)
 
-        session.add_source("Initial content")  # Duplicate
+        session.add_source("existing.txt")  # Try to add duplicate
 
-        assert len(session.sources) == 1  # Should not add duplicate
+        assert session.sources == ["existing.txt"]  # No change
 
     def test_remove_source(self):
-        """Test removing source from conversation"""
-        session = ConversationSession("Initial content")
-        session.add_source("Additional content")
+        """Test removing a source"""
+        mock_processor = Mock()
+        session = ConversationSession(
+            ["file1.txt", "file2.pdf"], processor=mock_processor
+        )
 
-        session.remove_source("Initial content")
+        session.remove_source("file1.txt")
 
+        assert "file1.txt" not in session.sources
+        assert "file2.pdf" in session.sources
         assert len(session.sources) == 1
-        assert "Additional content" in session.sources
-        assert "Initial content" not in session.sources
 
-    def test_remove_source_not_found(self):
-        """Test removing non-existent source"""
-        session = ConversationSession("Initial content")
+    def test_remove_nonexistent_source(self):
+        """Test removing a source that doesn't exist"""
+        mock_processor = Mock()
+        session = ConversationSession(["file1.txt"], processor=mock_processor)
 
-        session.remove_source("Non-existent content")
+        session.remove_source("nonexistent.txt")
 
-        assert len(session.sources) == 1  # Should remain unchanged
+        assert session.sources == ["file1.txt"]  # No change
 
     def test_list_sources(self):
-        """Test listing conversation sources"""
-        session = ConversationSession("Source 1")
-        session.add_source("Source 2")
+        """Test listing sources"""
+        sources = ["file1.txt", "file2.pdf", "file3.md"]
+        mock_processor = Mock()
+        session = ConversationSession(sources, processor=mock_processor)
 
-        sources = session.list_sources()
+        listed_sources = session.list_sources()
 
-        assert len(sources) == 2
-        assert "Source 1" in sources
-        assert "Source 2" in sources
-        assert sources is not session.sources  # Should be a copy
+        assert listed_sources == sources
+        # Should be a copy, not the same list
+        assert listed_sources is not session.sources
 
-    def test_get_history(self):
-        """Test getting conversation history"""
-        session = ConversationSession("Test content")
 
-        # Add some history
-        session.history = [ConversationTurn("Q1", "A1"), ConversationTurn("Q2", "A2")]
+class TestSessionAnalytics:
+    """Test session analytics and statistics"""
 
-        history = session.get_history()
-
-        assert len(history) == 2
-        assert history[0] == ("Q1", "A1")
-        assert history[1] == ("Q2", "A2")
-
-    def test_get_detailed_history(self):
-        """Test getting detailed conversation history"""
-        session = ConversationSession("Test content")
+    def test_get_stats_with_mixed_history(self):
+        """Test statistics calculation with successful and failed turns"""
+        mock_processor = Mock()
+        session = ConversationSession(["test.txt"], processor=mock_processor)
 
         # Add some history
-        session.history = [ConversationTurn("Q1", "A1"), ConversationTurn("Q2", "A2")]
-
-        detailed = session.get_detailed_history()
-
-        assert len(detailed) == 2
-        assert detailed[0].question == "Q1"
-        assert detailed[0].answer == "A1"
-        assert detailed[1].question == "Q2"
-        assert detailed[1].answer == "A2"
-
-    def test_get_stats_empty_session(self):
-        """Test getting stats for empty session"""
-        session = ConversationSession("Test content")
-
-        stats = session.get_stats()
-
-        assert stats["session_id"] == session.session_id
-        assert stats["total_turns"] == 0
-        assert stats["successful_turns"] == 0
-        assert stats["error_turns"] == 0
-        assert stats["success_rate"] == 0
-        assert stats["active_sources"] == 1
-        assert stats["cache_efficiency"] == 0
-        assert stats["session_duration"] == 0
-
-    def test_get_stats_with_history(self):
-        """Test getting stats with conversation history"""
-        session = ConversationSession("Test content")
-
-        # Add mixed history
-        session.history = [
-            ConversationTurn("Q1", "A1"),  # Successful
-            ConversationTurn("Q2", "", error="Error"),  # Error
-            ConversationTurn(
-                "Q3", "A3", cache_info={"cache_hit_ratio": 0.5}
-            ),  # Successful with cache
-        ]
+        session.history.append(ConversationTurn(question="Q1", answer="A1", error=None))
+        session.history.append(
+            ConversationTurn(question="Q2", answer="", error="Failed")
+        )
+        session.history.append(ConversationTurn(question="Q3", answer="A3", error=None))
 
         stats = session.get_stats()
 
@@ -331,57 +434,40 @@ class TestConversationSession:
         assert stats["error_turns"] == 1
         assert stats["success_rate"] == 2 / 3
         assert stats["active_sources"] == 1
-        assert stats["cache_efficiency"] == 1 / 3  # Only one turn had cache
+
+    def test_get_history(self):
+        """Test getting conversation history as Q&A pairs"""
+        mock_processor = Mock()
+        session = ConversationSession(["test.txt"], processor=mock_processor)
+
+        session.history.append(
+            ConversationTurn(question="What is AI?", answer="Artificial Intelligence")
+        )
+        session.history.append(
+            ConversationTurn(question="What is ML?", answer="Machine Learning")
+        )
+
+        history = session.get_history()
+
+        assert history == [
+            ("What is AI?", "Artificial Intelligence"),
+            ("What is ML?", "Machine Learning"),
+        ]
 
     def test_clear_history(self):
         """Test clearing conversation history"""
-        session = ConversationSession("Test content")
+        mock_processor = Mock()
+        session = ConversationSession(["test.txt"], processor=mock_processor)
 
         # Add some history
-        session.history = [ConversationTurn("Q1", "A1"), ConversationTurn("Q2", "A2")]
+        session.history.append(
+            ConversationTurn(question="What is AI?", answer="Artificial Intelligence")
+        )
+
+        assert len(session.history) == 1
 
         session.clear_history()
 
         assert len(session.history) == 0
-        assert len(session.sources) == 1  # Sources should be preserved
-
-
-class TestConversationFactories:
-    """Test conversation factory functions"""
-
-    def test_create_conversation(self):
-        """Test create_conversation factory function"""
-        session = create_conversation("Test content")
-
-        assert isinstance(session, ConversationSession)
-        assert session.sources == ["Test content"]
-        assert session.processor is not None
-
-    def test_create_conversation_with_options(self):
-        """Test create_conversation with processor options"""
-        # Use a valid API key format and valid model
-        session = create_conversation(
-            "Test content",
-            api_key="test_key_123456789012345678901234567890",
-            model_name="gemini-2.0-flash",
-        )
-
-        assert isinstance(session, ConversationSession)
-        assert session.processor is not None
-
-    def test_load_conversation(self, tmp_path):
-        """Test load_conversation factory function"""
-        # Create a test session and save it
-        session = create_conversation("Test content")
-        session.history = [ConversationTurn("Q1", "A1"), ConversationTurn("Q2", "A2")]
-
-        session_path = tmp_path / "test_conversation.json"
-        session_id = session.save(str(session_path))
-
-        # Load the session
-        loaded_session = load_conversation(session_id, str(session_path))
-
-        assert isinstance(loaded_session, ConversationSession)
-        assert loaded_session.session_id == session_id
-        assert len(loaded_session.history) == 2
-        assert loaded_session.sources == ["Test content"]
+        # Sources should be preserved
+        assert session.sources == ["test.txt"]

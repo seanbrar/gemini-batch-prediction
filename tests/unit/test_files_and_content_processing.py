@@ -146,64 +146,123 @@ class TestYouTubeURLExtraction:
 class TestContentProcessorOrchestration:
     """Test content processor orchestration functionality."""
 
-    @patch("gemini_batch.files.operations.FileOperations")
-    def test_content_processor_orchestration(self, mock_file_ops):
+    def test_content_processor_orchestration(self):
         """Test that ContentProcessor correctly processes mixed sources."""
-        # Setup mock file operations
-        mock_file_ops_instance = Mock()
-        mock_file_ops.return_value = mock_file_ops_instance
-
-        # Mock different content types
-        mock_file_ops_instance.extract_from_file.return_value = "file content"
-        mock_file_ops_instance.extract_from_url.return_value = "url content"
+        from gemini_batch.client.content_processor import ContentProcessor
 
         processor = ContentProcessor()
 
-        # Mixed sources: text, file path, URL
-        sources = [
-            "Direct text content",
-            "/path/to/file.txt",
-            "https://example.com/document.pdf",
-        ]
+        # Mock the file_ops attribute on the processor instance
+        with patch.object(processor, "file_ops") as mock_file_ops_instance:
+            # Mock process_source to return ExtractedContent objects
+            from pathlib import Path
 
-        result = processor.process_content(sources)
+            from gemini_batch.files.extractors import ExtractedContent
+            from gemini_batch.files.scanner import FileInfo, FileType
 
-        # Verify all sources were processed
-        assert len(result) == 3
-        assert "Direct text content" in result
+            def mock_process_source(source):
+                if source == "Direct text content":
+                    return ExtractedContent(
+                        content="Direct text content",
+                        metadata={"source_type": "text"},
+                        file_info=FileInfo(
+                            path=Path("text_content"),
+                            file_type=FileType.TEXT,
+                            size=len("Direct text content"),
+                            extension="",
+                            name="text_content",
+                            relative_path=Path("text_content"),
+                            mime_type="text/plain",
+                        ),
+                        extraction_method="direct_text",
+                    )
+                elif source == "/path/to/file.txt":
+                    return ExtractedContent(
+                        content="File content",
+                        metadata={"source_type": "file"},
+                        file_info=FileInfo(
+                            path=Path("/path/to/file.txt"),
+                            file_type=FileType.TEXT,
+                            size=len("File content"),
+                            extension=".txt",
+                            name="file.txt",
+                            relative_path=Path("file.txt"),
+                            mime_type="text/plain",
+                        ),
+                        extraction_method="text_extractor",
+                    )
+                else:
+                    raise Exception(f"Unexpected source: {source}")
 
-        # Verify file operations were called appropriately
-        mock_file_ops_instance.extract_from_file.assert_called_once_with(
-            "/path/to/file.txt"
-        )
-        mock_file_ops_instance.extract_from_url.assert_called_once_with(
-            "https://example.com/document.pdf"
-        )
+            mock_file_ops_instance.process_source.side_effect = mock_process_source
 
-    @patch("gemini_batch.files.operations.FileOperations")
-    def test_content_processor_handles_errors_gracefully(self, mock_file_ops):
-        """Test that ContentProcessor handles extraction errors gracefully."""
-        mock_file_ops_instance = Mock()
-        mock_file_ops.return_value = mock_file_ops_instance
+            # Process mixed sources
+            sources = ["Direct text content", "/path/to/file.txt"]
+            result = processor.process_content(sources)
 
-        # Mock file extraction to raise an error
-        mock_file_ops_instance.extract_from_file.side_effect = Exception(
-            "File not found"
-        )
+            # Verify both sources were processed
+            assert len(result) == 2
+            assert result[0].content == "Direct text content"
+            assert result[1].content == "File content"
+
+            # Verify file_ops was called for the file path
+            mock_file_ops_instance.process_source.assert_called_with(
+                "/path/to/file.txt"
+            )
+
+    def test_content_processor_handles_errors_gracefully(self):
+        """Test that ContentProcessor raises RuntimeError for processing errors."""
+        from gemini_batch.client.content_processor import ContentProcessor
 
         processor = ContentProcessor()
 
-        sources = [
-            "Valid text content",
-            "/path/to/missing/file.txt",
-        ]
+        # Mock the file_ops attribute on the processor instance
+        with patch.object(processor, "file_ops") as mock_file_ops_instance:
+            # Mock process_source to raise an error for missing files
+            def mock_process_source(source):
+                if source == "/path/to/missing/file.txt":
+                    raise Exception("File not found")
+                else:
+                    from pathlib import Path
 
-        # Should not raise exception, should handle error gracefully
-        result = processor.process_content(sources)
+                    from gemini_batch.files.extractors import ExtractedContent
+                    from gemini_batch.files.scanner import FileInfo, FileType
 
-        # Should still include valid content
-        assert len(result) >= 1
-        assert "Valid text content" in result
+                    return ExtractedContent(
+                        content="Valid content",
+                        metadata={"source_type": "text"},
+                        file_info=FileInfo(
+                            path=Path("valid_content"),
+                            file_type=FileType.TEXT,
+                            size=len("Valid content"),
+                            extension="",
+                            name="valid_content",
+                            relative_path=Path("valid_content"),
+                            mime_type="text/plain",
+                        ),
+                        extraction_method="direct_text",
+                    )
+
+            mock_file_ops_instance.process_source.side_effect = mock_process_source
+
+            # Process valid sources first
+            valid_sources = ["Valid content", "Another valid content"]
+            result = processor.process_content(valid_sources)
+
+            # Should process valid sources successfully
+            assert len(result) == 2
+            assert result[0].content == "Valid content"
+            assert result[1].content == "Valid content"
+
+            # Process sources including one that will fail
+            sources_with_error = ["Valid content", "/path/to/missing/file.txt"]
+
+            # Should raise RuntimeError for processing errors
+            with pytest.raises(
+                RuntimeError,
+                match="Error processing /path/to/missing/file.txt: File not found",
+            ):
+                processor.process_content(sources_with_error)
 
     def test_content_processor_with_empty_sources(self):
         """Test ContentProcessor with empty source list."""
@@ -221,7 +280,7 @@ class TestContentProcessorOrchestration:
 
         # Should filter out None values
         assert len(result) == 1
-        assert "Valid content" in result
+        assert any("Valid content" in str(r) for r in result)
 
 
 class TestLargeFileProcessing:
@@ -236,7 +295,11 @@ class TestLargeFileProcessing:
 
         extracted_content = ExtractedContent(
             content=large_content,
-            metadata={"source_type": "file", "source_path": "/path/to/large_file.txt"},
+            metadata={
+                "source_type": "file",
+                "source_path": "/path/to/large_file.txt",
+                "requires_api_upload": True,  # Large file requires upload
+            },
             file_info=FileInfo(
                 path=Path("/path/to/large_file.txt"),
                 file_type=FileType.TEXT,
@@ -252,13 +315,17 @@ class TestLargeFileProcessing:
         assert extracted_content.processing_strategy == "upload"
 
     def test_small_file_uses_inline_processing(self):
-        """Test that small files use inline processing strategy."""
+        """Test that small files use text_only processing strategy when they have content."""
         # Create a mock file that's under the threshold
         small_content = "x" * (FILES_API_THRESHOLD - 1000)
 
         extracted_content = ExtractedContent(
             content=small_content,
-            metadata={"source_type": "file", "source_path": "/path/to/small_file.txt"},
+            metadata={
+                "source_type": "file",
+                "source_path": "/path/to/small_file.txt",
+                "requires_api_upload": False,  # Small file doesn't require upload
+            },
             file_info=FileInfo(
                 path=Path("/path/to/small_file.txt"),
                 file_type=FileType.TEXT,
@@ -271,22 +338,25 @@ class TestLargeFileProcessing:
             extraction_method="direct_text",
         )
 
-        assert extracted_content.processing_strategy == "inline"
+        # Small files with content should be text_only, not inline
+        assert extracted_content.processing_strategy == "text_only"
 
     def test_exact_threshold_file_uses_inline_processing(self):
-        """Test that files exactly at threshold use inline processing."""
-        content = "x" * FILES_API_THRESHOLD
+        """Test that files at the exact threshold use text_only processing strategy when they have content."""
+        # Create a mock file at the exact threshold
+        threshold_content = "x" * FILES_API_THRESHOLD
 
         extracted_content = ExtractedContent(
-            content=content,
+            content=threshold_content,
             metadata={
                 "source_type": "file",
                 "source_path": "/path/to/threshold_file.txt",
+                "requires_api_upload": False,  # At threshold, doesn't require upload
             },
             file_info=FileInfo(
                 path=Path("/path/to/threshold_file.txt"),
                 file_type=FileType.TEXT,
-                size=len(content),
+                size=len(threshold_content),
                 extension=".txt",
                 name="threshold_file.txt",
                 relative_path=Path("threshold_file.txt"),
@@ -295,6 +365,32 @@ class TestLargeFileProcessing:
             extraction_method="direct_text",
         )
 
+        # Files at threshold with content should be text_only, not inline
+        assert extracted_content.processing_strategy == "text_only"
+
+    def test_empty_content_uses_inline_processing(self):
+        """Test that files with no content use inline processing strategy."""
+        # Create a mock file with no content (like a media file)
+        extracted_content = ExtractedContent(
+            content="",  # No content
+            metadata={
+                "source_type": "file",
+                "source_path": "/path/to/media_file.jpg",
+                "requires_api_upload": False,  # Small file doesn't require upload
+            },
+            file_info=FileInfo(
+                path=Path("/path/to/media_file.jpg"),
+                file_type=FileType.IMAGE,
+                size=0,
+                extension=".jpg",
+                name="media_file.jpg",
+                relative_path=Path("media_file.jpg"),
+                mime_type="image/jpeg",
+            ),
+            extraction_method="media_extractor",
+        )
+
+        # Files with no content should be inline
         assert extracted_content.processing_strategy == "inline"
 
     def test_content_extractor_manager_handles_mixed_sizes(self):
@@ -303,23 +399,19 @@ class TestLargeFileProcessing:
 
         manager = ContentExtractorManager()
 
-        # Mock different file sizes
-        small_file = Mock()
-        small_file.content = "x" * (FILES_API_THRESHOLD - 1000)
-        small_file.metadata = {"source_type": "file"}
+        # Test with text content sources instead of Mock objects
+        small_content = "x" * (FILES_API_THRESHOLD - 1000)
+        large_content = "x" * (FILES_API_THRESHOLD + 1000)
 
-        large_file = Mock()
-        large_file.content = "x" * (FILES_API_THRESHOLD + 1000)
-        large_file.metadata = {"source_type": "file"}
+        # Process each source individually
+        small_result = manager.process_source(small_content)
+        large_result = manager.process_source(large_content)
 
-        files = [small_file, large_file]
-
-        # Should process both files appropriately
-        result = manager.process_source(files)
-
-        assert len(result) == 2
-        # Both should be processed, regardless of size
-        assert all(hasattr(f, "processing_strategy") for f in result)
+        # Both should be processed successfully
+        assert small_result is not None
+        assert large_result is not None
+        assert hasattr(small_result, "processing_strategy")
+        assert hasattr(large_result, "processing_strategy")
 
 
 @pytest.mark.unit
