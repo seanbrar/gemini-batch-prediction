@@ -3,11 +3,18 @@ Content processing orchestration - converts multiple mixed sources
 into processed ExtractedContent objects for API consumption
 """
 
+import io
+import logging
 from pathlib import Path
-from typing import List, Union
+from typing import Any, List, Optional, Union
 
+from google.genai import types
+import httpx
+
+from ..exceptions import APIError
 from ..files import FileOperations
 from ..files.extractors import ExtractedContent
+from .file_upload_manager import FileUploadManager
 
 
 def _flatten_sources(sources: Union[str, Path, List]) -> List[Union[str, Path]]:
@@ -17,11 +24,16 @@ def _flatten_sources(sources: Union[str, Path, List]) -> List[Union[str, Path]]:
 
     flattened = []
     for item in sources:
+        if item is None:
+            continue  # Skip None values
         if isinstance(item, list):
             flattened.extend(_flatten_sources(item))
         else:
             flattened.append(item)
     return flattened
+
+
+log = logging.getLogger(__name__)
 
 
 class ContentProcessor:
@@ -33,6 +45,7 @@ class ContentProcessor:
     - Handle directory expansion and flattening
     - Coordinate with FileOperations for low-level file handling
     - Aggregate errors from batch processing
+    - Create API parts from ExtractedContent (coordination layer)
 
     This class serves as an abstraction layer between GeminiClient (high-level API)
     and FileOperations (low-level file handling), preventing GeminiClient from
@@ -41,6 +54,14 @@ class ContentProcessor:
 
     def __init__(self):
         self.file_ops = FileOperations()
+        # Lazy initialization of file upload manager
+        self._file_upload_manager: Optional[FileUploadManager] = None
+
+    def _get_file_upload_manager(self, client: Any) -> FileUploadManager:
+        """Lazy initialization of file upload manager"""
+        if self._file_upload_manager is None:
+            self._file_upload_manager = FileUploadManager(client)
+        return self._file_upload_manager
 
     def process_content(
         self, source: Union[str, Path, List[Union[str, Path]]]
@@ -55,6 +76,11 @@ class ContentProcessor:
             source_extracts = self._process_single_source(single_source)
             extracted_contents.extend(source_extracts)
 
+        log.info(
+            "Processed %d sources into %d content items",
+            len(flattened_sources),
+            len(extracted_contents),
+        )
         return extracted_contents
 
     def is_multimodal_content(self, extracted_content: ExtractedContent) -> bool:
@@ -76,6 +102,7 @@ class ContentProcessor:
                 return [extracted_content]
 
         except Exception as e:
+            log.error("Error processing source '%s': %s", source, e, exc_info=True)
             # Let the error bubble up rather than trying to create invalid ExtractedContent
             # The caller (GeminiClient) can handle this more appropriately
             raise RuntimeError(f"Error processing {source}: {e}") from e
@@ -85,6 +112,7 @@ class ContentProcessor:
     ) -> List[ExtractedContent]:
         """Expand a directory marker into individual file extractions"""
         directory_path = Path(directory_extract.metadata["directory_path"])
+        log.debug("Expanding directory: %s", directory_path)
 
         try:
             # Use file operations to scan the directory
@@ -104,9 +132,9 @@ class ContentProcessor:
                         metadata={
                             "directory_path": str(directory_path),
                             "file_count": 0,
+                            "requires_api_upload": False,
                         },
                         file_info=directory_extract.file_info,
-                        requires_api_upload=False,
                     )
                 ]
 
@@ -114,16 +142,19 @@ class ContentProcessor:
             file_extracts = []
             for file_info in all_files:
                 try:
-                    file_extract = self.file_ops.extract_content(file_info)
+                    file_extract = self.file_ops.extract_content(file_info.path)
                     file_extracts.append(file_extract)
                 except Exception as e:
                     # Create error extract for this specific file
                     error_extract = ExtractedContent(
                         content=f"Error processing {file_info.path}: {e}",
                         extraction_method="error",
-                        metadata={"error": str(e), "source": str(file_info.path)},
+                        metadata={
+                            "error": str(e),
+                            "source": str(file_info.path),
+                            "requires_api_upload": False,
+                        },
                         file_info=file_info,
-                        requires_api_upload=False,
                     )
                     file_extracts.append(error_extract)
 
@@ -135,8 +166,218 @@ class ContentProcessor:
                 ExtractedContent(
                     content=f"Error expanding directory {directory_path}: {e}",
                     extraction_method="error",
-                    metadata={"error": str(e), "source": str(directory_path)},
+                    metadata={
+                        "error": str(e),
+                        "source": str(directory_path),
+                        "requires_api_upload": False,
+                    },
                     file_info=directory_extract.file_info,
-                    requires_api_upload=False,
                 )
             ]
+
+    def create_api_parts(
+        self,
+        extracted_contents: List[ExtractedContent],
+        cache_enabled: bool = False,
+        client: Optional[Any] = None,
+    ) -> List[types.Part]:
+        """
+        Coordinate conversion of extracted content to API parts.
+
+        Args:
+            extracted_contents: List of processed content
+            cache_enabled: Whether caching is enabled (affects upload decisions)
+            client: Gemini client for file uploads when needed
+
+        Returns:
+            List of Gemini API Part objects
+        """
+        log.info(
+            "Creating API parts for %d content items (cache_enabled=%s)",
+            len(extracted_contents),
+            cache_enabled,
+        )
+
+        api_parts = []
+        is_multimodal = any(
+            self.file_ops.is_multimodal_content(e) for e in extracted_contents
+        )
+
+        for i, extracted in enumerate(extracted_contents):
+            # Make upload decision based on strategy and caching
+            strategy = self._determine_processing_strategy(
+                extracted, cache_enabled, is_multimodal
+            )
+
+            # Create appropriate API part
+            if strategy == "text_only":
+                part = types.Part(text=extracted.content)
+            elif strategy == "url":
+                part = self._create_url_part(extracted)
+            elif strategy == "upload":
+                part = self._create_upload_part(extracted, client)
+            else:  # strategy == "inline" or fallback
+                part = self._create_inline_part(extracted)
+
+            api_parts.append(part)
+
+        log.info("Successfully created %d API parts", len(api_parts))
+        return api_parts
+
+    def _determine_processing_strategy(
+        self, extracted: ExtractedContent, cache_enabled: bool, is_multimodal: bool
+    ) -> str:
+        """Determine processing strategy, forcing upload for multimodal if caching."""
+        strategy = extracted.processing_strategy
+
+        if cache_enabled and strategy == "inline" and is_multimodal:
+            log.debug("Forcing upload strategy for multimodal content due to caching.")
+            return "upload"
+
+        log.debug(
+            "Determined processing strategy '%s' for source '%s'",
+            strategy,
+            extracted.file_info.path,
+        )
+        return strategy
+
+    def _create_upload_part(
+        self, extracted: ExtractedContent, client: Optional[Any]
+    ) -> types.Part:
+        """Coordinate file upload through low-level utility"""
+
+        # Handle arXiv PDFs that need download-first-then-upload
+        if extracted.extraction_method == "arxiv_pdf_download":
+            log.debug("Handling arXiv PDF upload for: %s", extracted.file_info.path)
+            return self._handle_arxiv_pdf_upload(extracted, client)
+
+        # Regular file upload path (existing logic unchanged)
+        if not extracted.file_path:
+            log.error(
+                "Content requires upload but no file path available for: %s",
+                extracted.file_info.path,
+            )
+            raise APIError("Content requires upload but no file path available")
+
+        if client is None:
+            log.error(
+                "Client required for file upload but not provided for: %s",
+                extracted.file_info.path,
+            )
+            raise APIError("Client required for file upload but not provided")
+
+        log.debug("Uploading file: %s", extracted.file_path)
+        upload_manager = self._get_file_upload_manager(client)
+        uploaded_file = upload_manager.upload_and_wait(extracted.file_path)
+
+        mime_type = extracted.metadata.get("mime_type") or getattr(
+            uploaded_file, "mime_type", None
+        )
+        return types.Part(
+            file_data=types.FileData(file_uri=uploaded_file.uri, mime_type=mime_type)
+        )
+
+    def _handle_arxiv_pdf_upload(
+        self, extracted: ExtractedContent, client: Optional[Any]
+    ) -> types.Part:
+        """Handle arXiv PDF upload using Files API (for large PDFs)"""
+
+        if client is None:
+            raise APIError("Client required for arXiv PDF upload but not provided")
+
+        source_url = extracted.metadata.get("url")
+        if not source_url:
+            raise APIError("arXiv PDF extraction missing URL")
+
+        # Download content to memory
+        content_bytes = self._download_url_content(extracted, source_url)
+
+        # Use Files API with BytesIO
+        doc_io = io.BytesIO(content_bytes)
+
+        uploaded_file = client.files.upload(
+            file=doc_io, config={"mime_type": "application/pdf"}
+        )
+
+        # Return proper Part with file data (fixed: was returning raw uploaded_file)
+        return types.Part(
+            file_data=types.FileData(
+                file_uri=uploaded_file.uri, mime_type="application/pdf"
+            )
+        )
+
+    def _create_url_part(self, extracted: ExtractedContent) -> types.Part:
+        """Create part from URL-based content (YouTube, PDF URLs)"""
+        url = extracted.metadata.get("url")
+        if url:
+            return types.Part(file_data=types.FileData(file_uri=url))
+        else:
+            # Fallback to text if URL is missing
+            return types.Part(text=extracted.content)
+
+    def _create_inline_part(self, extracted: ExtractedContent) -> types.Part:
+        """Create inline part from extracted content - handles URLs and files"""
+
+        if extracted.file_path:
+            # File path - read file data
+            content_bytes = extracted.file_path.read_bytes()
+            mime_type = extracted.metadata.get("mime_type", "application/octet-stream")
+            log.debug(
+                "Read %d bytes from file: %s", len(content_bytes), extracted.file_path
+            )
+        else:
+            # Check if this is URL content that needs to be downloaded
+            source_url = extracted.metadata.get("url")
+            if source_url:
+                # URL content - download it (restore the missing logic)
+                content_bytes = self._download_url_content(extracted, source_url)
+                mime_type = extracted.metadata.get(
+                    "mime_type", "application/octet-stream"
+                )
+                log.debug(
+                    "Downloaded %d bytes from URL: %s", len(content_bytes), source_url
+                )
+            else:
+                # Text content - encode to bytes
+                content_bytes = extracted.content.encode("utf-8")
+                mime_type = "text/plain"
+                log.debug("Encoded %d characters to bytes", len(extracted.content))
+
+        return types.Part.from_bytes(
+            data=content_bytes,
+            mime_type=mime_type,
+        )
+
+    def _download_url_content(
+        self, extracted: ExtractedContent, source_url: str
+    ) -> bytes:
+        """Download URL content"""
+
+        # Check if content is cached to avoid double download
+        if extracted.metadata.get("content_cached", False):
+            # Get cached content from URLExtractor
+            url_extractor = None
+            for extractor in self.file_ops.extractor_manager.extractors:
+                if hasattr(extractor, "get_cached_content"):
+                    url_extractor = extractor
+                    break
+
+            if url_extractor:
+                file_data = url_extractor.get_cached_content(source_url)
+                if file_data is None:
+                    # Cache miss - download using extractor's method
+                    file_data = url_extractor.download_content_if_needed(source_url)
+            else:
+                # Fallback to direct download
+                with httpx.Client(timeout=30) as client:
+                    response = client.get(source_url)
+                    response.raise_for_status()
+                    file_data = response.content
+        else:
+            # Content not cached - download it
+            with httpx.Client(timeout=30) as client:
+                response = client.get(source_url)
+                response.raise_for_status()
+                file_data = response.content
+
+        return file_data

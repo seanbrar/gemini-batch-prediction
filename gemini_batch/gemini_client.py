@@ -2,12 +2,15 @@
 Main Gemini API client for content generation and batch processing
 """
 
+import logging
 from pathlib import Path
 import time
 from typing import Any, Callable, Dict, List, Optional, Union
 
 from google import genai
 from google.genai import types
+
+from gemini_batch.efficiency.metrics import extract_usage_metrics
 
 from .client.cache_manager import CacheManager, CacheStrategy
 from .client.configuration import ClientConfiguration, RateLimitConfig
@@ -21,17 +24,14 @@ from .constants import (
     DEFAULT_CACHE_TTL,
     FALLBACK_REQUESTS_PER_MINUTE,
     FALLBACK_TOKENS_PER_MINUTE,
-    FILE_POLL_INTERVAL,
-    FILE_PROCESSING_TIMEOUT,
     LARGE_TEXT_THRESHOLD,
     MAX_RETRIES,
     MIN_TEXT_LENGTH_FOR_CACHE_ANALYSIS,
-    RATE_LIMIT_RETRY_DELAY,
     RETRY_BASE_DELAY,
 )
-from .efficiency import extract_usage_metrics
 from .exceptions import APIError
-from .response import validate_structured_response
+
+log = logging.getLogger(__name__)
 
 
 class GeminiClient:
@@ -41,6 +41,11 @@ class GeminiClient:
         """Initialize client with configuration"""
         self.config = config
         self.config.validate()
+        log.debug(
+            "GeminiClient initialized with model '%s'. Caching: %s.",
+            self.config.model_name,
+            self.config.enable_caching,
+        )
 
         # Core components (always available)
         self.client = genai.Client(api_key=self.config.api_key)
@@ -128,18 +133,6 @@ class GeminiClient:
         else:
             # Use environment-based configuration
             config_manager = ConfigManager.from_env()
-
-            # Check for cache enabling environment variable
-            import os
-
-            env_caching = os.getenv("GEMINI_ENABLE_CACHING", "").lower() in (
-                "true",
-                "1",
-                "yes",
-            )
-            if env_caching and "enable_caching" not in overrides:
-                overrides["enable_caching"] = True
-
             return cls.from_config_manager(config_manager, **overrides)
 
     def get_config_summary(self) -> Dict[str, Any]:
@@ -291,12 +284,11 @@ class GeminiClient:
         extracted_contents = self.content_processor.process_content(content)
 
         # Convert to API parts with caching-aware upload decisions
-        parts = []
-        for extracted in extracted_contents:
-            part = self._create_api_part(
-                extracted, cache_enabled=self.config.enable_caching
-            )
-            parts.append(part)
+        parts = self.content_processor.create_api_parts(
+            extracted_contents,
+            cache_enabled=self.config.enable_caching,
+            client=self.client,
+        )
 
         # Add prompts using PromptBuilder
         if is_batch:
@@ -337,107 +329,20 @@ class GeminiClient:
                     e, response_schema, content_type, cache_enabled
                 )
 
-    def _create_api_part(
-        self, extracted_content, cache_enabled: bool = False
-    ) -> types.Part:
-        """Convert extracted content to API part with consolidated upload decision logic"""
-        # Get base processing strategy and adjust for caching if needed
-        strategy = extracted_content.processing_strategy
-
-        # If caching is enabled and this is multimodal content set for inline processing,
-        # force upload for cache compatibility
-        if (
-            cache_enabled
-            and strategy == "inline"
-            and self.content_processor.is_multimodal_content(extracted_content)
-        ):
-            strategy = "upload"
-
-        if strategy == "text_only":
-            return types.Part(text=extracted_content.content)
-        elif strategy == "url":
-            # Handle URL-based content (YouTube, PDF URLs)
-            url = extracted_content.metadata.get("url")
-            if url:
-                return types.Part(file_data=types.FileData(file_uri=url))
-            else:
-                # Fallback to text if URL is missing
-                return types.Part(text=extracted_content.content)
-        elif strategy == "upload":
-            return self._upload_file_if_needed(extracted_content)
-        else:  # strategy == "inline" or fallback
-            return self._create_inline_part(extracted_content)
-
-    def _upload_file_if_needed(self, extracted_content) -> types.Part:
-        """Handle upload when content requires it - API operation"""
-        if not extracted_content.file_path:
-            raise APIError("Content requires upload but no file path available")
-
-        uploaded_file = self._upload_file(extracted_content.file_path)
-
-        # Include mime_type in FileData for cache compatibility
-        mime_type = extracted_content.metadata.get("mime_type") or getattr(
-            uploaded_file, "mime_type", None
-        )
-
-        return types.Part(
-            file_data=types.FileData(file_uri=uploaded_file.uri, mime_type=mime_type)
-        )
-
-    def _create_inline_part(self, extracted_content) -> types.Part:
-        """Create inline part from extracted content"""
-        if extracted_content.file_path:
-            # File path - read file data
-            content_bytes = extracted_content.file_path.read_bytes()
-        else:
-            # Convert string content to bytes
-            content_bytes = extracted_content.content.encode("utf-8")
-
-        return types.Part.from_bytes(
-            data=content_bytes,
-            mime_type=extracted_content.metadata.get("mime_type", "text/plain"),
-        )
-
-    def _upload_file(self, file_path: Path):
-        """Upload file to Gemini Files API - API operation belongs here"""
-        try:
-            uploaded_file = self.client.files.upload(file=str(file_path))
-            self._wait_for_file_processing(uploaded_file)
-            return uploaded_file
-        except Exception as e:
-            raise APIError(f"Failed to upload file {file_path}: {e}") from e
-
-    def _wait_for_file_processing(
-        self, uploaded_file, timeout: int = FILE_PROCESSING_TIMEOUT
-    ):
-        """Wait for uploaded file to finish processing"""
-        start_time = time.time()
-        poll_interval = FILE_POLL_INTERVAL
-
-        while uploaded_file.state.name == "PROCESSING":
-            if time.time() - start_time > timeout:
-                raise APIError(f"File processing timeout: {uploaded_file.display_name}")
-
-            time.sleep(poll_interval)
-            uploaded_file = self.client.files.get(name=uploaded_file.name)
-
-        if uploaded_file.state.name == "FAILED":
-            raise APIError(f"File processing failed: {uploaded_file.display_name}")
-
     def _should_attempt_caching(self, parts: List[types.Part]) -> bool:
-        """Quick check if content is worth analyzing for caching"""
+        """Determine if caching should be attempted based on config and content"""
         if not self.config.enable_caching or not self.cache_manager:
             return False
 
-        # Simple heuristic: only analyze for caching if we have substantial content
-        total_text_length = sum(
-            len(part.text) for part in parts if self._is_text_part(part)
-        )
-
-        # Only attempt caching analysis for content that might meet minimum thresholds
-        return total_text_length > MIN_TEXT_LENGTH_FOR_CACHE_ANALYSIS or any(
-            self._is_file_part(part) for part in parts
-        )
+        # Simplified check: if any part is a large text part, attempt caching.
+        # This avoids re-implementing complex token counting here.
+        # The cache_manager will perform the detailed analysis.
+        for part in parts:
+            if self._is_large_text_part(
+                part, threshold=MIN_TEXT_LENGTH_FOR_CACHE_ANALYSIS
+            ):
+                return True
+        return False
 
     def _try_cached_generation(
         self,
@@ -447,31 +352,29 @@ class GeminiClient:
         response_schema: Optional[Any] = None,
         **options,
     ) -> Optional[Union[str, Dict[str, Any]]]:
-        """
-        Attempt cached generation with graceful fallback.
-
-        Returns:
-            Generated content if caching succeeds, None if fallback needed
-        """
+        """Attempt cached generation with graceful fallback."""
+        if not self.cache_manager:
+            return None
         try:
-            # Analyze caching strategy
+            # Analyze caching strategy with correct parameter order
             cache_strategy = self.cache_manager.analyze_cache_strategy(
                 model=self.config.model_name,
-                content=parts,  # Pass parts for analysis
+                content=parts,
                 prefer_explicit=True,
+            )
+            log.debug(
+                "Cache analysis result: strategy=%s, tokens=%d, reason='%s'",
+                cache_strategy.strategy_type,
+                cache_strategy.estimated_tokens,
+                cache_strategy.reason,
             )
 
             if not cache_strategy.should_cache:
+                log.debug("Content not suitable for caching, proceeding without cache.")
                 return None  # Fall back to non-cached generation
 
-            # For implicit caching, structure content optimally and use regular flow
-            if cache_strategy.strategy_type == "implicit":
-                return self._generate_with_implicit_cache(
-                    parts, system_instruction, return_usage, response_schema, **options
-                )
-
-            # For explicit caching, manage cache lifecycle
-            elif cache_strategy.strategy_type == "explicit":
+            if cache_strategy.strategy_type == "explicit":
+                log.info("Using explicit context caching for this request.")
                 return self._generate_with_explicit_cache(
                     parts,
                     cache_strategy,
@@ -481,11 +384,20 @@ class GeminiClient:
                     **options,
                 )
 
+            # For implicit caching, structure content optimally and use regular flow
+            elif cache_strategy.strategy_type == "implicit":
+                return self._generate_with_implicit_cache(
+                    parts, system_instruction, return_usage, response_schema, **options
+                )
+
             # Unknown strategy, fall back
             return None
 
-        except Exception:
-            # Any caching error should fall back gracefully
+        except Exception as e:
+            log.warning(
+                "Cache generation attempt failed, falling back to standard generation. Reason: %s",
+                e,
+            )
             return None
 
     def _generate_with_implicit_cache(
@@ -685,9 +597,27 @@ class GeminiClient:
     ) -> Union[str, Dict[str, Any]]:
         """Process API response with optional usage tracking and validation"""
 
-        # Handle structured output with validation
+        # Handle structured output with simple validation
         if response_schema:
-            validation_result = validate_structured_response(response, response_schema)
+            # Simple validation using Pydantic
+            try:
+                if hasattr(response, "parsed") and response.parsed:
+                    parsed_data = response.parsed
+                    success = True
+                    errors = []
+                else:
+                    # Fallback to text parsing
+                    response_text = getattr(response, "text", "")
+                    import json
+
+                    loaded_json = json.loads(response_text)
+                    parsed_data = response_schema.model_validate(loaded_json)
+                    success = True
+                    errors = []
+            except Exception as e:
+                parsed_data = None
+                success = False
+                errors = [str(e)]
 
             if return_usage:
                 # Extract and return with usage information
@@ -700,11 +630,11 @@ class GeminiClient:
 
                 result = {
                     "text": response.text,
-                    "parsed": validation_result.parsed_data,
-                    "structured_success": validation_result.success,
-                    "structured_confidence": validation_result.confidence,
-                    "validation_method": validation_result.validation_method,
-                    "validation_errors": validation_result.errors,
+                    "parsed": parsed_data,
+                    "structured_success": success,
+                    "structured_confidence": 0.9 if success else 0.3,
+                    "validation_method": "simple_pydantic",
+                    "validation_errors": errors,
                     "usage": usage_info,
                 }
 
@@ -715,11 +645,7 @@ class GeminiClient:
                 return result
             else:
                 # Return best available data
-                return (
-                    validation_result.parsed_data
-                    if validation_result.success
-                    else response.text
-                )
+                return parsed_data if success else response.text
 
         # Standard text response
         if return_usage:
@@ -775,39 +701,48 @@ class GeminiClient:
         """Execute API call with exponential backoff retry logic"""
         for attempt in range(max_retries + 1):
             try:
-                return api_call_func()
+                # Use rate limiter before making the call
+                with self.rate_limiter.request_context():
+                    return api_call_func()
             except Exception as error:
                 if attempt == max_retries:
-                    # Final attempt failed
+                    # Final attempt failed, log and re-raise
+                    log.error(
+                        "API call failed after %d retries.", max_retries, exc_info=True
+                    )
                     raise
 
                 # Check if it's a retryable error
                 error_str = str(error).lower()
-                if any(
-                    retryable in error_str
-                    for retryable in [
-                        "rate limit",
-                        "429",
-                        "quota",
-                        "timeout",
-                        "temporary",
-                        "service unavailable",
-                        "500",
-                        "502",
-                        "503",
-                        "504",
-                    ]
-                ):
-                    # Calculate delay with exponential backoff
-                    if "rate limit" in error_str or "429" in error_str:
-                        delay = RATE_LIMIT_RETRY_DELAY
-                    else:
-                        delay = RETRY_BASE_DELAY * (2**attempt)
+                retryable_terms = [
+                    "rate limit",
+                    "429",
+                    "quota",
+                    "timeout",
+                    "temporary",
+                    "service unavailable",
+                    "500",
+                    "502",
+                    "503",
+                    "504",
+                ]
 
+                if any(term in error_str for term in retryable_terms):
+                    # Calculate delay with exponential backoff
+                    delay = RETRY_BASE_DELAY * (2**attempt)
+                    log.warning(
+                        "API call failed with retryable error. Retrying in %.2fs (Attempt %d/%d)",
+                        delay,
+                        attempt + 2,
+                        max_retries + 1,
+                    )
                     time.sleep(delay)
                     continue
                 else:
-                    # Non-retryable error
+                    # Non-retryable error, log and re-raise
+                    log.error(
+                        "API call failed with non-retryable error.", exc_info=True
+                    )
                     raise
 
     # Public cache management methods
@@ -872,7 +807,11 @@ class GeminiClient:
     # Helper methods for part type checking
     def _is_text_part(self, part) -> bool:
         """Check if part contains text content"""
-        return hasattr(part, "text") and part.text is not None
+        return (
+            hasattr(part, "text")
+            and part.text is not None
+            and isinstance(part.text, str)
+        )
 
     def _is_file_part(self, part) -> bool:
         """Check if part contains file data"""
@@ -880,4 +819,33 @@ class GeminiClient:
 
     def _is_large_text_part(self, part, threshold=LARGE_TEXT_THRESHOLD) -> bool:
         """Check if part contains large text content"""
-        return self._is_text_part(part) and len(part.text) > threshold
+        if not self._is_text_part(part):
+            return False
+
+        # Handle non-string types safely
+        try:
+            text_length = len(part.text)
+            return text_length > threshold
+        except (TypeError, AttributeError):
+            # Objects that don't support len() comparison
+            return False
+
+    @property
+    def model_name(self) -> str:
+        """Get the current model name"""
+        return self.config.model_name
+
+    @property
+    def api_key(self) -> str:
+        """Get the API key"""
+        return self.config.api_key
+
+    @property
+    def rate_limit_requests(self) -> int:
+        """Get the rate limit for requests per minute"""
+        return self.rate_limiter.requests_per_minute
+
+    @property
+    def rate_limit_tokens(self) -> int:
+        """Get the rate limit for tokens per minute"""
+        return self.rate_limiter.tokens_per_minute

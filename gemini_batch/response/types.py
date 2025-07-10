@@ -1,14 +1,18 @@
 """
 Response processing types and result containers
+
+This module defines the core data structures used throughout the response
+processing system, including extraction results, processed responses,
+and validation outcomes.
 """
 
-from dataclasses import dataclass
+from dataclasses import dataclass, field
 from typing import Any, Dict, List, Optional, Union
 
 
 @dataclass
 class ExtractionResult:
-    """Result from unified response extraction"""
+    """Result from response extraction with usage metrics and quality data"""
 
     answers: Union[
         List[str], str
@@ -24,7 +28,7 @@ class ExtractionResult:
 
 @dataclass
 class ProcessedResponse:
-    """Unified result from response processing"""
+    """Complete processed response with metadata and quality metrics"""
 
     # Core results
     answers: List[str]
@@ -59,7 +63,7 @@ class ProcessedResponse:
 
     @property
     def has_structured_data(self) -> bool:
-        """Whether structured data was successfully extracted"""
+        """Whether structured data was successfully extracted and validated"""
         return self.structured_data is not None and self.schema_validation_success
 
     @property
@@ -70,19 +74,72 @@ class ProcessedResponse:
 
 @dataclass
 class ValidationResult:
-    """Internal validation result"""
+    """Result of structured response validation"""
 
-    success: bool
-    parsed_data: Any
-    confidence: float  # 0.0 to 1.0
-    validation_method: str
-    errors: List[str]
-    raw_text: str
+    is_valid: bool
+    corrected_data: Optional[Any] = None
+    errors: Optional[str] = None
+    quality_score: float = 0.0
+
+
+@dataclass
+class ProcessingMetrics:
+    """Metrics for a single processing operation"""
+
+    calls: int = 0
+    prompt_tokens: int = 0
+    output_tokens: int = 0
+    cached_tokens: int = 0
+    time: float = 0.0
+    structured_output: Optional[Dict[str, Any]] = None
+
+    @classmethod
+    def empty(cls):
+        return cls()
+
+    @property
+    def total_tokens(self) -> int:
+        return self.prompt_tokens + self.output_tokens
+
+    @property
+    def effective_tokens(self) -> int:
+        """Tokens that are actually billed (uncached input + all output)"""
+        return max(0, (self.prompt_tokens - self.cached_tokens) + self.output_tokens)
+
+    @property
+    def cache_hit_ratio(self) -> float:
+        """Ratio of cached to total prompt tokens"""
+        if self.prompt_tokens == 0:
+            return 0.0
+        return min(1.0, self.cached_tokens / self.prompt_tokens)  # Cap at 100%
+
+    def to_dict(self) -> Dict[str, Any]:
+        return {
+            "calls": self.calls,
+            "prompt_tokens": self.prompt_tokens,
+            "output_tokens": self.output_tokens,
+            "cached_tokens": self.cached_tokens,
+            "total_tokens": self.total_tokens,
+            "tokens": self.total_tokens,  # Alias for backward compatibility
+            "effective_tokens": self.effective_tokens,
+            "cache_hit_ratio": self.cache_hit_ratio,
+            "time": self.time,
+        }
+
+
+@dataclass
+class ProcessingOptions:
+    """Options for processing a request"""
+
+    compare_methods: bool = False
+    return_usage: bool = False
+    response_schema: Optional[Any] = None
+    options: Dict[str, Any] = field(default_factory=dict)
 
 
 @dataclass
 class ParsingResult:
-    """Internal parsing result"""
+    """Result from JSON parsing with method and error information"""
 
     success: bool
     parsed_data: Any

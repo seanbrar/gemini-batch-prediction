@@ -210,8 +210,8 @@ def run_demo_with_content(name, content, questions, processor, compare_methods=T
     print("-" * 40)
 
     if efficiency["comparison_available"]:
-        individual_total = results["metrics"]["individual"]["tokens"]
-        batch_total = results["metrics"]["batch"]["tokens"]
+        individual_total = results["metrics"]["individual"]["total_tokens"]
+        batch_total = results["metrics"]["batch"]["total_tokens"]
         tokens_saved = individual_total - batch_total
         savings_percent = (
             (tokens_saved / individual_total) * 100 if individual_total > 0 else 0
@@ -279,8 +279,8 @@ def main():
                         "efficiency_ratio": efficiency["token_efficiency_ratio"],
                         "meets_target": efficiency["meets_target"],
                         "tokens_saved": (
-                            results["metrics"]["individual"]["tokens"]
-                            - results["metrics"]["batch"]["tokens"]
+                            results["metrics"]["individual"]["total_tokens"]
+                            - results["metrics"]["batch"]["total_tokens"]
                         ),
                     }
                 )
