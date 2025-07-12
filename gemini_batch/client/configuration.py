@@ -2,13 +2,14 @@
 Client configuration handling for Gemini API integration
 """
 
-from dataclasses import asdict, dataclass
+from dataclasses import asdict, dataclass, field
 from typing import Any, Dict, Optional, Union
 import warnings
 
 from ..config import APITier, ConfigManager
 from ..constants import RATE_LIMIT_WINDOW
 from ..exceptions import MissingKeyError
+from ..telemetry import TelemetryContext
 
 
 @dataclass
@@ -19,11 +20,14 @@ class ClientConfiguration:
     model: str
     enable_caching: bool = False
     tier: APITier = APITier.FREE
+    telemetry_context: Optional[TelemetryContext] = field(
+        default_factory=TelemetryContext, compare=False, hash=False, repr=False
+    )
 
     @property
     def model_name(self) -> str:
         """Compatibility property for GeminiClient"""
-        if not getattr(self, '_model_name_warned', False):
+        if not getattr(self, "_model_name_warned", False):
             warnings.warn(
                 "The 'model_name' property is deprecated. Use 'model' instead.",
                 DeprecationWarning,
@@ -52,6 +56,7 @@ class ClientConfiguration:
         tier: Optional[Union[str, APITier]] = None,
         enable_caching: Optional[bool] = None,
         config_manager: Optional[ConfigManager] = None,
+        telemetry_context: Optional[TelemetryContext] = None,
     ) -> "ClientConfiguration":
         """Create configuration from parameters with ConfigManager fallback"""
         config = config_manager or ConfigManager.from_env()
@@ -63,6 +68,7 @@ class ClientConfiguration:
             enable_caching=enable_caching
             if enable_caching is not None
             else config.enable_caching,
+            telemetry_context=telemetry_context or TelemetryContext(),
         )
 
     @classmethod
@@ -77,6 +83,8 @@ class ClientConfiguration:
             enable_caching=overrides.get(
                 "enable_caching", config_manager.enable_caching
             ),
+            telemetry_context=overrides.get("telemetry_context")
+            or TelemetryContext(),
         )
 
 

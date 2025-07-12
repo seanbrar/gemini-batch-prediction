@@ -30,6 +30,7 @@ from .constants import (
     RETRY_BASE_DELAY,
 )
 from .exceptions import APIError
+from .telemetry import TelemetryContext
 
 log = logging.getLogger(__name__)
 
@@ -41,9 +42,10 @@ class GeminiClient:
         """Initialize client with configuration"""
         self.config = config
         self.config.validate()
+        self.tele = self.config.telemetry_context or TelemetryContext()
         log.debug(
             "GeminiClient initialized with model '%s'. Caching: %s.",
-            self.config.model_name,
+            self.config.model,
             self.config.enable_caching,
         )
 
@@ -236,15 +238,16 @@ class GeminiClient:
         **options,
     ) -> Union[str, Dict[str, Any]]:
         """Generate content from text, files, URLs, or mixed sources"""
-        return self._execute_generation(
-            content=content,
-            prompts=[prompt] if prompt else [],
-            system_instruction=system_instruction,
-            return_usage=return_usage,
-            response_schema=response_schema,
-            is_batch=False,
-            **options,
-        )
+        with self.tele.scope("client.generate_content"):
+            return self._execute_generation(
+                content=content,
+                prompts=[prompt] if prompt else [],
+                system_instruction=system_instruction,
+                return_usage=return_usage,
+                response_schema=response_schema,
+                is_batch=False,
+                **options,
+            )
 
     def generate_batch(
         self,
@@ -256,18 +259,19 @@ class GeminiClient:
         **options,
     ) -> Union[str, Dict[str, Any]]:
         """Process multiple questions about the same content"""
-        if not questions:
-            raise APIError("At least one question is required for batch processing")
+        with self.tele.scope("client.generate_batch"):
+            if not questions:
+                raise APIError("At least one question is required for batch processing")
 
-        return self._execute_generation(
-            content=content,
-            prompts=questions,
-            system_instruction=system_instruction,
-            return_usage=return_usage,
-            response_schema=response_schema,
-            is_batch=True,
-            **options,
-        )
+            return self._execute_generation(
+                content=content,
+                prompts=questions,
+                system_instruction=system_instruction,
+                return_usage=return_usage,
+                response_schema=response_schema,
+                is_batch=True,
+                **options,
+            )
 
     def _execute_generation(
         self,
@@ -280,54 +284,64 @@ class GeminiClient:
         **options,
     ) -> Union[str, Dict[str, Any]]:
         """Core generation method for both single and batch requests"""
-        # Get extracted content from content processor
-        extracted_contents = self.content_processor.process_content(content)
+        with self.tele.scope(
+            "client.execute_generation",
+            is_batch=is_batch,
+            prompt_count=len(prompts),
+            content_type=self._get_content_type_description(content),
+        ):
+            # Get extracted content from content processor
+            extracted_contents = self.content_processor.process_content(content)
 
-        # Convert to API parts with caching-aware upload decisions
-        parts = self.content_processor.create_api_parts(
-            extracted_contents,
-            cache_enabled=self.config.enable_caching,
-            client=self.client,
-        )
-
-        # Add prompts using PromptBuilder
-        if is_batch:
-            batch_prompt = self.prompt_builder.create_batch_prompt(
-                prompts, response_schema
+            # Convert to API parts with caching-aware upload decisions
+            parts = self.content_processor.create_api_parts(
+                extracted_contents,
+                cache_enabled=self.config.enable_caching,
+                client=self.client,
             )
-            parts.append(types.Part(text=batch_prompt))
-        else:
-            for prompt in prompts:
-                if prompt:
-                    clean_prompt = self.prompt_builder.create_single_prompt(prompt)
-                    parts.append(types.Part(text=clean_prompt))
 
-        # Execute API call with rate limiting
-        with self.rate_limiter.request_context():
-            try:
-                # Try cache-aware generation if caching enabled
-                if self.cache_manager and self._should_attempt_caching(parts):
-                    cache_result = self._try_cached_generation(
+            # Add prompts using PromptBuilder
+            if is_batch:
+                batch_prompt = self.prompt_builder.create_batch_prompt(
+                    prompts, response_schema
+                )
+                parts.append(types.Part(text=batch_prompt))
+            else:
+                for prompt in prompts:
+                    if prompt:
+                        clean_prompt = self.prompt_builder.create_single_prompt(prompt)
+                        parts.append(types.Part(text=clean_prompt))
+
+            # Execute API call with rate limiting
+            with self.rate_limiter.request_context():
+                try:
+                    # Try cache-aware generation if caching enabled
+                    if self.cache_manager and self._should_attempt_caching(parts):
+                        cache_result = self._try_cached_generation(
+                            parts,
+                            system_instruction,
+                            return_usage,
+                            response_schema,
+                            **options,
+                        )
+                        if cache_result is not None:
+                            return cache_result
+
+                    # Fallback to existing generation flow
+                    return self._generate_with_parts(
                         parts,
                         system_instruction,
                         return_usage,
                         response_schema,
                         **options,
                     )
-                    if cache_result is not None:
-                        return cache_result
-
-                # Fallback to existing generation flow
-                return self._generate_with_parts(
-                    parts, system_instruction, return_usage, response_schema, **options
-                )
-            except Exception as e:
-                # Determine content type for better error context
-                content_type = self._get_content_type_description(content)
-                cache_enabled = self.cache_manager is not None
-                self.error_handler.handle_generation_error(
-                    e, response_schema, content_type, cache_enabled
-                )
+                except Exception as e:
+                    # Determine content type for better error context
+                    content_type = self._get_content_type_description(content)
+                    cache_enabled = self.cache_manager is not None
+                    self.error_handler.handle_generation_error(
+                        e, response_schema, content_type, cache_enabled
+                    )
 
     def _should_attempt_caching(self, parts: List[types.Part]) -> bool:
         """Determine if caching should be attempted based on config and content"""
@@ -353,52 +367,59 @@ class GeminiClient:
         **options,
     ) -> Optional[Union[str, Dict[str, Any]]]:
         """Attempt cached generation with graceful fallback."""
-        if not self.cache_manager:
-            return None
-        try:
-            # Analyze caching strategy with correct parameter order
-            cache_strategy = self.cache_manager.analyze_cache_strategy(
-                model=self.config.model_name,
-                content=parts,
-                prefer_explicit=True,
-            )
-            log.debug(
-                "Cache analysis result: strategy=%s, tokens=%d, reason='%s'",
-                cache_strategy.strategy_type,
-                cache_strategy.estimated_tokens,
-                cache_strategy.reason,
-            )
-
-            if not cache_strategy.should_cache:
-                log.debug("Content not suitable for caching, proceeding without cache.")
-                return None  # Fall back to non-cached generation
-
-            if cache_strategy.strategy_type == "explicit":
-                log.info("Using explicit context caching for this request.")
-                return self._generate_with_explicit_cache(
-                    parts,
-                    cache_strategy,
-                    system_instruction,
-                    return_usage,
-                    response_schema,
-                    **options,
+        with self.tele.scope("client.try_cached_generation"):
+            if not self.cache_manager:
+                return None
+            try:
+                # Analyze caching strategy with correct parameter order
+                cache_strategy = self.cache_manager.analyze_cache_strategy(
+                    model=self.config.model_name,
+                    content=parts,
+                    prefer_explicit=True,
+                )
+                log.debug(
+                    "Cache analysis result: strategy=%s, tokens=%d, reason='%s'",
+                    cache_strategy.strategy_type,
+                    cache_strategy.estimated_tokens,
+                    cache_strategy.reason,
                 )
 
-            # For implicit caching, structure content optimally and use regular flow
-            elif cache_strategy.strategy_type == "implicit":
-                return self._generate_with_implicit_cache(
-                    parts, system_instruction, return_usage, response_schema, **options
+                if not cache_strategy.should_cache:
+                    log.debug(
+                        "Content not suitable for caching, proceeding without cache."
+                    )
+                    return None  # Fall back to non-cached generation
+
+                if cache_strategy.strategy_type == "explicit":
+                    log.info("Using explicit context caching for this request.")
+                    return self._generate_with_explicit_cache(
+                        parts,
+                        cache_strategy,
+                        system_instruction,
+                        return_usage,
+                        response_schema,
+                        **options,
+                    )
+
+                # For implicit caching, structure content optimally and use regular flow
+                elif cache_strategy.strategy_type == "implicit":
+                    return self._generate_with_implicit_cache(
+                        parts,
+                        system_instruction,
+                        return_usage,
+                        response_schema,
+                        **options,
+                    )
+
+                # Unknown strategy, fall back
+                return None
+
+            except Exception as e:
+                log.warning(
+                    "Cache generation attempt failed, falling back to standard generation. Reason: %s",
+                    e,
                 )
-
-            # Unknown strategy, fall back
-            return None
-
-        except Exception as e:
-            log.warning(
-                "Cache generation attempt failed, falling back to standard generation. Reason: %s",
-                e,
-            )
-            return None
+                return None
 
     def _generate_with_implicit_cache(
         self,
@@ -413,16 +434,17 @@ class GeminiClient:
 
         Structures content to maximize cache hit probability.
         """
-        # Implicit caching optimization: put large/common content first
-        optimized_parts = self._optimize_parts_for_implicit_cache(parts)
+        with self.tele.scope("client.generate_with_implicit_cache"):
+            # Implicit caching optimization: put large/common content first
+            optimized_parts = self._optimize_parts_for_implicit_cache(parts)
 
-        return self._generate_with_parts(
-            optimized_parts,
-            system_instruction,
-            return_usage,
-            response_schema,
-            **options,
-        )
+            return self._generate_with_parts(
+                optimized_parts,
+                system_instruction,
+                return_usage,
+                response_schema,
+                **options,
+            )
 
     def _generate_with_explicit_cache(
         self,
@@ -434,32 +456,32 @@ class GeminiClient:
         **options,
     ) -> Union[str, Dict[str, Any]]:
         """Generate using explicit cache with lifecycle management"""
+        with self.tele.scope("client.generate_with_explicit_cache"):
+            # Separate cacheable content from prompt parts
+            content_parts, prompt_parts = self._separate_cacheable_content(parts)
 
-        # Separate cacheable content from prompt parts
-        content_parts, prompt_parts = self._separate_cacheable_content(parts)
+            if not content_parts:
+                return None  # Nothing to cache, fall back
 
-        if not content_parts:
-            return None  # Nothing to cache, fall back
+            # Get or create cache for content
+            cache_result = self.cache_manager.get_or_create_cache(
+                model=self.config.model_name,
+                content_parts=content_parts,
+                strategy=cache_strategy,
+                system_instruction=system_instruction,
+            )
 
-        # Get or create cache for content
-        cache_result = self.cache_manager.get_or_create_cache(
-            model=self.config.model_name,
-            content_parts=content_parts,
-            strategy=cache_strategy,
-            system_instruction=system_instruction,
-        )
+            if not cache_result.success:
+                return None  # Cache failed, fall back to regular generation
 
-        if not cache_result.success:
-            return None  # Cache failed, fall back to regular generation
-
-        # Generate with cached content
-        return self._generate_with_cache_reference(
-            cache_name=cache_result.cache_name,
-            prompt_parts=prompt_parts,
-            return_usage=return_usage,
-            response_schema=response_schema,
-            **options,
-        )
+            # Generate with cached content
+            return self._generate_with_cache_reference(
+                cache_name=cache_result.cache_name,
+                prompt_parts=prompt_parts,
+                return_usage=return_usage,
+                response_schema=response_schema,
+                **options,
+            )
 
     def _optimize_parts_for_implicit_cache(
         self, parts: List[types.Part]
@@ -698,88 +720,80 @@ class GeminiClient:
     def _api_call_with_retry(
         self, api_call_func: Callable, max_retries: int = MAX_RETRIES
     ):
-        """Execute API call with exponential backoff retry logic"""
-        for attempt in range(max_retries + 1):
-            try:
-                # Use rate limiter before making the call
-                with self.rate_limiter.request_context():
-                    return api_call_func()
-            except Exception as error:
-                if attempt == max_retries:
-                    # Final attempt failed, log and re-raise
-                    log.error(
-                        "API call failed after %d retries.", max_retries, exc_info=True
-                    )
-                    raise
+        """Execute an API call with exponential backoff and retry"""
+        with self.tele.scope("client.api_call_with_retry") as ctx:
+            for attempt in range(max_retries + 1):
+                try:
+                    # Use rate limiter before making the call
+                    with self.rate_limiter.request_context():
+                        response = api_call_func()
+                        # Track successful API call
+                        ctx.metric("api_attempts", attempt + 1)
+                        ctx.metric("api_success", 1)
+                        return response
+                except Exception as error:
+                    if attempt == max_retries:
+                        # Final attempt failed, log and re-raise
+                        ctx.metric("api_attempts", attempt + 1)
+                        ctx.metric("api_failures", 1)
+                        log.error(
+                            "API call failed after %d retries.",
+                            max_retries,
+                            exc_info=True,
+                        )
+                        raise
 
-                # Check if it's a retryable error
-                error_str = str(error).lower()
-                retryable_terms = [
-                    "rate limit",
-                    "429",
-                    "quota",
-                    "timeout",
-                    "temporary",
-                    "service unavailable",
-                    "500",
-                    "502",
-                    "503",
-                    "504",
-                ]
+                    # Check if it's a retryable error
+                    error_str = str(error).lower()
+                    retryable_terms = [
+                        "rate limit",
+                        "429",
+                        "quota",
+                        "timeout",
+                        "temporary",
+                        "service unavailable",
+                        "500",
+                        "502",
+                        "503",
+                        "504",
+                    ]
 
-                if any(term in error_str for term in retryable_terms):
-                    # Calculate delay with exponential backoff
-                    delay = RETRY_BASE_DELAY * (2**attempt)
-                    log.warning(
-                        "API call failed with retryable error. Retrying in %.2fs (Attempt %d/%d)",
-                        delay,
-                        attempt + 2,
-                        max_retries + 1,
-                    )
-                    time.sleep(delay)
-                    continue
-                else:
-                    # Non-retryable error, log and re-raise
-                    log.error(
-                        "API call failed with non-retryable error.", exc_info=True
-                    )
-                    raise
+                    if any(term in error_str for term in retryable_terms):
+                        # Calculate delay with exponential backoff
+                        delay = RETRY_BASE_DELAY * (2**attempt)
+                        ctx.metric("retryable_errors", 1)
+                        log.warning(
+                            "API call failed with retryable error. Retrying in %.2fs (Attempt %d/%d)",
+                            delay,
+                            attempt + 2,
+                            max_retries + 1,
+                        )
+                        time.sleep(delay)
+                        continue
+                    else:
+                        # Non-retryable error, log and re-raise
+                        ctx.metric("api_attempts", attempt + 1)
+                        ctx.metric("non_retryable_errors", 1)
+                        log.error(
+                            "API call failed with non-retryable error.", exc_info=True
+                        )
+                        raise
 
     # Public cache management methods
 
     def cleanup_expired_caches(self) -> int:
-        """
-        Clean up expired caches and return count of cleaned caches.
-
-        Returns 0 when caching is disabled.
-        """
-        if not self.cache_manager:
+        """Clean up all expired caches managed by the client."""
+        with self.tele.scope("client.cleanup_expired_caches"):
+            if self.cache_manager:
+                return self.cache_manager.cleanup_expired_caches()
             return 0
-        return self.cache_manager.cleanup_expired_caches()
 
     def get_cache_metrics(self) -> Optional[Dict[str, Any]]:
-        """
-        Get current cache usage metrics if caching is enabled.
-
-        Returns None when caching is disabled.
-        """
-        if not self.cache_manager:
+        """Get cache metrics if caching is enabled."""
+        with self.tele.scope("client.get_cache_metrics"):
+            if self.cache_manager:
+                return self.cache_manager.get_cache_metrics().to_dict()
             return None
-
-        metrics = self.cache_manager.get_cache_metrics()
-        return {
-            "total_caches_created": metrics.total_caches,
-            "active_caches": metrics.active_caches,
-            "cache_hits": metrics.cache_hits,
-            "cache_misses": metrics.cache_misses,
-            "total_cached_tokens": metrics.total_cached_tokens,
-            "cache_hit_rate": (
-                metrics.cache_hits / max(metrics.cache_hits + metrics.cache_misses, 1)
-            ),
-            "average_creation_time": (
-                metrics.cache_creation_time / max(metrics.total_caches, 1)
-            ),
-        }
 
     def list_active_caches(self) -> List[Dict[str, Any]]:
         """

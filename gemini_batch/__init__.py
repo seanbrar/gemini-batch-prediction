@@ -19,6 +19,11 @@ from .exceptions import APIError, GeminiBatchError, MissingKeyError, NetworkErro
 from .files import FileType
 from .gemini_client import GeminiClient
 from .prompts import BatchPromptBuilder, StructuredPromptBuilder
+from .telemetry import (
+    TelemetryContext,
+    TelemetryReporter,
+    tele_scope,
+)
 
 # Set up a null handler for the library's root logger.
 # This prevents 'No handler found' errors if the consuming app has no logging configured.
@@ -53,4 +58,8 @@ __all__ = [
     "BatchPromptBuilder",
     "StructuredPromptBuilder",
     "SchemaAnalyzer",
+    # Telemetry
+    "TelemetryContext",
+    "TelemetryReporter",
+    "tele_scope",
 ]
