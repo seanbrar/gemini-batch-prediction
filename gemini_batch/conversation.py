@@ -3,10 +3,21 @@ from datetime import datetime, timezone
 import json
 import logging
 from pathlib import Path
-from typing import Any, Dict, List, Optional, Tuple, Union
+from typing import (
+    Any,
+    Dict,
+    List,
+    Optional,
+    Tuple,
+    Union,
+    Unpack,
+)
 from uuid import uuid4
 
-from gemini_batch import BatchProcessor
+from gemini_batch.batch_processor import BatchProcessor
+
+# Import new config types and protocols
+from .config import ConversationConfig, GeminiConfig, ProcessorProtocol
 
 log = logging.getLogger(__name__)
 
@@ -24,41 +35,38 @@ class ConversationTurn:
 
 
 class ConversationSession:
+    """A zero-ceremony, easy-to-use conversation session."""
+
     def __init__(
         self,
         sources: Union[str, Path, List[Union[str, Path]]],
-        _processor: Optional[BatchProcessor] = None,
-        max_history_turns: int = 5,
-        **processor_kwargs,
+        _processor: Optional[ProcessorProtocol] = None,
+        **config: Unpack[ConversationConfig],
     ):
         """
-        Initialize a conversation session.
+        Creates a conversation session.
 
-        Standard configuration is handled via keyword arguments passed to an internal BatchProcessor.
-
-        Args:
-            sources: The content source(s) for the conversation.
-            max_history_turns: The number of past turns to include as context.
-
-        Advanced Usage:
-            _processor: A pre-configured BatchProcessor can be passed to share a single processor instance.
+        Examples:
+            session = ConversationSession("document.pdf")
+            session = ConversationSession("docs/", max_history_turns=3)
+            session = ConversationSession("docs/", _processor=shared_processor)
         """
         self.sources = sources if isinstance(sources, list) else [sources]
+        self.max_history_turns = config.get("max_history_turns", 5)
         self.history: List[ConversationTurn] = []
         self.session_id = str(uuid4())
-        self.max_history_turns = max_history_turns
 
-        # Prevent accidental mixing of advanced and simple usage
-        if _processor and processor_kwargs:
-            log.warning("Ignoring processor_kwargs when _processor is provided.")
-            processor_kwargs = {}
+        if _processor and config:
+            log.warning("Ignoring config kwargs when a custom _processor is provided.")
 
         if _processor:
-            # Advanced path: Use a pre-configured processor.
             self.processor = _processor
         else:
-            # Standard path: Create a new processor from kwargs.
-            self.processor = BatchProcessor(**processor_kwargs)
+            # Extract only the GeminiConfig keys for the BatchProcessor
+            processor_config = {
+                k: v for k, v in config.items() if k in GeminiConfig.__annotations__
+            }
+            self.processor = BatchProcessor(**processor_config)
 
     def ask(self, question: str, **options) -> str:
         """Ask single question with full conversation context"""
@@ -314,14 +322,47 @@ class ConversationSession:
         self.history.clear()
 
 
-def create_conversation(sources, **kwargs) -> "ConversationSession":
+def create_conversation(
+    sources: Union[str, Path, List[Union[str, Path]]],
+    **config: Unpack[ConversationConfig],
+) -> "ConversationSession":
     """Factory function to create a new conversation session."""
-    return ConversationSession(sources, **kwargs)
+    return ConversationSession(sources, **config)
 
 
 def load_conversation(
-    session_id: str, path: Optional[str] = None, **processor_options
-) -> ConversationSession:
+    session_id: str, path: Optional[str] = None, **config: Unpack[ConversationConfig]
+) -> "ConversationSession":
     """Factory function to load an existing conversation session."""
-    processor = BatchProcessor(**processor_options)
-    return ConversationSession.load(session_id, path, processor)
+    # Create a processor with any specified overrides
+    processor_config = {
+        k: v for k, v in config.items() if k in GeminiConfig.__annotations__
+    }
+    processor = BatchProcessor(**processor_config)
+
+    # The actual loading logic is preserved
+    if path is None:
+        path = f"conversation_{session_id}.json"
+
+    with open(path) as f:
+        session_data = json.load(f)
+
+    # Create session, now passing the configured processor
+    session = ConversationSession(
+        session_data["sources"], _processor=processor, **config
+    )
+    session.session_id = session_data["session_id"]
+
+    # Restore history (logic unchanged)
+    for turn_data in session_data["history"]:
+        turn = ConversationTurn(
+            question=turn_data["question"],
+            answer=turn_data["answer"],
+            timestamp=datetime.fromisoformat(turn_data["timestamp"]),
+            sources_snapshot=turn_data["sources_snapshot"],
+            cache_info=turn_data.get("cache_info"),
+            error=turn_data.get("error"),
+        )
+        session.history.append(turn)
+
+    return session
