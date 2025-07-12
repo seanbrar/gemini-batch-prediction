@@ -9,7 +9,7 @@ from typing import Any, List, Protocol
 log = logging.getLogger(__name__)
 
 # Context-aware state for thread/async safety
-_scope_stack_var: ContextVar[List[str]] = ContextVar("scope_stack", default=[])
+_scope_stack_var: ContextVar[List[str]] = ContextVar("scope_stack", default=None)
 _call_count_var: ContextVar[int] = ContextVar("call_count", default=0)
 
 # Zero-overhead compile-time optimization - evaluated once at import time
@@ -73,7 +73,7 @@ class TelemetryContext:
             return
 
         # Get thread-local state
-        scope_stack = _scope_stack_var.get()
+        scope_stack = _scope_stack_var.get() or []
         call_count = _call_count_var.get()
 
         # Build hierarchical scope name
@@ -93,7 +93,7 @@ class TelemetryContext:
             _call_count_var.reset(count_token)
 
             # Get latest state for metadata
-            final_stack = _scope_stack_var.get()
+            final_stack = _scope_stack_var.get() or []
             final_count = _call_count_var.get()
 
             # Enhanced metadata with context
@@ -121,7 +121,7 @@ class TelemetryContext:
         if not self.enabled:
             return
 
-        scope_stack = _scope_stack_var.get()
+        scope_stack = _scope_stack_var.get() or []
         scope_path = ".".join(scope_stack + [name])
         enhanced_metadata = {
             "depth": len(scope_stack),
