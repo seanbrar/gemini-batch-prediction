@@ -6,10 +6,10 @@ from contextlib import contextmanager
 import logging
 from pathlib import Path
 import time
-from typing import Any, Dict, List, Optional, Tuple, Union
+from typing import Any, Dict, List, Optional, Tuple, Union, Unpack
 
 from .analysis.schema_analyzer import SchemaAnalyzer
-from .config import ConfigManager
+from .config import ClientProtocol, GeminiConfig
 from .efficiency import track_efficiency
 from .exceptions import BatchProcessingError
 from .gemini_client import GeminiClient
@@ -23,35 +23,32 @@ log = logging.getLogger(__name__)
 
 
 class BatchProcessor:
-    """Process multiple questions efficiently using batch operations"""
+    """A simple batch processor for processing questions against content."""
 
     def __init__(
-        self,
-        _client: Optional[GeminiClient] = None,
-        _telemetry_context: Optional[TelemetryContext] = None,
-        **kwargs,
+        self, _client: Optional[ClientProtocol] = None, **config: Unpack[GeminiConfig]
     ):
-        # Prevent accidental mixing of advanced and simple usage
-        if _client and kwargs:
-            log.warning("Ignoring configuration kwargs when _client is provided.")
-            kwargs = {}
+        """
+        Creates a processor using ambient configuration.
 
-        self.tele = _telemetry_context or TelemetryContext()
-
-        if _client:
-            # Advanced path: Use the provided client directly.
-            self.client = _client
-            self.config = (
-                self.client.config_manager
-            )  # Now correctly refers to the ConfigManager
-        else:
-            # Standard path: Create everything from scratch.
-            self.config = ConfigManager(**kwargs)
-            self.client = GeminiClient.from_config_manager(
-                self.config, telemetry_context=self.tele
+        Examples:
+            processor = BatchProcessor()  # Zero config (uses env vars)
+            processor = BatchProcessor(model="gemini-2.5-pro") # Override a setting
+            processor = BatchProcessor(_client=my_mock_client) # Advanced: custom client
+        """
+        if _client and config:
+            raise ValueError(
+                "Cannot specify both `_client` and config keyword arguments."
             )
 
-        # Initialize processing components
+        if _client:
+            self.client = _client
+        else:
+            # Create a client, passing any config overrides. The client
+            # will handle merging them with the ambient configuration.
+            self.client = GeminiClient(**config)
+
+        self.tele = TelemetryContext()
         self.response_processor = ResponseProcessor()
         self.result_builder = ResultBuilder(self._calculate_efficiency)
         self.schema_analyzer = SchemaAnalyzer()
@@ -89,9 +86,7 @@ class BatchProcessor:
         **kwargs,  # Accept additional parameters for flexibility
     ) -> Dict[str, Any]:
         """
-        Process a list of questions against a body of text content.
-        This method orchestrates the entire process, from content processing
-        to response extraction and result building.
+        Process a list of questions against content.
 
         Args:
             content: Content to process (text, files, URLs, etc.)
@@ -100,7 +95,6 @@ class BatchProcessor:
             response_schema: Optional schema for structured output
             client: Optional client override
             **kwargs: Additional parameters passed to underlying processors
-                     (e.g., system_instruction, return_usage, etc.)
         """
         log.info("Starting question processing for %d questions.", len(questions))
         if client:
@@ -110,7 +104,7 @@ class BatchProcessor:
             compare_methods=compare_methods,
             response_schema=response_schema,
             return_usage=kwargs.pop("return_usage", False),  # Extract return_usage flag
-            options=kwargs,  # Pass through remaining parameters
+            options=kwargs,
         )
 
         return self._process_standard(content, questions, config)
@@ -129,7 +123,7 @@ class BatchProcessor:
             raise ValueError("Questions are required")
 
         result = self.process_questions(
-            sources,  # Combined content handled by unified client
+            sources,
             questions,
             response_schema=response_schema,
             **kwargs,
@@ -171,7 +165,7 @@ class BatchProcessor:
             individual_answers = None
             individual_metrics = ProcessingMetrics.empty()
 
-            # --- Primary Execution Path ---
+            # Primary execution path
             try:
                 with tele_scope(self.tele, "batch.attempt") as ctx:
                     # Attempt batch processing first - this either succeeds or raises BatchProcessingError
@@ -206,7 +200,7 @@ class BatchProcessor:
                     individual_metrics = ProcessingMetrics.empty()
                     batch_succeeded = False
 
-            # --- Comparison Run (if requested and batch succeeded) ---
+            # Comparison run (if requested and batch succeeded)
             if config.compare_methods and batch_succeeded:
                 with tele_scope(self.tele, "batch.comparison_run"):
                     log.debug(
@@ -217,7 +211,7 @@ class BatchProcessor:
                         content, questions, config
                     )
 
-            # --- Result Building ---
+            # Result building
             with tele_scope(self.tele, "batch.result_building"):
                 return self.result_builder.build_standard_result(
                     questions,
