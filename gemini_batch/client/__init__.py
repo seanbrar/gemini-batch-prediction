@@ -14,7 +14,7 @@ from .cache_manager import (
     CacheResult,
     CacheStrategy,
 )
-from .configuration import ClientConfiguration, RateLimitConfig
+from .configuration import RateLimitConfig
 
 # Specialized components for custom integrations
 from .content_processor import ContentProcessor
@@ -28,7 +28,6 @@ from .token_counter import TokenCounter
 # For GeminiClient, use: from gemini_batch import GeminiClient
 __all__ = [
     # Configuration
-    "ClientConfiguration",
     "RateLimitConfig",
     # Advanced components (for custom extensions)
     "ContentProcessor",
