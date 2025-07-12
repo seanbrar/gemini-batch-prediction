@@ -16,7 +16,6 @@ from uuid import uuid4
 
 from gemini_batch.batch_processor import BatchProcessor
 
-# Import new config types and protocols
 from .config import ConversationConfig, GeminiConfig, ProcessorProtocol
 
 log = logging.getLogger(__name__)

@@ -14,7 +14,7 @@ from gemini_batch.efficiency.metrics import extract_usage_metrics
 
 from .client.cache_manager import CacheManager, CacheStrategy
 from .client.configuration import (
-    RateLimitConfig,  # ClientConfiguration is no longer needed
+    RateLimitConfig,
 )
 from .client.content_processor import ContentProcessor
 from .client.error_handler import GenerationErrorHandler
