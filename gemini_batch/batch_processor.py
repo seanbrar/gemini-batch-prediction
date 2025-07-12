@@ -9,9 +9,9 @@ import time
 from typing import Any, Dict, List, Optional, Tuple, Union
 
 from .analysis.schema_analyzer import SchemaAnalyzer
-from .config import APITier, ConfigManager
+from .config import ConfigManager
 from .efficiency import track_efficiency
-from .exceptions import BatchProcessingError, GeminiBatchError
+from .exceptions import BatchProcessingError
 from .gemini_client import GeminiClient
 from .prompts import BatchPromptBuilder, StructuredPromptBuilder
 from .response import ResponseProcessor
@@ -27,68 +27,29 @@ class BatchProcessor:
 
     def __init__(
         self,
-        api_key: Optional[str] = None,
-        config: Optional[ConfigManager] = None,
-        client: Optional[Any] = None,
-        # Explicit client configuration parameters
-        model: Optional[str] = None,
-        tier: Optional[Union[str, APITier]] = None,
-        enable_caching: Optional[bool] = None,
-        telemetry_context: Optional[TelemetryContext] = None,
+        _client: Optional[GeminiClient] = None,
+        _telemetry_context: Optional[TelemetryContext] = None,
+        **kwargs,
     ):
-        """
-        Initialize BatchProcessor with clean parameter separation.
+        # Prevent accidental mixing of advanced and simple usage
+        if _client and kwargs:
+            log.warning("Ignoring configuration kwargs when _client is provided.")
+            kwargs = {}
 
-        Args:
-            api_key: API key for authentication
-            config: Pre-configured ConfigManager instance
-            client: Pre-configured GeminiClient instance
-            model: Model name override
-            tier: API tier override
-            enable_caching: Caching preference override
-            telemetry_context: Telemetry tracking context
-        """
-        # Smart default - automatically enable in debug mode
-        self.tele = telemetry_context or TelemetryContext()
+        self.tele = _telemetry_context or TelemetryContext()
 
-        # Configuration resolution with clear precedence
-        if config is not None:
-            self.config = config
-        else:
-            # Create config from explicit parameters
-            config_params = {}
-            if api_key is not None:
-                config_params["api_key"] = api_key
-            if model is not None:
-                config_params["model"] = model
-            if tier is not None:
-                config_params["tier"] = tier
-            if enable_caching is not None:
-                config_params["enable_caching"] = enable_caching
-
+        if _client:
+            # Advanced path: Use the provided client directly.
+            self.client = _client
             self.config = (
-                ConfigManager(**config_params)
-                if config_params
-                else ConfigManager.from_env()
-            )
-
-        # Client creation with clear configuration
-        if client is not None:
-            self.client = client
+                self.client.config_manager
+            )  # Now correctly refers to the ConfigManager
         else:
-            try:
-                self.client = GeminiClient.from_env(
-                    api_key=api_key or self.config.api_key,
-                    enable_caching=enable_caching
-                    if enable_caching is not None
-                    else self.config.enable_caching,
-                    telemetry_context=self.tele,
-                )
-            except Exception as e:
-                raise GeminiBatchError(
-                    f"Failed to initialize GeminiClient: {e}. "
-                    f"Check API key and model configuration."
-                ) from e
+            # Standard path: Create everything from scratch.
+            self.config = ConfigManager(**kwargs)
+            self.client = GeminiClient.from_config_manager(
+                self.config, telemetry_context=self.tele
+            )
 
         # Initialize processing components
         self.response_processor = ResponseProcessor()

@@ -247,31 +247,31 @@ def _parse_enable_caching_from_env() -> bool:
 class ConfigManager:
     """Manages API configuration including environment variable integration"""
 
-    def __init__(
-        self,
-        tier: Optional[APITier] = None,
-        model: Optional[str] = None,
-        api_key: Optional[str] = None,
-        enable_caching: Optional[bool] = None,
-    ):
+    def __init__(self, **kwargs):
         """Initialize configuration with explicit parameters or environment fallback"""
-        # API key resolution and validation
-        self.api_key = api_key or self._get_api_key_from_env()
+        # API key resolution
+        self.api_key = kwargs.get("api_key") or os.getenv("GEMINI_API_KEY")
         if self.api_key:
             _validate_api_key(self.api_key)
 
-        # Tier resolution with environment fallback
-        self.tier = tier or self._parse_tier_from_env() or self._detect_tier()
+        # Tier resolution
+        tier_arg = kwargs.get("tier")
+        env_tier_str = os.getenv("GEMINI_TIER")
+        env_tier = _parse_tier_from_string(env_tier_str) if env_tier_str else None
+        self.tier = tier_arg or env_tier or APITier.FREE
 
-        # Model resolution with environment fallback
-        self.model = model or self._get_model_from_env() or self._get_default_model()
-
-        # Caching configuration with environment fallback
-        self.enable_caching = (
-            enable_caching
-            if enable_caching is not None
-            else _parse_enable_caching_from_env()
+        # Model resolution
+        self.model = (
+            kwargs.get("model")
+            or os.getenv("GEMINI_MODEL")
+            or self._get_default_model()
         )
+
+        # Caching resolution
+        if "enable_caching" in kwargs:
+            self.enable_caching = kwargs["enable_caching"]
+        else:
+            self.enable_caching = _parse_enable_caching_from_env()
 
         # Validate that the selected model is available in the selected tier
         if self.model and not self.get_model_limits(self.model):

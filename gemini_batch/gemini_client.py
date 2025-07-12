@@ -38,9 +38,10 @@ log = logging.getLogger(__name__)
 class GeminiClient:
     """Main Gemini API client for content generation and batch processing"""
 
-    def __init__(self, config: ClientConfiguration):
-        """Initialize client with configuration"""
+    def __init__(self, config: ClientConfiguration, config_manager: ConfigManager):
+        """Initialize client with configuration."""
         self.config = config
+        self.config_manager = config_manager  # Always expect a ConfigManager
         self.config.validate()
         self.tele = self.config.telemetry_context or TelemetryContext()
         log.debug(
@@ -56,18 +57,12 @@ class GeminiClient:
         self.error_handler = GenerationErrorHandler()
         self.content_processor = ContentProcessor()
 
-        # Optional caching components with clear type hints
+        # Optional caching components
         self.cache_manager: Optional[CacheManager] = None
-        self.config_manager: Optional[ConfigManager] = None
         self.token_counter: Optional[TokenCounter] = None
 
         # Initialize caching components if enabled
         if self.config.enable_caching:
-            self.config_manager = ConfigManager(
-                tier=self.config.tier,
-                model=self.config.model_name,
-                api_key=self.config.api_key,
-            )
             self.token_counter = TokenCounter(self.client, self.config_manager)
             self.cache_manager = CacheManager(
                 client=self.client,
@@ -118,24 +113,7 @@ class GeminiClient:
         client_config = ClientConfiguration.from_config_manager(
             config_manager, enable_caching=enable_caching, **filtered_overrides
         )
-        return cls(client_config)
-
-    @classmethod
-    def from_env(cls, **overrides) -> "GeminiClient":
-        """Create client from environment variables with optional overrides"""
-        # Handle direct API key parameter
-        api_key = overrides.pop("api_key", None)
-
-        if api_key:
-            # Use parameters-based configuration when API key provided directly
-            client_config = ClientConfiguration.from_parameters(
-                api_key=api_key, **overrides
-            )
-            return cls(client_config)
-        else:
-            # Use environment-based configuration
-            config_manager = ConfigManager.from_env()
-            return cls.from_config_manager(config_manager, **overrides)
+        return cls(client_config, config_manager)
 
     def get_config_summary(self) -> Dict[str, Any]:
         """Get current configuration summary for debugging"""

@@ -2,7 +2,8 @@ from dataclasses import dataclass, field
 from datetime import datetime, timezone
 import json
 import logging
-from typing import Any, Dict, List, Optional, Tuple
+from pathlib import Path
+from typing import Any, Dict, List, Optional, Tuple, Union
 from uuid import uuid4
 
 from gemini_batch import BatchProcessor
@@ -25,26 +26,39 @@ class ConversationTurn:
 class ConversationSession:
     def __init__(
         self,
-        sources,
-        processor: Optional[BatchProcessor] = None,
-        client: Optional[Any] = None,
+        sources: Union[str, Path, List[Union[str, Path]]],
+        _processor: Optional[BatchProcessor] = None,
         max_history_turns: int = 5,
         **processor_kwargs,
     ):
-        """Initialize conversation session."""
+        """
+        Initialize a conversation session.
+
+        Standard configuration is handled via keyword arguments passed to an internal BatchProcessor.
+
+        Args:
+            sources: The content source(s) for the conversation.
+            max_history_turns: The number of past turns to include as context.
+
+        Advanced Usage:
+            _processor: A pre-configured BatchProcessor can be passed to share a single processor instance.
+        """
         self.sources = sources if isinstance(sources, list) else [sources]
         self.history: List[ConversationTurn] = []
         self.session_id = str(uuid4())
-        self.metadata: Dict[str, Any] = {}
         self.max_history_turns = max_history_turns
 
-        # Use dependency injection or delegate to BatchProcessor
-        if processor is not None:
-            self.processor = processor
+        # Prevent accidental mixing of advanced and simple usage
+        if _processor and processor_kwargs:
+            log.warning("Ignoring processor_kwargs when _processor is provided.")
+            processor_kwargs = {}
+
+        if _processor:
+            # Advanced path: Use a pre-configured processor.
+            self.processor = _processor
         else:
-            # Let BatchProcessor handle all configuration logic
-            # This respects environment variables and configuration automatically
-            self.processor = BatchProcessor(client=client, **processor_kwargs)
+            # Standard path: Create a new processor from kwargs.
+            self.processor = BatchProcessor(**processor_kwargs)
 
     def ask(self, question: str, **options) -> str:
         """Ask single question with full conversation context"""
