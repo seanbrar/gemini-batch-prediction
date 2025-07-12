@@ -26,7 +26,6 @@ from .constants import (
     DEFAULT_CACHE_TTL,
     FALLBACK_REQUESTS_PER_MINUTE,
     FALLBACK_TOKENS_PER_MINUTE,
-    LARGE_TEXT_THRESHOLD,
     MAX_RETRIES,
     RETRY_BASE_DELAY,
 )
@@ -91,6 +90,7 @@ class GeminiClient:
                 config_manager=self.config_manager,
                 token_counter=self.token_counter,
                 default_ttl_seconds=DEFAULT_CACHE_TTL,
+                content_processor=self.content_processor,
             )
 
     def _get_rate_limit_config(self) -> RateLimitConfig:
@@ -265,240 +265,46 @@ class GeminiClient:
                 "has_response_schema": bool(response_schema),
             },
         ) as ctx:
-            # Process content into GenAI parts
+            # ContentProcessor prepares the initial parts list.
             parts = self.content_processor.process(content)
             ctx.metric("num_parts", len(parts))
 
-            # Execute API call with rate limiting
-            with self.rate_limiter.request_context():
-                try:
-                    # Try cache-aware generation if caching enabled
-                    if self.cache_manager and self._should_attempt_caching(parts):
-                        cache_result = self._try_cached_generation(
-                            parts,
-                            system_instruction,
-                            return_usage,
-                            response_schema,
-                            **options,
+            # This function defines the raw API call, including retries.
+            # It's the client's core responsibility.
+            def perform_raw_generation(parts_override: Optional[List[types.Part]] = None):
+                final_parts = parts_override or parts
+                with self.rate_limiter.request_context():
+                    def api_call():
+                        model = self.client.get_generative_model(
+                            model_name=self.config_manager.model,
+                            system_instruction=system_instruction,
                         )
-                        if cache_result is not None:
-                            return cache_result
+                        return model.generate_content(final_parts, **options)
 
-                    # Fallback to existing generation flow
-                    return self._generate_with_parts(
-                        parts,
-                        system_instruction,
-                        return_usage,
-                        response_schema,
-                        **options,
+                    return self._api_call_with_retry(api_call)
+
+            try:
+                if self.cache_manager:
+                    # Pass the raw generation function to the manager.
+                    raw_response = self.cache_manager.generate_with_cache(
+                        parts=parts,
+                        raw_generation_func=perform_raw_generation,
+                        system_instruction=system_instruction,
+                        **options
                     )
-                except Exception as e:
-                    # Determine content type for better error context
+                else:
+                    raw_response = perform_raw_generation()
+
+                # The client ALWAYS processes the final response, regardless of source.
+                return self._process_response(raw_response, return_usage, response_schema)
+
+            except Exception as e:
+                # The client is responsible for top-level error handling.
                     content_type = self._get_content_type_description(content)
                     cache_enabled = self.cache_manager is not None
                     self.error_handler.handle_generation_error(
                         e, response_schema, content_type, cache_enabled
                     )
-
-    def _should_attempt_caching(self, parts: List[types.Part]) -> bool:
-        """Determine if caching should be attempted for the given parts"""
-        if not self.config_manager.enable_caching or not self.token_counter:
-            return False
-
-        # Check for non-cacheable parts (e.g., FileData)
-        if any(not isinstance(part, (str, types.Blob)) for part in parts):
-            return False
-
-        # Simple heuristic: check token count
-        token_count = self.token_counter.count_tokens(self.config_manager.model, parts)
-        caching_thresholds = self.config_manager.get_caching_thresholds(
-            self.config_manager.model
-        )
-        min_tokens = caching_thresholds.get("explicit") or float("inf")
-        return token_count >= min_tokens
-
-    def _try_cached_generation(
-        self,
-        parts: List[types.Part],
-        system_instruction: Optional[str] = None,
-        return_usage: bool = False,
-        response_schema: Optional[Any] = None,
-        **options,
-    ) -> Optional[Union[str, Dict[str, Any]]]:
-        """Attempt to use the cache for generation"""
-        if not self.cache_manager or not self.token_counter:
-            return None
-
-        # Analyze caching strategy
-        token_count = self.token_counter.count_tokens(self.config_manager.model, parts)
-        cache_info = self.config_manager.can_use_caching(
-            self.config_manager.model, token_count
-        )
-
-        if not cache_info.get("supported"):
-            return None
-
-        strategy = cache_info["recommendation"]
-
-        try:
-            if strategy == CacheStrategy.IMPLICIT:
-                return self._generate_with_implicit_cache(
-                    parts, system_instruction, return_usage, response_schema, **options
-                )
-            elif strategy == CacheStrategy.EXPLICIT:
-                return self._generate_with_explicit_cache(
-                    parts,
-                    strategy,
-                    system_instruction,
-                    return_usage,
-                    response_schema,
-                    **options,
-                )
-        except APIError as e:
-            # If caching fails for a known reason, log and fallback
-            log.warning("Cache generation failed, falling back to standard API: %s", e)
-            return None  # Fallback to non-cached generation
-
-        return None
-
-    def _generate_with_implicit_cache(
-        self,
-        parts: List[types.Part],
-        system_instruction: Optional[str] = None,
-        return_usage: bool = False,
-        response_schema: Optional[Any] = None,
-        **options,
-    ) -> Union[str, Dict[str, Any]]:
-        """Generate content using implicit (automatic) caching"""
-        optimized_parts = self._optimize_parts_for_implicit_cache(parts)
-
-        def api_call():
-            model = self.client.get_generative_model(
-                model_name=self.config_manager.model,
-                system_instruction=system_instruction,
-            )
-            return model.generate_content(optimized_parts, **options)
-
-        response = self._api_call_with_retry(api_call)
-        return self._process_response(response, return_usage, response_schema)
-
-    def _generate_with_explicit_cache(
-        self,
-        parts: List[types.Part],
-        cache_strategy: CacheStrategy,
-        system_instruction: Optional[str] = None,
-        return_usage: bool = False,
-        response_schema: Optional[Any] = None,
-        **options,
-    ) -> Union[str, Dict[str, Any]]:
-        """Generate content using an explicit cache"""
-        if not self.cache_manager:
-            raise APIError("Cache manager not available for explicit caching")
-
-        # Create or get cache
-        cached_content = self.cache_manager.create_or_get(
-            parts, self.config_manager.model, strategy=cache_strategy
-        )
-        log.info("Using cache: %s", cached_content.name)
-
-        # Separate prompt parts from content parts
-        content_parts, prompt_parts = self._separate_cacheable_content(parts)
-
-        # Use cache reference in generation
-        response = self._generate_with_cache_reference(
-            cached_content.name,
-            prompt_parts,
-            return_usage,
-            response_schema,
-            **options,
-        )
-
-        # Enhance with cache metrics
-        if isinstance(response, dict) and "usage_metadata" in response:
-            response["usage_metadata"] = self._enhance_usage_with_cache_metrics(
-                response["usage_metadata"], cached_content
-            )
-
-        return response
-
-    def _optimize_parts_for_implicit_cache(
-        self, parts: List[types.Part]
-    ) -> List[types.Part]:
-        """Prepares parts for implicit caching by merging text parts"""
-        if not parts:
-            return []
-
-        # Find the first text part to merge subsequent text parts into
-        first_text_index = -1
-        for i, part in enumerate(parts):
-            if self._is_text_part(part):
-                first_text_index = i
-                break
-
-        if first_text_index == -1:
-            return parts  # No text parts to merge
-
-        merged_text = ""
-        new_parts = list(parts[:first_text_index])
-
-        for part in parts[first_text_index:]:
-            if self._is_text_part(part):
-                merged_text += part.text
-            else:
-                if merged_text:
-                    new_parts.append(merged_text)
-                    merged_text = ""
-                new_parts.append(part)
-
-        if merged_text:
-            new_parts.append(merged_text)
-
-        return new_parts
-
-    def _separate_cacheable_content(
-        self, parts: List[types.Part]
-    ) -> tuple[List[types.Part], List[types.Part]]:
-        """Separate content parts from prompt parts for explicit caching"""
-        # Heuristic: cache large text and all file parts. Keep small text as prompt.
-        content_parts = []
-        prompt_parts = []
-        for part in parts:
-            if self._is_large_text_part(part) or self._is_file_part(part):
-                content_parts.append(part)
-            else:
-                prompt_parts.append(part)
-        return content_parts, prompt_parts
-
-    def _generate_with_cache_reference(
-        self,
-        cache_name: str,
-        prompt_parts: List[types.Part],
-        return_usage: bool = False,
-        response_schema: Optional[Any] = None,
-        **options,
-    ) -> Union[str, Dict[str, Any]]:
-        """Generate content using a reference to a cache"""
-        from google.generativeai.client import _cached_content_warning
-
-        _cached_content_warning()
-
-        model = self.client.get_generative_model(model_name=self.config_manager.model)
-        cached_content = model.from_cached_content(cached_content_name=cache_name)
-
-        def api_call():
-            # Build config parameters
-            config_params = {"response_mime_type": "text/plain"}
-            if response_schema:
-                config_params["response_mime_type"] = "application/json"
-                options["generation_config"] = options.get("generation_config", {})
-                options["generation_config"]["response_schema"] = response_schema
-
-            return cached_content.generate_content(prompt_parts, **options)
-
-        response = self._api_call_with_retry(api_call)
-        return self._process_response(
-            response, return_usage, response_schema, {"cache_name": cache_name}
-        )
 
     def _generate_with_parts(
         self,
@@ -728,27 +534,6 @@ class GeminiClient:
                     for c in self.cache_manager.list_all()
                 ]
             return []
-
-    def _is_text_part(self, part) -> bool:
-        """Check if a part is a simple text part."""
-        # In the native library, text parts can be strings
-        return isinstance(part, str) or (
-            hasattr(part, "text") and not hasattr(part, "file_data")
-        )
-
-    def _is_file_part(self, part) -> bool:
-        """Check if a part is a file/blob part."""
-        return hasattr(part, "file_data") or isinstance(part, types.Blob)
-
-    def _is_large_text_part(self, part, threshold=LARGE_TEXT_THRESHOLD) -> bool:
-        """Check if a text part is considered large."""
-        if not self._is_text_part(part):
-            return False
-
-        text_content = part if isinstance(part, str) else part.text
-        # A simple character count heuristic
-        # A more accurate method would be to use a tokenizer
-        return len(text_content) > threshold
 
     # Deprecated properties for backwards compatibility
     # These should be removed in a future major version.

@@ -11,6 +11,8 @@ from typing import Any, List, Optional, Union
 from google.genai import types
 import httpx
 
+from gemini_batch.constants import LARGE_TEXT_THRESHOLD
+
 from ..exceptions import APIError
 from ..files import FileOperations
 from ..files.extractors import ExtractedContent
@@ -381,3 +383,72 @@ class ContentProcessor:
                 file_data = response.content
 
         return file_data
+
+    def _separate_cacheable_content(
+        self, parts: List[types.Part]
+    ) -> tuple[List[types.Part], List[types.Part]]:
+        """Separate content parts from prompt parts for explicit caching"""
+        # Heuristic: cache large text and all file parts. Keep small text as prompt.
+        content_parts = []
+        prompt_parts = []
+        for part in parts:
+            if self._is_large_text_part(part) or self._is_file_part(part):
+                content_parts.append(part)
+            else:
+                prompt_parts.append(part)
+        return content_parts, prompt_parts
+
+    def _optimize_parts_for_implicit_cache(
+        self, parts: List[types.Part]
+    ) -> List[types.Part]:
+        """Prepares parts for implicit caching by merging text parts"""
+        if not parts:
+            return []
+
+        # Find the first text part to merge subsequent text parts into
+        first_text_index = -1
+        for i, part in enumerate(parts):
+            if self._is_text_part(part):
+                first_text_index = i
+                break
+
+        if first_text_index == -1:
+            return parts  # No text parts to merge
+
+        merged_text = ""
+        new_parts = list(parts[:first_text_index])
+
+        for part in parts[first_text_index:]:
+            if self._is_text_part(part):
+                merged_text += part.text
+            else:
+                if merged_text:
+                    new_parts.append(merged_text)
+                    merged_text = ""
+                new_parts.append(part)
+
+        if merged_text:
+            new_parts.append(merged_text)
+
+        return new_parts
+
+    def _is_text_part(self, part) -> bool:
+        """Check if a part is a simple text part."""
+        # In the native library, text parts can be strings
+        return isinstance(part, str) or (
+            hasattr(part, "text") and not hasattr(part, "file_data")
+        )
+
+    def _is_file_part(self, part) -> bool:
+        """Check if a part is a file/blob part."""
+        return hasattr(part, "file_data") or isinstance(part, types.Blob)
+
+    def _is_large_text_part(self, part, threshold=LARGE_TEXT_THRESHOLD) -> bool:
+        """Check if a text part is considered large."""
+        if not self._is_text_part(part):
+            return False
+
+        text_content = part if isinstance(part, str) else part.text
+        # A simple character count heuristic
+        # A more accurate method would be to use a tokenizer
+        return len(text_content) > threshold
