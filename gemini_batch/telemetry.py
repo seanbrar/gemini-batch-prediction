@@ -67,8 +67,6 @@ class TelemetryContext:
         # Validate scope name
         if not name or not isinstance(name, str):
             raise ValueError("Scope name must be a non-empty string")
-        if "." in name:
-            raise ValueError("Scope names cannot contain dots")
 
         if not self.enabled:
             yield self
