@@ -65,6 +65,22 @@ class ContentProcessor:
             self._file_upload_manager = FileUploadManager(client)
         return self._file_upload_manager
 
+    def process(
+        self,
+        content: Union[str, Path, List[Union[str, Path]]],
+        client: Optional[Any] = None,
+    ) -> List[types.Part]:
+        """
+        Convert content to API parts - unified interface for GeminiClient.
+
+        This method combines process_content() and create_api_parts() to provide
+        a simple interface for converting any content source into API-ready parts.
+        """
+        extracted_contents = self.process_content(content)
+        return self.create_api_parts(
+            extracted_contents, cache_enabled=False, client=client
+        )
+
     def process_content(
         self, source: Union[str, Path, List[Union[str, Path]]]
     ) -> List[ExtractedContent]:
@@ -384,7 +400,7 @@ class ContentProcessor:
 
         return file_data
 
-    def _separate_cacheable_content(
+    def separate_cacheable_content(
         self, parts: List[types.Part]
     ) -> tuple[List[types.Part], List[types.Part]]:
         """Separate content parts from prompt parts for explicit caching"""
@@ -398,9 +414,7 @@ class ContentProcessor:
                 prompt_parts.append(part)
         return content_parts, prompt_parts
 
-    def _optimize_parts_for_implicit_cache(
-        self, parts: List[types.Part]
-    ) -> List[types.Part]:
+    def optimize_for_implicit_cache(self, parts: List[types.Part]) -> List[types.Part]:
         """Prepares parts for implicit caching by merging text parts"""
         if not parts:
             return []

@@ -11,28 +11,19 @@ from datetime import datetime, timedelta, timezone
 import hashlib
 import logging
 import time
-from typing import Callable, Dict, List, Optional, Union
+from typing import Any, Dict, List, Optional, Union
 
 from google import genai
 from google.genai import types
 
 from gemini_batch.client.content_processor import ContentProcessor
+from gemini_batch.client.token_counter import TokenCounter
 from gemini_batch.exceptions import APIError
 
 from ..config import ConfigManager
+from .models import CacheAction, CacheStrategy, ExplicitCachePayload, PartsPayload
 
 log = logging.getLogger(__name__)
-
-
-@dataclass
-class CacheStrategy:
-    """Cache strategy recommendation from analysis"""
-
-    should_cache: bool
-    strategy_type: str  # "explicit", "implicit", "none"
-    estimated_tokens: int
-    ttl_seconds: int = 3600
-    reason: str = ""
 
 
 @dataclass
@@ -73,6 +64,18 @@ class CacheMetrics:
     cache_creation_time: float = 0.0
     cache_savings_estimate: float = 0.0
 
+    def to_dict(self) -> Dict[str, Any]:
+        """Convert metrics to dictionary format"""
+        return {
+            "total_caches": self.total_caches,
+            "active_caches": self.active_caches,
+            "cache_hits": self.cache_hits,
+            "cache_misses": self.cache_misses,
+            "total_cached_tokens": self.total_cached_tokens,
+            "cache_creation_time": self.cache_creation_time,
+            "cache_savings_estimate": self.cache_savings_estimate,
+        }
+
 
 class CacheManager:
     """Manages explicit cache lifecycle for Gemini API context caching."""
@@ -81,7 +84,7 @@ class CacheManager:
         self,
         client: genai.Client,
         config_manager: ConfigManager,
-        token_counter,
+        token_counter: TokenCounter,
         default_ttl_seconds: int = 3600,
         content_processor: ContentProcessor = None,
     ):
@@ -186,78 +189,100 @@ class CacheManager:
                 error=f"Cache operation failed: {e}",
             )
 
-    def generate_with_cache(
+    def create_or_get(
         self,
         parts: List[types.Part],
-        raw_generation_func: Callable[[], types.GenerateContentResponse],
+        model: str,
+        strategy: str = "explicit",
         system_instruction: Optional[str] = None,
-        **options,
-    ) -> types.GenerateContentResponse:
+        conversation_context: Optional[str] = None,
+    ) -> CacheInfo:
+        """Get existing cache or create new one for content parts."""
+        # Analyze cache strategy
+        cache_strategy = self.analyze_cache_strategy(
+            model,
+            parts,
+            prefer_explicit=(strategy == "explicit"),
+            conversation_context=conversation_context,
+        )
+
+        # Get or create cache
+        result = self.get_or_create_cache(
+            model, parts, cache_strategy, system_instruction, conversation_context
+        )
+
+        if not result.success:
+            raise APIError(f"Failed to create or get cache: {result.error}")
+
+        return result.cache_info
+
+    def plan_generation(
+        self,
+        parts: List[types.Part],
+        system_instruction: Optional[str] = None,
+    ) -> CacheAction:
         """
-        Orchestrates a cache-aware generation call.
-        Returns a raw GenerateContentResponse for the client to process.
+        Analyzes content and returns a plan for the client to execute.
+
+        This is the core of the Planner-Executor pattern. The CacheManager acts as a Planner,
+        analyzing the request and returning a simple, descriptive action plan. The GeminiClient
+        then acts as an Executor, reading the plan and performing the corresponding action.
         """
         # 1. Analyze content and determine the appropriate caching strategy.
-        token_count = self.token_counter.count_tokens(self.config_manager.model, parts)
-        cache_analysis = self.config_manager.can_use_caching(self.config_manager.model, token_count)
+        token_count = self.token_counter.estimate_for_caching(self.config_manager.model, parts)
+        cache_analysis = self.config_manager.can_use_caching(
+            self.config_manager.model, token_count
+        )
 
         if not cache_analysis.get("supported"):
-            return raw_generation_func()
+            return CacheAction(
+                CacheStrategy.GENERATE_RAW, PartsPayload(parts=parts)
+            )
 
-        strategy = cache_analysis["recommendation"]
-        log.debug("Cache strategy determined: %s", strategy)
+        strategy_name = cache_analysis["recommendation"]
+        log.debug("Cache strategy determined: %s", strategy_name)
 
-        # 2. Delegate to the appropriate handler based on the strategy.
+        # 2. Create the appropriate action plan based on the strategy.
         try:
-            if strategy == "explicit":
-                # This helper now relies on ContentProcessor and returns a raw response.
-                return self._handle_explicit_cache(parts, system_instruction, **options)
-
-            # Note: Implicit caching is automatic. The raw_generation_func will handle it
-            # if the parts are structured correctly. We just need to prepare them.
-            elif strategy == "implicit":
-                optimized_parts = self.content_processor.optimize_for_implicit_cache(parts)
-                # The client's raw_generation_func will use these optimized parts.
-                return raw_generation_func(parts_override=optimized_parts)
+            if strategy_name == "explicit":
+                # Perform cache creation/retrieval here (the Planner's only side effect)
+                cache_info = self.create_or_get(
+                    parts,
+                    self.config_manager.model,
+                    strategy="explicit",
+                    system_instruction=system_instruction,
+                )  # returns CacheInfo
+                _, prompt_parts = self.content_processor.separate_cacheable_content(
+                    parts
+                )
+                return CacheAction(
+                    CacheStrategy.GENERATE_FROM_EXPLICIT_CACHE,
+                    ExplicitCachePayload(
+                        cache_name=cache_info.cache_name, parts=prompt_parts
+                    ),
+                )
+            elif strategy_name == "implicit":
+                optimized_parts = self.content_processor.optimize_for_implicit_cache(
+                    parts
+                )
+                return CacheAction(
+                    CacheStrategy.GENERATE_WITH_OPTIMIZED_PARTS,
+                    PartsPayload(parts=optimized_parts),
+                )
 
         except APIError as e:
-            log.warning("Cache generation failed, falling back. Reason: %s", e)
-            return raw_generation_func()
+            # Graceful Degradation: If cache creation fails, fall back to a raw generation plan.
+            log.warning(
+                "Explicit cache creation failed for model '%s', degrading to raw generation. Reason: %s",
+                self.config_manager.model,
+                e,
+            )
+            return CacheAction(
+                CacheStrategy.GENERATE_RAW, PartsPayload(parts=parts)
+            )
 
-        # 3. Fallback for any strategy that isn't explicitly handled (e.g., "none").
-        return raw_generation_func()
-
-    def _handle_explicit_cache(
-        self,
-        parts: List[types.Part],
-        system_instruction: Optional[str],
-        **options,
-    ) -> types.GenerateContentResponse:
-        """Handles explicit cache generation and returns the raw API response."""
-
-        # A. Get or create the cache object.
-        cached_content_obj = self.create_or_get(
-            parts, self.config_manager.model, strategy="explicit"
-        )
-        log.info("Using explicit cache: %s", cached_content_obj.name)
-
-        # B. Delegate content separation to ContentProcessor.
-        _, prompt_parts = self.content_processor.separate_cacheable_content(parts)
-
-        # C. Make the cache-specific API call.
-        model = self.client.get_generative_model(model_name=self.config_manager.model)
-        cached_content = model.from_cached_content(cached_content_name=cached_content_obj.name)
-
-        # The CacheManager is responsible for THIS specific API call.
-        # It does NOT need a generic retry mechanism, as failure here is a cache failure, not a generic API failure.
-        response = cached_content.generate_content(prompt_parts, **options)
-
-        # D. Return the raw response. The GeminiClient is responsible for processing it.
-        # We can enhance it with our cache info.
-        if hasattr(response, "usage_metadata"):
-             response.usage_metadata.cached_content_token_count = cached_content_obj.token_count
-
-        return response
+        # 3. Default fallback for any strategy that isn't explicitly handled (e.g., "none").
+        return CacheAction(CacheStrategy.GENERATE_RAW, PartsPayload(parts=parts))
 
     def _get_existing_cache(self, content_hash: str) -> Optional[CacheResult]:
         """Check for existing valid cache"""

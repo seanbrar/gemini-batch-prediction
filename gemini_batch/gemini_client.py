@@ -12,12 +12,13 @@ from google.genai import types
 
 from gemini_batch.efficiency.metrics import extract_usage_metrics
 
-from .client.cache_manager import CacheManager, CacheStrategy
+from .client.cache_manager import CacheManager
 from .client.configuration import (
     RateLimitConfig,
 )
 from .client.content_processor import ContentProcessor
 from .client.error_handler import GenerationErrorHandler
+from .client.models import CacheAction, CacheStrategy, PartsPayload
 from .client.prompt_builder import PromptBuilder
 from .client.rate_limiter import RateLimiter
 from .client.token_counter import TokenCounter
@@ -265,46 +266,97 @@ class GeminiClient:
                 "has_response_schema": bool(response_schema),
             },
         ) as ctx:
+            # Handle prompts by combining them with content
+            if prompts:
+                if is_batch:
+                    # For batch processing, create a combined prompt
+                    combined_prompt = self.prompt_builder.create_batch_prompt(
+                        prompts, response_schema
+                    )
+                    # Add the combined prompt as text content
+                    if isinstance(content, str):
+                        content = f"{content}\n\n{combined_prompt}"
+                    elif isinstance(content, list):
+                        # Add prompt to the end of the content list
+                        content = content + [combined_prompt]
+                    else:
+                        # For file content, add prompt as additional text
+                        content = [content, combined_prompt]
+                else:
+                    # For single prompt, add it to content
+                    single_prompt = self.prompt_builder.create_single_prompt(prompts[0])
+                    if isinstance(content, str):
+                        content = f"{content}\n\n{single_prompt}"
+                    elif isinstance(content, list):
+                        content = content + [single_prompt]
+                    else:
+                        content = [content, single_prompt]
+
             # ContentProcessor prepares the initial parts list.
-            parts = self.content_processor.process(content)
+            parts = self.content_processor.process(content, self.client)
             ctx.metric("num_parts", len(parts))
 
-            # This function defines the raw API call, including retries.
-            # It's the client's core responsibility.
-            def perform_raw_generation(parts_override: Optional[List[types.Part]] = None):
-                final_parts = parts_override or parts
-                with self.rate_limiter.request_context():
-                    def api_call():
-                        model = self.client.get_generative_model(
-                            model_name=self.config_manager.model,
-                            system_instruction=system_instruction,
-                        )
-                        return model.generate_content(final_parts, **options)
-
-                    return self._api_call_with_retry(api_call)
-
             try:
+                # 1. Get the plan from the Planner (CacheManager)
                 if self.cache_manager:
-                    # Pass the raw generation function to the manager.
-                    raw_response = self.cache_manager.generate_with_cache(
-                        parts=parts,
-                        raw_generation_func=perform_raw_generation,
-                        system_instruction=system_instruction,
-                        **options
-                    )
+                    action = self.cache_manager.plan_generation(parts)
                 else:
-                    raw_response = perform_raw_generation()
+                    # Fallback when caching is disabled
+                    action = CacheAction(
+                        CacheStrategy.GENERATE_RAW, PartsPayload(parts=parts)
+                    )
 
-                # The client ALWAYS processes the final response, regardless of source.
-                return self._process_response(raw_response, return_usage, response_schema)
+                # 2. Execute the plan based on the strategy
+                raw_response = None
+                if action.strategy == CacheStrategy.GENERATE_RAW:
+                    raw_response = self._generate_with_parts(
+                        action.payload.parts,  # Raw parts
+                        system_instruction=system_instruction,
+                        return_usage=return_usage,
+                        response_schema=response_schema,
+                        **options,
+                    )
+
+                elif action.strategy == CacheStrategy.GENERATE_WITH_OPTIMIZED_PARTS:
+                    raw_response = self._generate_with_parts(
+                        action.payload.parts,  # Optimized parts
+                        system_instruction=system_instruction,
+                        return_usage=return_usage,
+                        response_schema=response_schema,
+                        **options,
+                    )
+
+                elif action.strategy == CacheStrategy.GENERATE_FROM_EXPLICIT_CACHE:
+                    raw_response = self._generate_with_cache_reference(
+                        cache_name=action.payload.cache_name,
+                        prompt_parts=action.payload.parts,
+                        return_usage=return_usage,
+                        response_schema=response_schema,
+                        **options,
+                    )
+
+                else:
+                    # Fallback for unknown strategies
+                    raw_response = self._generate_with_parts(
+                        parts,
+                        system_instruction=system_instruction,
+                        return_usage=return_usage,
+                        response_schema=response_schema,
+                        **options,
+                    )
+
+                # 3. Process the response (responsibility remains with the client)
+                return self._process_response(
+                    raw_response, return_usage, response_schema
+                )
 
             except Exception as e:
                 # The client is responsible for top-level error handling.
-                    content_type = self._get_content_type_description(content)
-                    cache_enabled = self.cache_manager is not None
-                    self.error_handler.handle_generation_error(
-                        e, response_schema, content_type, cache_enabled
-                    )
+                content_type = self._get_content_type_description(content)
+                cache_enabled = self.cache_manager is not None
+                self.error_handler.handle_generation_error(
+                    e, response_schema, content_type, cache_enabled
+                )
 
     def _generate_with_parts(
         self,
@@ -342,6 +394,47 @@ class GeminiClient:
 
         response = self._api_call_with_retry(api_call)
         return self._process_response(response, return_usage, response_schema)
+
+    def _generate_with_cache_reference(
+        self,
+        cache_name: str,
+        prompt_parts: List[types.Part],
+        return_usage: bool = False,
+        response_schema: Optional[Any] = None,
+        **options,
+    ) -> Union[str, Dict[str, Any]]:
+        """Generate content using explicit cache reference"""
+
+        model = self.client.get_generative_model(model_name=self.config_manager.model)
+        cached_content = model.from_cached_content(cached_content_name=cache_name)
+
+        def api_call():
+            # Build config parameters properly
+            config_params = {"response_mime_type": "text/plain"}
+            gen_config = types.GenerationConfig()
+
+            if response_schema:
+                config_params["response_mime_type"] = "application/json"
+                gen_config["response_schema"] = response_schema
+
+            # Merge with any user-provided generation_config
+            if "generation_config" in options:
+                user_config = options["generation_config"]
+                if isinstance(user_config, dict):
+                    gen_config.update(user_config)
+                elif isinstance(user_config, types.GenerationConfig):
+                    gen_config = user_config
+                options["generation_config"] = gen_config
+
+            return cached_content.generate_content(prompt_parts, **options)
+
+        response = self._api_call_with_retry(api_call)
+        return self._process_response(
+            response,
+            return_usage,
+            response_schema,
+            {"model": self.config_manager.model},
+        )
 
     def _get_content_type_description(self, content) -> str:
         """Get a user-friendly description of the content type"""
