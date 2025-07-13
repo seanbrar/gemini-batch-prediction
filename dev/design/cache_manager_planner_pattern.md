@@ -2,7 +2,7 @@
 
 **Author:** Sean Brar
 **Date:** July 12, 2025
-**Status:** Proposed
+**Status:** Proposed (Revision 2)
 **Context:** GSoC 2025 - Architectural proposal for improving cache management
 **Current Architecture Baseline:** Week 6 implementation (commit 4355aa6)
 
@@ -32,38 +32,52 @@ This pattern eliminates the need for passing function callbacks (`raw_generation
 
 ## 3. Key Components
 
-### 3.1. The `CacheAction` Data Transfer Object
+### 3.1. The `CacheAction` and Type-Safe Payloads
 
-The centerpiece of this pattern is a simple, immutable data class that represents the "plan." It serves as the contract between the Planner and the Executor.
+The centerpiece of this pattern is a set of simple, immutable data classes that create a type-safe contract between the Planner and the Executor.
 
 ```python
 # In gemini_batch/client/models.py (a new proposed file for shared data classes)
-from dataclasses import dataclass, field
+from dataclasses import dataclass
 from enum import Enum, auto
-from typing import Any, Dict, List
+from typing import List, Union
 from google.genai import types
 
+# --- Payloads ---
+@dataclass(frozen=True)
+class PartsPayload:
+    """Payload for actions that only require a list of parts."""
+    parts: List[types.Part]
+
+@dataclass(frozen=True)
+class ExplicitCachePayload:
+    """Payload for generating from an explicit cache."""
+    cache_name: str
+    parts: List[types.Part] # The prompt parts, not the cached content
+
+# --- Strategy Enum ---
 class CacheStrategy(Enum):
     GENERATE_RAW = auto()
     GENERATE_WITH_OPTIMIZED_PARTS = auto() # Implicit Caching
     GENERATE_FROM_EXPLICIT_CACHE = auto()
 
+# --- The Action Plan ---
 @dataclass(frozen=True)
 class CacheAction:
     """An immutable plan describing the caching action to be taken."""
     strategy: CacheStrategy
-    payload: Dict[str, Any] = field(default_factory=dict)
+    payload: Union[PartsPayload, ExplicitCachePayload]
 ```
 
-* **`strategy`**: An enum that explicitly states which action to take. This is far more readable and type-safe than relying on string literals.
-* **`payload`**: A dictionary containing all the necessary data for the Executor to perform the action (e.g., `cache_name`, optimized `parts`).
+* **Specific Payloads**: Using PartsPayload and ExplicitCachePayload ensures that the Executor receives exactly the data it needs for each strategy, enforced by the type checker. This prevents runtime errors and improves developer experience.
+* **`strategy`**: The `Enum` provides a clear, readable, and type-safe way to define the action.
 
 ### 3.2. The `CacheManager` (The Planner)
 
 The `CacheManager` is refactored to contain one primary public method: `plan_generation`.
 
 * **Responsibility**: Analyzes content, determines the caching strategy, manages the state of the cache objects (creating/retrieving them via the API), and returns a `CacheAction`.
-* **Key Characteristic**: It is **stateless** regarding the generation request itself. It does not execute generation calls, handle retries, or process responses. Its only side effects are interactions with the Gemini Caches API (`client.caches.create`, `client.caches.get`).
+* **Key Characteristic**: It is **robust and stateless** regarding the generation request itself. It does not execute generation calls, handle retries, or process responses. Its only side effects are interactions with the Gemini Caches API (`client.caches.create`, `client.caches.get`). It gracefully handles its own side-effect failures (e.g., cache creation) by degrading to a simpler plan.
 
 ```python
 # In gemini_batch/client/cache_manager.py
@@ -76,28 +90,33 @@ class CacheManager:
         cache_analysis = self.config_manager.can_use_caching(...)
 
         if not cache_analysis.get("supported"):
-            return CacheAction(strategy=CacheStrategy.GENERATE_RAW, payload={'parts': parts})
+            return CacheAction(CacheStrategy.GENERATE_RAW, PartsPayload(parts=parts))
 
         strategy_name = cache_analysis["recommendation"]
 
         if strategy_name == "explicit":
-            # Perform cache creation/retrieval here (the Planner's only side effect)
-            cached_content_obj = self.get_or_create(...)
-            _, prompt_parts = self.content_processor.separate_cacheable_content(parts)
-            return CacheAction(
-                strategy=CacheStrategy.GENERATE_FROM_EXPLICIT_CACHE,
-                payload={'cache_name': cached_content_obj.name, 'parts': prompt_parts}
-            )
+            try:
+                # Perform cache creation/retrieval here (the Planner's only side effect)
+                cached_content_obj = self.get_or_create(...)
+                _, prompt_parts = self.content_processor.separate_cacheable_content(parts)
+                return CacheAction(
+                    CacheStrategy.GENERATE_FROM_EXPLICIT_CACHE,
+                    ExplicitCachePayload(cache_name=cached_content_obj.name, parts=prompt_parts)
+                )
+            except APIError as e:
+                # Graceful Degradation: If cache creation fails, fall back to a raw generation plan.
+                log.warning("Explicit cache creation failed, degrading to raw generation. Reason: %s", e)
+                return CacheAction(CacheStrategy.GENERATE_RAW, PartsPayload(parts=parts))
 
         elif strategy_name == "implicit":
             optimized_parts = self.content_processor.optimize_for_implicit_cache(parts)
             return CacheAction(
-                strategy=CacheStrategy.GENERATE_WITH_OPTIMIZED_PARTS,
-                payload={'parts': optimized_parts}
+                CacheStrategy.GENERATE_WITH_OPTIMIZED_PARTS,
+                PartsPayload(parts=optimized_parts)
             )
 
         # Default fallback
-        return CacheAction(strategy=CacheStrategy.GENERATE_RAW, payload={'parts': parts})
+        return CacheAction(CacheStrategy.GENERATE_RAW, PartsPayload(parts=parts))
 ```
 
 ### 3.3. The `GeminiClient` (The Executor)
@@ -140,17 +159,18 @@ This pattern yields significant improvements in key areas:
 1. **Radical Simplicity & Readability**: The control flow in `GeminiClient` is no longer nested or callback-driven. It is a flat, descriptive `if/elif` block. The logic is immediately understandable: get a plan, execute the plan.
 
 2. **Superior Testability**:
-    * **Testing the Planner (`CacheManager`)**: Becomes trivial. It's a nearly pure function. You provide input (`parts`) and assert that the correct `CacheAction` is returned. No mocking of API calls or generation functions is required.
+    * **Testing the Planner (`CacheManager`)**: Becomes trivial. It's a nearly pure function. You provide input (`parts`) and assert that the correct `CacheAction` with the correct payload typeis returned. No mocking of API calls or generation functions is required. Failures in its side-effects can also be easily tested.
     * **Testing the Executor (`GeminiClient`)**: Becomes declarative. You can mock `cache_manager.plan_generation` to return a specific `CacheAction` and assert that the correct internal generation method (`_generate_with_parts`, `_generate_with_cache_reference`) is called with the correct payload.
 
-3. **Maximum Decoupling**: The components are now more decoupled than ever.
-    * `CacheManager` knows nothing about retries, response parsing, or error handling.
+3. **Maximum Decoupling & Robustness**: The components are now more decoupled than ever.
+    * `CacheManager` knows nothing about retries, response parsing, or high-level error handling. It handles its own specific errors and degrades gracefully.
     * `GeminiClient` knows nothing about the *logic* of TTL calculation, content hashing, or token thresholds for caching. It only needs to know how to act on the final decision.
 
 4. **Maintainability & Extensibility**: Adding a new caching strategy is a clean, localized process:
     1. Add a new value to the `CacheStrategy` enum.
-    2. Add the logic to `CacheManager.plan_generation` to return the new `CacheAction`.
-    3. Add an `elif` block to `GeminiClient._execute_generation` to handle the new strategy.
+    2. Create a new payload dataclass if needed.
+    3. Add the logic to `CacheManager.plan_generation` to return the new `CacheAction`.
+    4. Add an `elif` block to `GeminiClient._execute_generation` to handle the new strategy.
     The existing components and logic paths remain untouched, minimizing the risk of regression.
 
 ## 5. Conclusion
@@ -158,6 +178,12 @@ This pattern yields significant improvements in key areas:
 The Planner-Executor pattern represents a mature architectural choice that prioritizes clarity, testability, and long-term maintainability. By transforming the `CacheManager` from an active wrapper into a passive advisor, we create a system where each component has a single, well-defined responsibility. This radically simple approach results in code that is easier to reason about, safer to modify, and more robust in its execution. It is the recommended architectural direction for the `CacheManager` and `GeminiClient` interaction.
 
 ## Revision History
+
+**Revision 2** (July 12, 2025)
+
+* Introduced type-safe payload dataclasses (`PartsPayload`, `ExplicitCachePayload`) to replace generic dictionary payloads
+* Added graceful degradation and error handling in planner logic
+* Enhanced testability discussion with payload type safety considerations
 
 **Revision 1** (July 12, 2025)
 
