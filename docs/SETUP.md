@@ -174,7 +174,7 @@ print("API key present:", bool(os.getenv('GEMINI_API_KEY')))
 processor = BatchProcessor()
 config = processor.client.get_config_summary()
 print(f"Tier: {config['tier_name']}")
-print(f"Rate limit: {processor.client.rate_limit_requests} requests/minute")
+print(f"Rate limit: {processor.client.rate_limiter.config.requests_per_minute} requests/minute")
 ```
 
 #### Model not available errors
