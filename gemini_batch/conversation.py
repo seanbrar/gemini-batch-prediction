@@ -15,8 +15,10 @@ from typing import (
 from uuid import uuid4
 
 from gemini_batch.batch_processor import BatchProcessor
+from gemini_batch.client.token_counter import TokenCounter
+from gemini_batch.constants import CACHING_VALIDATION_THRESHOLD, LARGE_CONTENT_THRESHOLD
 
-from .config import ConversationConfig, GeminiConfig, ProcessorProtocol
+from .config import ConversationConfig, GeminiConfig, ProcessorProtocol, get_config
 
 log = logging.getLogger(__name__)
 
@@ -155,26 +157,95 @@ class ConversationSession:
                 self._record_failed_turn(question, str(e))
             raise e
 
-    def _build_history_context(self) -> Optional[str]:
-        """Builds context from recent, successful conversation history."""
+    def _build_history_context(self, max_tokens: Optional[int] = None) -> Optional[str]:
+        """
+        Builds context from recent, successful conversation history with intelligent token management.
+
+        Uses ambient configuration to determine optimal context limits and proper token counting
+        when available through the processor's client.
+        """
         if not self.history:
             return None
 
-        # Only include successful turns
         successful_history = [turn for turn in self.history if turn.error is None]
+        if not successful_history:
+            return None
 
-        # Use recent history to stay within context limits
-        recent_history = successful_history[-self.max_history_turns :]
+        # Determine max_tokens using configuration hierarchy
+        if max_tokens is None:
+            max_tokens = self._get_optimal_context_limit()
 
-        if not recent_history:
+        # Use proper token counting if available, fallback to estimation
+        token_counter = self._get_token_counter()
+
+        # Start with most recent and work backwards until we hit token limit
+        selected_turns = []
+        estimated_tokens = 0
+
+        for turn in reversed(successful_history[-self.max_history_turns:]):
+            if token_counter:
+                # Use proper token counting
+                turn_content = f"Q: {turn.question}\nA: {turn.answer}"
+                turn_tokens = self._count_tokens_with_fallback(token_counter, turn_content)
+            else:
+                # Fallback to conservative estimation
+                turn_tokens = max((len(turn.question) + len(turn.answer)) // 4 + 10, 50)
+
+            if estimated_tokens + turn_tokens > max_tokens and selected_turns:
+                break
+
+            selected_turns.insert(0, turn)
+            estimated_tokens += turn_tokens
+
+        if not selected_turns:
             return None
 
         history_parts = []
-        for i, turn in enumerate(recent_history, 1):
+        for i, turn in enumerate(selected_turns, 1):
             history_parts.append(f"Previous Q{i}: {turn.question}")
             history_parts.append(f"Previous A{i}: {turn.answer}")
 
         return "Conversation History:\n" + "\n".join(history_parts)
+
+    def _get_optimal_context_limit(self) -> int:
+        """Get optimal context limit using ambient configuration and constants."""
+        try:
+            # Access ambient configuration
+            config = get_config()
+
+            model_limits = config.get_model_limits(config.model)
+            if model_limits:
+                # Use a conservative portion of the model's context window for history
+                # Reserve space for the main content and new questions
+                return min(model_limits.context_window // 4, CACHING_VALIDATION_THRESHOLD)
+
+        except Exception:
+            # Fallback to safe constant-based limit
+            pass
+
+        # Default to a reasonable portion of large content threshold
+        return LARGE_CONTENT_THRESHOLD // 2  # 25k tokens as fallback
+
+    def _get_token_counter(self) -> Optional['TokenCounter']:
+        """Get token counter from processor if available."""
+        try:
+            # Follow your established pattern of accessing client components
+            if hasattr(self.processor, 'client') and hasattr(self.processor.client, 'token_counter'):
+                return self.processor.client.token_counter
+        except (AttributeError, TypeError):
+            pass
+        return None
+
+    def _count_tokens_with_fallback(self, token_counter: 'TokenCounter', content: str) -> int:
+        """Count tokens using TokenCounter with graceful fallback."""
+        try:
+            # Use the TokenCounter's estimation method
+            config = get_config()
+            estimate = token_counter.estimate_for_caching(config.model, content)
+            return estimate.get('tokens', 0)
+        except Exception:
+            # Fallback to conservative estimation
+            return max(len(content) // 4 + 10, 50)
 
     def _record_successful_turn(
         self,
