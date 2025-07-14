@@ -139,6 +139,10 @@ class ConversationSession:
             # Record all successful turns
             answers = result["answers"]
             if len(answers) != len(questions):
+                # TODO: Gemini response formatting is unpredictable without explicit schemas
+                # See: conversation_demo.py failures with "Received 1 answers for 3 questions"
+                # Root cause: Gemini sometimes returns plain text instead of structured JSON
+                # Planned fix: Implement consistent response schemas in BatchProcessor refactor
                 error_message = (
                     f"Received {len(answers)} answers for {len(questions)} questions."
                 )
@@ -182,11 +186,13 @@ class ConversationSession:
         selected_turns = []
         estimated_tokens = 0
 
-        for turn in reversed(successful_history[-self.max_history_turns:]):
+        for turn in reversed(successful_history[-self.max_history_turns :]):
             if token_counter:
                 # Use proper token counting
                 turn_content = f"Q: {turn.question}\nA: {turn.answer}"
-                turn_tokens = self._count_tokens_with_fallback(token_counter, turn_content)
+                turn_tokens = self._count_tokens_with_fallback(
+                    token_counter, turn_content
+                )
             else:
                 # Fallback to conservative estimation
                 turn_tokens = max((len(turn.question) + len(turn.answer)) // 4 + 10, 50)
@@ -217,7 +223,9 @@ class ConversationSession:
             if model_limits:
                 # Use a conservative portion of the model's context window for history
                 # Reserve space for the main content and new questions
-                return min(model_limits.context_window // 4, CACHING_VALIDATION_THRESHOLD)
+                return min(
+                    model_limits.context_window // 4, CACHING_VALIDATION_THRESHOLD
+                )
 
         except Exception:
             # Fallback to safe constant-based limit
@@ -226,23 +234,27 @@ class ConversationSession:
         # Default to a reasonable portion of large content threshold
         return LARGE_CONTENT_THRESHOLD // 2  # 25k tokens as fallback
 
-    def _get_token_counter(self) -> Optional['TokenCounter']:
+    def _get_token_counter(self) -> Optional["TokenCounter"]:
         """Get token counter from processor if available."""
         try:
             # Follow your established pattern of accessing client components
-            if hasattr(self.processor, 'client') and hasattr(self.processor.client, 'token_counter'):
+            if hasattr(self.processor, "client") and hasattr(
+                self.processor.client, "token_counter"
+            ):
                 return self.processor.client.token_counter
         except (AttributeError, TypeError):
             pass
         return None
 
-    def _count_tokens_with_fallback(self, token_counter: 'TokenCounter', content: str) -> int:
+    def _count_tokens_with_fallback(
+        self, token_counter: "TokenCounter", content: str
+    ) -> int:
         """Count tokens using TokenCounter with graceful fallback."""
         try:
             # Use the TokenCounter's estimation method
             config = get_config()
             estimate = token_counter.estimate_for_caching(config.model, content)
-            return estimate.get('tokens', 0)
+            return estimate.get("tokens", 0)
         except Exception:
             # Fallback to conservative estimation
             return max(len(content) // 4 + 10, 50)

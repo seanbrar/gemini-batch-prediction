@@ -27,6 +27,8 @@ def main():
     ]
 
     print("\n🔍 Performing initial analysis...")
+    # Note: This demo may occasionally fail due to inconsistent Gemini response formatting
+    # when processing multiple questions. The framework is designed to handle this gracefully.
     answers = session.ask_multiple(analysis_questions)
 
     for i, (q, a) in enumerate(zip(analysis_questions, answers), 1):
