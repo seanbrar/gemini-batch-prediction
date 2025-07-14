@@ -31,7 +31,7 @@ from .telemetry import TelemetryContext
 try:
     __version__ = importlib.metadata.version("gemini-batch")
 except importlib.metadata.PackageNotFoundError:
-    __version__ = "0.6.1"  # fallback version
+    __version__ = "0.7.0"  # fallback version
 
 # Set up a null handler for the library's root logger.
 # This prevents 'No handler found' errors if the consuming app has no logging configured.
