@@ -98,7 +98,6 @@ class GeminiClient:
                 content_processor=self.content_processor,
             )
 
-
     def _get_rate_limit_config(self) -> RateLimitConfig:
         """Get rate limiting configuration for the current model"""
         try:
@@ -536,11 +535,16 @@ class GeminiClient:
                 if usage_metadata:
                     total_tokens_val = usage_metadata.get("total_tokens", 0)
                     billable_tokens_val = usage_metadata.get("billable_tokens", 0)
-                    
-                    log.debug("Emitting telemetry metric: total_tokens = %d", total_tokens_val)
+
+                    log.debug(
+                        "Emitting telemetry metric: total_tokens = %d", total_tokens_val
+                    )
                     self.tele.metric("total_tokens", total_tokens_val)
-                    
-                    log.debug("Emitting telemetry metric: billable_tokens = %d", billable_tokens_val)
+
+                    log.debug(
+                        "Emitting telemetry metric: billable_tokens = %d",
+                        billable_tokens_val,
+                    )
                     self.tele.metric("billable_tokens", billable_tokens_val)
 
     def _enhance_usage_with_cache_metrics(
@@ -661,29 +665,6 @@ class GeminiClient:
                     for c in self.cache_manager.list_all()
                 ]
             return []
-
-    # Deprecated properties for backwards compatibility
-    # These should be removed in a future major version.
-
-    @property
-    def model_name(self) -> str:
-        """Legacy property for model name"""
-        return self.config_manager.model
-
-    @property
-    def api_key(self) -> str:
-        """Legacy property for API key"""
-        return self.config_manager.api_key
-
-    @property
-    def rate_limit_requests(self) -> int:
-        """Legacy property for rate limit requests"""
-        return self.rate_limiter.config.requests_per_minute
-
-    @property
-    def rate_limit_tokens(self) -> int:
-        """Legacy property for rate limit tokens"""
-        return self.rate_limiter.config.tokens_per_minute
 
     def __repr__(self):
         return f"<GeminiClient config={self.config_manager!r}>"

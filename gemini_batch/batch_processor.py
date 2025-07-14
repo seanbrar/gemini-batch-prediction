@@ -179,7 +179,9 @@ class BatchProcessor:
                     )
                     # Contextual metrics - track token efficiency
                     if batch_metrics.total_tokens > 0:
-                        self.tele.metric("token_efficiency", batch_metrics.total_tokens / 1000)
+                        self.tele.metric(
+                            "token_efficiency", batch_metrics.total_tokens / 1000
+                        )
                     batch_succeeded = True
 
             except BatchProcessingError as e:
@@ -392,7 +394,7 @@ class BatchProcessor:
         """Get configuration summary for debugging"""
         summary = {
             "config": get_config(),
-            "client_model": getattr(self.client, "model_name", "unknown"),
+            "client_model": getattr(self.client.config_manager, "model", "unknown"),
             "client_caching": getattr(self.client, "config", {}).get(
                 "enable_caching", False
             ),
