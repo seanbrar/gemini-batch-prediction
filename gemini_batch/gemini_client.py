@@ -42,7 +42,11 @@ class GeminiClient:
     allows for local overrides, providing a simple and flexible interface.
     """
 
-    def __init__(self, **config_overrides: Unpack[GeminiConfig]):
+    def __init__(
+        self,
+        telemetry_context: Optional[TelemetryContext] = None,
+        **config_overrides: Unpack[GeminiConfig],
+    ):
         """
         Creates a client using the ambient configuration, with optional overrides.
 
@@ -65,8 +69,8 @@ class GeminiClient:
         # 3. Create a single, definitive ConfigManager for this instance
         self.config_manager = ConfigManager(**merged_config_dict)
 
-        # 4. Initialize all components directly within this class
-        self.tele = TelemetryContext()
+        self.tele = telemetry_context or TelemetryContext()
+
         log.debug(
             "GeminiClient initialized with model '%s'. Caching: %s.",
             self.config_manager.model,
@@ -93,6 +97,7 @@ class GeminiClient:
                 default_ttl_seconds=DEFAULT_CACHE_TTL,
                 content_processor=self.content_processor,
             )
+
 
     def _get_rate_limit_config(self) -> RateLimitConfig:
         """Get rate limiting configuration for the current model"""
@@ -294,7 +299,7 @@ class GeminiClient:
 
             # ContentProcessor prepares the initial parts list.
             parts = self.content_processor.process(content, self.client)
-            ctx.metric("num_parts", len(parts))
+            self.tele.metric("num_parts", len(parts))
 
             try:
                 # 1. Get the plan from the Planner (CacheManager)
@@ -470,6 +475,7 @@ class GeminiClient:
         extra_metadata: Optional[Dict[str, Any]] = None,
     ) -> Union[str, Dict[str, Any]]:
         """Process GenAI response, extracting text or structured data"""
+        log.debug("Entering telemetry scope: client.process_response")
         with self.tele.scope(
             "client.process_response",
             attributes={
@@ -528,12 +534,14 @@ class GeminiClient:
             finally:
                 # Log usage if available
                 if usage_metadata:
-                    self.tele.metric(
-                        "total_tokens", usage_metadata.get("total_tokens", 0)
-                    )
-                    self.tele.metric(
-                        "billable_tokens", usage_metadata.get("billable_tokens", 0)
-                    )
+                    total_tokens_val = usage_metadata.get("total_tokens", 0)
+                    billable_tokens_val = usage_metadata.get("billable_tokens", 0)
+                    
+                    log.debug("Emitting telemetry metric: total_tokens = %d", total_tokens_val)
+                    self.tele.metric("total_tokens", total_tokens_val)
+                    
+                    log.debug("Emitting telemetry metric: billable_tokens = %d", billable_tokens_val)
+                    self.tele.metric("billable_tokens", billable_tokens_val)
 
     def _enhance_usage_with_cache_metrics(
         self, usage_info: Dict[str, int], response
@@ -559,6 +567,7 @@ class GeminiClient:
         self, api_call_func: Callable, max_retries: int = MAX_RETRIES
     ):
         """Execute an API call with exponential backoff and retry"""
+        log.debug("Preparing to enter telemetry scope: client.api_call_with_retry")
         with self.tele.scope("client.api_call_with_retry") as ctx:
             for attempt in range(max_retries + 1):
                 try:
@@ -566,14 +575,14 @@ class GeminiClient:
                     with self.rate_limiter.request_context():
                         response = api_call_func()
                         # Track successful API call
-                        ctx.metric("api_attempts", attempt + 1)
-                        ctx.metric("api_success", 1)
+                        log.debug("Emitting telemetry metric: api_success = 1")
+                        self.tele.metric("api_success", 1)
                         return response
                 except Exception as error:
                     if attempt == max_retries:
                         # Final attempt failed, log and re-raise
-                        ctx.metric("api_attempts", attempt + 1)
-                        ctx.metric("api_failures", 1)
+                        log.debug("Emitting telemetry metric: api_failures = 1")
+                        self.tele.metric("api_failures", 1)
                         log.error(
                             "API call failed after %d retries.",
                             max_retries,
@@ -599,7 +608,8 @@ class GeminiClient:
                     if any(term in error_str for term in retryable_terms):
                         # Calculate delay with exponential backoff
                         delay = RETRY_BASE_DELAY * (2**attempt)
-                        ctx.metric("retryable_errors", 1)
+                        log.debug("Emitting telemetry metric: retryable_errors = 1")
+                        self.tele.metric("retryable_errors", 1)
                         log.warning(
                             "API call failed with retryable error. Retrying in %.2fs (Attempt %d/%d)",
                             delay,
@@ -610,8 +620,8 @@ class GeminiClient:
                         continue
                     else:
                         # Non-retryable error, log and re-raise
-                        ctx.metric("api_attempts", attempt + 1)
-                        ctx.metric("non_retryable_errors", 1)
+                        log.debug("Emitting telemetry metric: non_retryable_errors = 1")
+                        self.tele.metric("non_retryable_errors", 1)
                         log.error(
                             "API call failed with non-retryable error.", exc_info=True
                         )

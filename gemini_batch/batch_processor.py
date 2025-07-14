@@ -44,14 +44,15 @@ class BatchProcessor:
                 "Cannot specify both `_client` and config keyword arguments."
             )
 
+        self.tele = telemetry_context or TelemetryContext()
+
         if _client:
             self.client = _client
         else:
-            # Create a client, passing any config overrides. The client
-            # will handle merging them with the ambient configuration.
-            self.client = GeminiClient(**config)
+            # Create a client, passing the telemetry context and any config
+            # overrides. This ensures the entire chain shares the same context.
+            self.client = GeminiClient(telemetry_context=self.tele, **config)
 
-        self.tele = telemetry_context or TelemetryContext()
         self.response_processor = ResponseProcessor()
         self.result_builder = ResultBuilder(self._calculate_efficiency)
         self.schema_analyzer = SchemaAnalyzer()
@@ -178,7 +179,7 @@ class BatchProcessor:
                     )
                     # Contextual metrics - track token efficiency
                     if batch_metrics.total_tokens > 0:
-                        ctx.gauge("token_efficiency", batch_metrics.total_tokens / 1000)
+                        self.tele.metric("token_efficiency", batch_metrics.total_tokens / 1000)
                     batch_succeeded = True
 
             except BatchProcessingError as e:
@@ -267,7 +268,7 @@ class BatchProcessor:
                         **api_options,
                     )
                     # Track API call success
-                    api_ctx.count("api_calls_successful", 1)
+                    self.tele.metric("api_calls_successful", 1)
 
                 # 4. Process the successful response
                 with tele_scope(self.tele, "batch.response_processing"):
@@ -286,12 +287,12 @@ class BatchProcessor:
                 )
 
                 # Track successful batch processing
-                self.tele.count("batch_success", 1)
+                self.tele.metric("batch_success", 1)
                 return answers, metrics
 
             except Exception as e:
                 # Track failed API calls
-                self.tele.count("batch_failures", 1)
+                self.tele.metric("batch_failures", 1)
                 # Any failure in batch processing should be re-raised as BatchProcessingError
                 # This makes the failure explicit and allows the caller to handle it appropriately
                 raise BatchProcessingError(f"Batch API call failed: {str(e)}") from e
@@ -346,13 +347,13 @@ class BatchProcessor:
                         answers.append(answer)
 
                         # Track successful individual calls
-                        self.tele.count("individual_success", 1)
+                        self.tele.metric("individual_success", 1)
 
                     except Exception as e:
                         # For individual processing, we can continue with other questions
                         # even if one fails
                         answers.append(f"Error: {str(e)}")
-                        self.tele.count("individual_failures", 1)
+                        self.tele.metric("individual_failures", 1)
 
             return answers, metrics
 
@@ -395,7 +396,6 @@ class BatchProcessor:
             "client_caching": getattr(self.client, "config", {}).get(
                 "enable_caching", False
             ),
-            "config_issues": self.config.validate_configuration(),
         }
 
         # Add client-specific information if available
