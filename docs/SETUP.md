@@ -26,17 +26,16 @@ GEMINI_ENABLE_CACHING=true          # Enable context caching for cost optimizati
 
 ## Initialization Methods
 
-The package provides two main classes: `GeminiClient` for direct API access and `BatchProcessor` for processing multiple questions efficiently.
+The package provides two main classes: `BatchProcessor` for most use cases and `GeminiClient` for advanced scenarios.
 
 ### 1. Environment-Based (Simplest)
 
 Automatically reads from environment variables:
 
 ```python
-from gemini_batch import GeminiClient, BatchProcessor
+from gemini_batch import BatchProcessor
 
 # Uses GEMINI_API_KEY from environment
-client = GeminiClient.from_env()
 processor = BatchProcessor()
 ```
 
@@ -46,14 +45,14 @@ Explicitly provide configuration:
 
 ```python
 # Direct initialization with parameters
-client = GeminiClient.from_env(
+processor = BatchProcessor(
     api_key="your_api_key_here",
-    model_name="gemini-2.0-flash",
+    model="gemini-2.0-flash",
     enable_caching=False,        # Optional: enable response caching
-    tier=APITier.FREE           # Optional: explicit tier setting
+    tier="free"                  # Optional: explicit tier setting
 )
 
-processor = BatchProcessor(api_key="your_api_key_here")
+# Note: The 'tier' parameter accepts either a string ("free", "tier_1", etc.) or the APITier enum (APITier.FREE, APITier.TIER_1, ...).
 ```
 
 ### 3. ConfigManager (Advanced)
@@ -69,60 +68,30 @@ config = ConfigManager(
     tier=APITier.FREE
 )
 
-client = GeminiClient.from_config_manager(config)
+# Pass config parameters to processor
+processor = BatchProcessor(
+    api_key=config.api_key,
+    model=config.model,
+    tier=config.tier,
+    enable_caching=config.enable_caching
+)
 ```
 
-### 4. Factory Methods
+### 4. Advanced: Direct Client Usage
 
-Convenient shortcuts for common patterns:
-
-```python
-# Pure environment configuration
-client = GeminiClient.from_env()
-
-# Environment with overrides
-client = GeminiClient.from_env(model_name="gemini-1.5-pro")
-```
-
-### 5. Shared Client
-
-Use one client configuration across multiple components:
+For advanced scenarios requiring direct API access:
 
 ```python
-client = GeminiClient.from_env(api_key="your_key")
-processor = BatchProcessor(client=client)  # Reuses client config
+from gemini_batch import GeminiClient, BatchProcessor
+
+# Create client for advanced use cases
+client = GeminiClient(api_key="your_key")
+processor = BatchProcessor(_client=client)  # Reuses client config
 ```
 
 ## Basic Usage
 
-### Simple Content Generation
-
-```python
-from gemini_batch import GeminiClient
-
-client = GeminiClient.from_env()
-response = client.generate_content("What is artificial intelligence?")
-print(response)
-```
-
-### With System Instructions
-
-```python
-response = client.generate_content(
-    prompt="Explain quantum physics",
-    system_instruction="You are a helpful physics teacher."
-)
-```
-
-### Getting Usage Metrics
-
-```python
-result = client.generate_content("Hello world", return_usage=True)
-print(f"Tokens used: {result['usage']['total_tokens']}")
-print(f"Response: {result['text']}")
-```
-
-### Basic Batch Processing
+### Batch Processing (Recommended)
 
 ```python
 from gemini_batch import BatchProcessor
@@ -136,6 +105,27 @@ for i, answer in enumerate(results['answers'], 1):
     print(f"Q{i}: {answer}")
 ```
 
+### With System Instructions
+
+```python
+results = processor.process_questions(
+    content="Explain quantum physics",
+    questions=["What are the key principles?"],
+    system_instruction="You are a helpful physics teacher."
+)
+```
+
+### Getting Usage Metrics
+
+```python
+results = processor.process_questions(
+    content="Hello world", 
+    questions=["What is this?"], 
+    return_usage=True
+)
+print(f"Tokens used: {results['metrics']['batch']['total_tokens']}")
+```
+
 ### Multiple Content Types
 
 The `process_questions()` method supports text, files, URLs, and mixed content. See [`SOURCE_HANDLING.md`](SOURCE_HANDLING.md) for detailed examples.
@@ -145,22 +135,22 @@ The `process_questions()` method supports text, files, URLs, and mixed content. 
 Check your setup before processing:
 
 ```python
-client = GeminiClient.from_env()
-config = client.get_config_summary()
-print(f"Using {config['tier_name']} with {config['client_model_name']}")
+processor = BatchProcessor()
+config = processor.client.get_config_summary()
+print(f"Using {config['tier_name']} with {config['model']}")
 print(f"API key configured: {config['api_key_present']}")
 ```
 
 ## Error Handling
 
 ```python
-from gemini_batch.exceptions import MissingKeyError, APIError
+from gemini_batch.exceptions import APIError
 
 try:
-    client = GeminiClient.from_env()
-    response = client.generate_content("Hello")
-except MissingKeyError as e:
-    print(f"API key required: {e}")
+    processor = BatchProcessor()
+    results = processor.process_questions("Hello", ["What is this?"])
+except ValueError as e:
+    print(f"Configuration error: {e}")
 except APIError as e:
     print(f"API call failed: {e}")
 ```
@@ -181,10 +171,10 @@ print("API key present:", bool(os.getenv('GEMINI_API_KEY')))
 
 ```python
 # Check your current tier configuration
-client = GeminiClient.from_env()
-config = client.get_config_summary()
+processor = BatchProcessor()
+config = processor.client.get_config_summary()
 print(f"Tier: {config['tier_name']}")
-print(f"Rate limit: {client.rate_limit_requests} requests/minute")
+print(f"Rate limit: {processor.client.rate_limit_requests} requests/minute")
 ```
 
 #### Model not available errors
