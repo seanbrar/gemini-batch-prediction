@@ -26,7 +26,10 @@ class BatchProcessor:
     """A simple batch processor for processing questions against content."""
 
     def __init__(
-        self, _client: Optional[ClientProtocol] = None, **config: Unpack[GeminiConfig]
+        self,
+        _client: Optional[ClientProtocol] = None,
+        telemetry_context: Optional[TelemetryContext] = None,
+        **config: Unpack[GeminiConfig],
     ):
         """
         Creates a processor using ambient configuration.
@@ -48,7 +51,7 @@ class BatchProcessor:
             # will handle merging them with the ambient configuration.
             self.client = GeminiClient(**config)
 
-        self.tele = TelemetryContext()
+        self.tele = telemetry_context or TelemetryContext()
         self.response_processor = ResponseProcessor()
         self.result_builder = ResultBuilder(self._calculate_efficiency)
         self.schema_analyzer = SchemaAnalyzer()
