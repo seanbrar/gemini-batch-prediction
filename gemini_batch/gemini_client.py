@@ -367,30 +367,37 @@ class GeminiClient:
         **options,
     ) -> Union[str, Dict[str, Any]]:
         """Low-level generation from processed parts"""
-        model = self.client.get_generative_model(
-            model_name=self.config_manager.model, system_instruction=system_instruction
-        )
 
         def api_call():
-            # Build config parameters properly
-            config_params = {"response_mime_type": "text/plain"}
-            gen_config = types.GenerationConfig()
+            # Build configuration properly
+            config = types.GenerateContentConfig()
+
+            if system_instruction:
+                config.system_instruction = system_instruction
 
             if response_schema:
-                config_params["response_mime_type"] = "application/json"
-                gen_config["response_schema"] = response_schema
+                config.response_mime_type = "application/json"
+                config.response_schema = response_schema
+            else:
+                config.response_mime_type = "text/plain"
 
             # Merge with any user-provided generation_config
             if "generation_config" in options:
-                # Need to convert dict to GenerationConfig object if needed
-                user_config = options["generation_config"]
+                user_config = options.pop("generation_config")  # Remove from options
                 if isinstance(user_config, dict):
-                    gen_config.update(user_config)
+                    # Merge user config into our config
+                    for key, value in user_config.items():
+                        setattr(config, key, value)
                 elif isinstance(user_config, types.GenerationConfig):
-                    gen_config = user_config  # Assume user-provided one is complete
-                options["generation_config"] = gen_config
+                    config = user_config  # Use user's config entirely
 
-            return model.generate_content(parts, **options)
+            # Use the new API format
+            return self.client.models.generate_content(
+                model=self.config_manager.model,
+                contents=parts,
+                config=config,
+                **options,
+            )
 
         response = self._api_call_with_retry(api_call)
         return self._process_response(response, return_usage, response_schema)
@@ -405,28 +412,34 @@ class GeminiClient:
     ) -> Union[str, Dict[str, Any]]:
         """Generate content using explicit cache reference"""
 
-        model = self.client.get_generative_model(model_name=self.config_manager.model)
-        cached_content = model.from_cached_content(cached_content_name=cache_name)
-
         def api_call():
-            # Build config parameters properly
-            config_params = {"response_mime_type": "text/plain"}
-            gen_config = types.GenerationConfig()
+            # Build configuration properly
+            config = types.GenerateContentConfig()
+            config.cached_content = cache_name
 
             if response_schema:
-                config_params["response_mime_type"] = "application/json"
-                gen_config["response_schema"] = response_schema
+                config.response_mime_type = "application/json"
+                config.response_schema = response_schema
+            else:
+                config.response_mime_type = "text/plain"
 
             # Merge with any user-provided generation_config
             if "generation_config" in options:
-                user_config = options["generation_config"]
+                user_config = options.pop("generation_config")  # Remove from options
                 if isinstance(user_config, dict):
-                    gen_config.update(user_config)
+                    # Merge user config into our config
+                    for key, value in user_config.items():
+                        setattr(config, key, value)
                 elif isinstance(user_config, types.GenerationConfig):
-                    gen_config = user_config
-                options["generation_config"] = gen_config
+                    config = user_config  # Use user's config entirely
 
-            return cached_content.generate_content(prompt_parts, **options)
+            # Use the new API format
+            return self.client.models.generate_content(
+                model=self.config_manager.model,
+                contents=prompt_parts,
+                config=config,
+                **options,
+            )
 
         response = self._api_call_with_retry(api_call)
         return self._process_response(
@@ -464,6 +477,17 @@ class GeminiClient:
                 "has_schema": bool(response_schema),
             },
         ):
+            # Handle case where response is already a processed dictionary
+            if (
+                isinstance(response, dict)
+                and "text" in response
+                and "usage_metadata" in response
+            ):
+                if return_usage:
+                    return response
+                else:
+                    return response["text"]
+
             # Extract usage metadata first
             usage_metadata = extract_usage_metrics(response)
 

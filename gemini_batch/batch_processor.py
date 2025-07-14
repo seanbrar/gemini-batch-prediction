@@ -9,7 +9,7 @@ import time
 from typing import Any, Dict, List, Optional, Tuple, Union, Unpack
 
 from .analysis.schema_analyzer import SchemaAnalyzer
-from .config import ClientProtocol, GeminiConfig
+from .config import ClientProtocol, GeminiConfig, get_config
 from .efficiency import track_efficiency
 from .exceptions import BatchProcessingError
 from .gemini_client import GeminiClient
@@ -387,7 +387,7 @@ class BatchProcessor:
     def get_config_summary(self) -> Dict[str, Any]:
         """Get configuration summary for debugging"""
         summary = {
-            "config": self.config.get_config_summary(),
+            "config": get_config(),
             "client_model": getattr(self.client, "model_name", "unknown"),
             "client_caching": getattr(self.client, "config", {}).get(
                 "enable_caching", False
