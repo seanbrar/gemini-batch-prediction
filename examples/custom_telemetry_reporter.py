@@ -12,8 +12,10 @@ from gemini_batch import BatchProcessor, TelemetryContext
 
 
 class PrintReporter:
-    def record_timing(self, scope, duration, **meta):
-        print(f"[timing] {scope}: {duration:.3f}s")
+    def record_timing(self, scope: str, duration: float, **metadata):
+        depth = metadata.get("depth", 0)
+        indent = "  " * depth
+        print(f"[METRIC] {indent}TIMING: scope={scope}, duration={duration:.4f}s")
 
     def record_metric(self, scope, value, **meta):
         print(f"[metric] {scope}: {value}")
