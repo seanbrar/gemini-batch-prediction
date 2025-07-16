@@ -23,6 +23,9 @@ To use with a real Prometheus server:
 """
 
 import os
+
+os.environ["GEMINI_TELEMETRY"] = "1"
+
 from typing import Any, Dict, Tuple
 
 from gemini_batch import BatchProcessor
@@ -134,8 +137,6 @@ def main():
         print("ERROR: GEMINI_API_KEY environment variable not set.")
         print("Please set your API key to run this live example.")
         return
-
-    os.environ["GEMINI_TELEMETRY"] = "1"
 
     temp_processor = BatchProcessor()
     model_name = temp_processor.client.config_manager.model

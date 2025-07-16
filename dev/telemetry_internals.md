@@ -3,31 +3,31 @@
 **Audience:** Internal Developers, Contributors
 **Purpose:** To document the design, philosophy, and internal tooling of the telemetry system. This guide ensures that contributions are instrumented consistently.
 
-## 1. Core Philosophy: Zero-Overhead and "Clever Simplicity"
+## 1. Core Philosophy: Minimal Overhead and "Clever Simplicity"
 
-The telemetry system is designed around a critical principle: **instrumentation must have zero-overhead when disabled**. This is achieved through a compile-time flag that removes the instrumentation code entirely when not in use, ensuring production code runs as if the system doesn't exist.
+The telemetry system is designed around a critical principle: **instrumentation must have negligible overhead when disabled**. This is achieved by using a factory pattern that, at startup, decides whether to provide a full-featured telemetry context or a completely inert, singleton no-op object.
 
 The core tenets of this system are:
 
-* **Contextual Intelligence**: Automatically track nested scopes and enrich metrics with context.
+* **Contextual Intelligence**: Automatically track nested scopes and enrich metrics with context using thread-safe `ContextVar` variables.
 * **Extensibility via Protocols**: Allow users to integrate their own monitoring tools without rigid inheritance.
-* **Zero-Overhead Guarantee**: Ensure that when profiling is disabled, the performance impact is not just minimal, but nonexistent.
+* **Negligible Overhead Guarantee**: Ensure that when telemetry is disabled, the performance impact is virtually zero by returning a no-op object.
 
 -----
 
 ## 2. Architectural Design
 
-The architecture is composed of `TelemetryContext` (the orchestrator) and the `TelemetryReporter` protocol (the extensible reporting mechanism).
+The architecture is composed of the `TelemetryContext` factory (the entry point), two underlying context objects (`_EnabledTelemetryContext` and `_NoOpTelemetryContext`), and the `TelemetryReporter` protocol (the extensible reporting mechanism).
 
-### 2.1. The `TelemetryContext`: Central Orchestrator
+### 2.1. The `TelemetryContext`: Central Factory
 
-The main interface for all instrumentation is the `TelemetryContext`. A developer interacts with a single `tele` object, which manages the scope stack, timing, and dispatching of metrics to all registered reporters.
+The main entry point for all instrumentation is the `TelemetryContext` factory. A developer gets a context object from this factory, which manages the scope stack, timing, and dispatching of metrics to all registered reporters.
 
-Its primary interface is the `scope` context manager:
+Its primary interface is making the context object *callable*:
 
 ```python
 # The primary interaction pattern
-with self.tele.scope("batch.total_processing", question_count=len(questions)):
+with self.tele("batch.total_processing", question_count=len(questions)):
     # ... code to be timed ...
     self.tele.gauge("token_efficiency", some_value)
 ```
@@ -39,6 +39,7 @@ This automatically handles timing, duration calculation, and hierarchical scope 
 We use a `typing.Protocol` instead of a traditional abstract base class. This allows any object that "looks like" a reporter (i.e., has the right methods) to be used, decoupling the library from user-specific implementations.
 
 ```python
+@runtime_checkable
 class TelemetryReporter(Protocol):
     """Duck-typed protocol - no inheritance required"""
     def record_timing(self, scope: str, duration: float, **metadata) -> None: ...
@@ -55,63 +56,45 @@ tele_context = TelemetryContext(MyCustomReporter())
 
 -----
 
-## 3. The Zero-Overhead Guarantee
+## 3. The Ultra-Low Overhead Design
 
-The system provides two layers of "zero-overhead" guarantees.
+The system's performance guarantee comes from the factory pattern, which is evaluated once based on environment variables.
 
-### 3.1. The Runtime Check
+### The No-Op Singleton Pattern
 
-The `TelemetryContext`'s `enabled` property is an ultra-fast check. All methods begin with an `if not self.enabled: return` guard, which is extremely fast.
+The `TelemetryContext` factory provides the core optimization. It checks the `_TELEMETRY_ENABLED` flag (set by `GEMINI_TELEMETRY=1` or `DEBUG=1`) *once*.
 
-```python
-@property
-def enabled(self) -> bool:
-    """Ultra-fast enabled check - single tuple boolean evaluation"""
-    return bool(self.reporters)
-
-def metric(self, name: str, value: Any, **metadata):
-    if not self.enabled:
-        return
-    # ... logic ...
-```
-
-### 3.2. The Compile-Time Optimization Pattern
-
-For the most performance-critical code paths, a module-level constant (`_TELEMETRY_ENABLED`) completely removes the instrumentation at import time.
+* If **enabled**, it returns a full-featured `_EnabledTelemetryContext`.
+* If **disabled**, it returns `_NO_OP_SINGLETON`, a single, shared, immutable instance of `_NoOpTelemetryContext`.
 
 ```python
-# At module level - evaluated once at import time
-_TELEMETRY_ENABLED = (
-    os.getenv("GEMINI_TELEMETRY") == "1" or os.getenv("DEBUG") == "1"
-)
+# A single, stateless, immutable no-op object is created once
+_NO_OP_SINGLETON = _NoOpTelemetryContext()
 
-if _TELEMETRY_ENABLED:
-    # Full implementation
-    def tele_scope(ctx, name, **metadata):
-        return ctx.scope(name, **metadata)
-else:
-    # Zero-overhead no-op that does nothing
-    @contextmanager
-    def tele_scope(ctx, name, **metadata):
-        yield ctx
-
-# --- Usage in performance-critical code ---
-# When disabled, this becomes just the inner block with no function call
-with tele_scope(self.tele, "critical_operation"):
-    expensive_operation()
+def TelemetryContext(*reporters: TelemetryReporter) -> TelemetryContextProtocol:
+    """
+    Factory that returns either a full-featured telemetry context or a
+    single, shared, no-op instance for maximum performance when disabled.
+    """
+    # This check happens when the context is created, not on every call
+    if _TELEMETRY_ENABLED and reporters:
+        return _EnabledTelemetryContext(*reporters)
+    else:
+        # When disabled, always return the same, pre-existing no-op instance.
+        return _NO_OP_SINGLETON
 ```
 
-When `_TELEMETRY_ENABLED` is `False`, the module-level `tele_scope` function becomes a no-op context manager, ensuring **zero** performance cost.
+The methods on `_NoOpTelemetryContext` do nothing, so calls like `tele("my_op")` or `tele.metric(...)` become completely inert with no conditional checks, providing a negligible performance cost.
 
 -----
 
-## 4. Internal Tooling: The `SimpleReporter`
+## 4. Internal Tooling: The `_SimpleReporter`
 
-The library includes `SimpleReporter`, an in-memory reporter for internal development and debugging. **It is not intended as a primary user-facing feature.** Its purpose is to provide a quick way to inspect telemetry during development of the `gemini-batch` library itself.
+The library includes `_SimpleReporter`, an in-memory reporter for internal development and debugging. **It is not intended as a primary user-facing feature.** Its purpose is to provide a quick way to inspect telemetry during development.
 
-### How to Use `SimpleReporter` for Debugging
+### How to Use `_SimpleReporter` for Debugging
 
-The `SimpleReporter` is automatically enabled when the `GEMINI_TELEMETRY=1` or `DEBUG=1` environment variable is set. To use it, you must manually instantiate it and retrieve its report.
+The reporter is only active when `GEMINI_TELEMETRY=1` or `DEBUG=1` is set.
 
 1. **Set the environment variable**:
 
@@ -119,25 +102,23 @@ The `SimpleReporter` is automatically enabled when the `GEMINI_TELEMETRY=1` or `
     export GEMINI_TELEMETRY=1
     ```
 
-2. **Instantiate and inject it**:
-    In your test or script, create a `SimpleReporter` and `TelemetryContext`.
+2. **Instantiate and inject it into the `TelemetryContext` factory**:
+    In your test or script, create a `_SimpleReporter` and pass it to the factory.
 
     ```python
-    from gemini_batch.telemetry import SimpleReporter, TelemetryContext
-    from gemini_batch import BatchProcessor
+    # Note the direct import of the internal class
+    from your_module.telemetry import _SimpleReporter, TelemetryContext
 
-    # Create the reporter and context
-    simple_reporter = SimpleReporter()
-    tele_context = TelemetryContext(simple_reporter)
+    # 1. Create the reporter instance
+    reporter = _SimpleReporter()
 
-    # Inject it into the processor
-    processor = BatchProcessor(telemetry_context=tele_context)
+    # 2. Pass it to the factory to get an enabled context
+    tele_context = TelemetryContext(reporter)
 
-    # ... run your operations ...
-    processor.process_questions(...)
+    # 3. Use the context in your code
+    with tele_context("test.operation"):
+        tele_context.count("items_processed")
 
-    # Print the report at the end
-    print(simple_reporter.get_report())
+    # 4. Print the collected data
+    reporter.print_report()
     ```
-
-This explicit, manual process makes it clear that `SimpleReporter` is a developer tool, not a "plug-and-play" feature for end-users. Users wanting monitoring capabilities should be directed to `docs/TELEMETRY.md` and the corresponding example.

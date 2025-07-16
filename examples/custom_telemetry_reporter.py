@@ -8,17 +8,25 @@ import os
 
 os.environ["GEMINI_TELEMETRY"] = "1"
 
-from gemini_batch import BatchProcessor, TelemetryContext
+from typing import Any
+
+from gemini_batch import BatchProcessor, TelemetryContext, TelemetryReporter
 
 
-class PrintReporter:
-    def record_timing(self, scope: str, duration: float, **metadata):
+class PrintReporter(TelemetryReporter):
+    """A minimal telemetry reporter that prints events to the console."""
+
+    def record_timing(self, scope: str, duration: float, **metadata: Any) -> None:
+        """Prints timing-related events with indentation based on call depth."""
         depth = metadata.get("depth", 0)
         indent = "  " * depth
-        print(f"[METRIC] {indent}TIMING: scope={scope}, duration={duration:.4f}s")
+        print(
+            f"[TIMING] {indent}{scope}: duration={duration:.4f}s (metadata: {metadata})"
+        )
 
-    def record_metric(self, scope, value, **meta):
-        print(f"[metric] {scope}: {value}")
+    def record_metric(self, scope: str, value: Any, **metadata: Any) -> None:
+        """Prints a generic metric event."""
+        print(f"[METRIC] {scope}: {value} (metadata: {metadata})")
 
     # # Production extensions (commented out):
     # def __init__(self):
