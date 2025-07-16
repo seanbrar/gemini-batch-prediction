@@ -11,25 +11,19 @@ from datetime import datetime, timedelta, timezone
 import hashlib
 import logging
 import time
-from typing import Dict, List, Optional, Union
+from typing import Any, Dict, List, Optional, Tuple
 
 from google import genai
 from google.genai import types
 
-from ..config import ConfigManager
+from gemini_batch.client.content_processor import ContentProcessor
+from gemini_batch.client.token_counter import TokenCounter
+from gemini_batch.exceptions import APIError
+
+from ..config import CachingRecommendation, ConfigManager
+from .models import CacheAction, CacheStrategy, ExplicitCachePayload, PartsPayload
 
 log = logging.getLogger(__name__)
-
-
-@dataclass
-class CacheStrategy:
-    """Cache strategy recommendation from analysis"""
-
-    should_cache: bool
-    strategy_type: str  # "explicit", "implicit", "none"
-    estimated_tokens: int
-    ttl_seconds: int = 3600
-    reason: str = ""
 
 
 @dataclass
@@ -70,6 +64,18 @@ class CacheMetrics:
     cache_creation_time: float = 0.0
     cache_savings_estimate: float = 0.0
 
+    def to_dict(self) -> Dict[str, Any]:
+        """Convert metrics to dictionary format"""
+        return {
+            "total_caches": self.total_caches,
+            "active_caches": self.active_caches,
+            "cache_hits": self.cache_hits,
+            "cache_misses": self.cache_misses,
+            "total_cached_tokens": self.total_cached_tokens,
+            "cache_creation_time": self.cache_creation_time,
+            "cache_savings_estimate": self.cache_savings_estimate,
+        }
+
 
 class CacheManager:
     """Manages explicit cache lifecycle for Gemini API context caching."""
@@ -78,108 +84,95 @@ class CacheManager:
         self,
         client: genai.Client,
         config_manager: ConfigManager,
-        token_counter,
+        token_counter: TokenCounter,
         default_ttl_seconds: int = 3600,
+        content_processor: ContentProcessor = None,
     ):
         self.client = client
         self.config_manager = config_manager
         self.token_counter = token_counter
         self.default_ttl_seconds = default_ttl_seconds
+        self.content_processor = content_processor
 
         # Cache tracking
         self.active_caches: Dict[str, CacheInfo] = {}
         self.content_to_cache: Dict[str, str] = {}
         self.metrics = CacheMetrics()
 
-    def analyze_cache_strategy(
+    def plan_generation(
         self,
-        model: str,
-        content: Union[str, List],
-        prefer_explicit: bool = True,
-        conversation_context: Optional[str] = None,
-    ) -> CacheStrategy:
-        """Analyze content and determine optimal caching strategy."""
-        try:
-            # Use existing TokenCounter analysis
-            cache_analysis = self.token_counter.estimate_for_caching(
-                model, content, prefer_implicit=not prefer_explicit
-            )
-
-            if not cache_analysis["cacheable"]:
-                return CacheStrategy(
-                    should_cache=False,
-                    strategy_type="none",
-                    estimated_tokens=cache_analysis["tokens"],
-                    reason="Below minimum token threshold or caching not supported",
-                )
-
-            # Calculate total tokens including conversation context
-            total_tokens = cache_analysis["tokens"]
-            if conversation_context:
-                context_analysis = self.token_counter.estimate_for_caching(
-                    model, conversation_context, prefer_implicit=False
-                )
-                total_tokens += context_analysis["tokens"]
-
-            return CacheStrategy(
-                should_cache=True,
-                strategy_type=cache_analysis["recommended_strategy"],
-                estimated_tokens=total_tokens,
-                ttl_seconds=self._calculate_ttl(total_tokens),
-                reason=f"Content meets {cache_analysis['recommended_strategy']} caching requirements",
-            )
-
-        except Exception as e:
-            return CacheStrategy(
-                should_cache=False,
-                strategy_type="none",
-                estimated_tokens=0,
-                reason=f"Cache analysis failed: {e}",
-            )
-
-    def get_or_create_cache(
-        self,
-        model: str,
-        content_parts: List,
-        strategy: CacheStrategy,
+        parts: List[types.Part],
         system_instruction: Optional[str] = None,
-        conversation_context: Optional[str] = None,
-    ) -> CacheResult:
-        """Get existing cache or create new one for content."""
-        if not strategy.should_cache or strategy.strategy_type != "explicit":
-            return CacheResult(
-                success=False,
-                fallback_required=True,
-                error="Content not suitable for explicit caching",
-            )
+    ) -> CacheAction:
+        """Analyzes content and returns a plan for the client to execute."""
 
+        # 1. Analyze content and determine strategy
+        token_analysis = self.token_counter.estimate_for_caching(self.config_manager.model, parts)
+        token_count = token_analysis["tokens"]
+        cache_analysis = self.config_manager.can_use_caching(self.config_manager.model, token_count)
+
+        if not cache_analysis.get("supported"):
+            return CacheAction(CacheStrategy.GENERATE_RAW, PartsPayload(parts=parts))
+
+        strategy_name = cache_analysis["recommendation"]
+
+        # 2. Simple strategy dispatch
         try:
-            # Generate content hash for deduplication
-            content_hash = self._hash_content(
-                content_parts, system_instruction, conversation_context
-            )
+            if strategy_name == CachingRecommendation.EXPLICIT:
+                cache_info = self._ensure_explicit_cache(parts, system_instruction, token_count)
+                _, prompt_parts = self._prepare_cache_parts(parts)
+                return CacheAction(
+                    CacheStrategy.GENERATE_FROM_EXPLICIT_CACHE,
+                    ExplicitCachePayload(cache_name=cache_info.cache_name, parts=prompt_parts)
+                )
 
-            # Check for existing valid cache
-            existing_cache = self._get_existing_cache(content_hash)
-            if existing_cache:
-                return existing_cache
+            elif strategy_name == CachingRecommendation.IMPLICIT:
+                optimized_parts = self.content_processor.optimize_for_implicit_cache(parts)
+                return CacheAction(
+                    CacheStrategy.GENERATE_WITH_OPTIMIZED_PARTS,
+                    PartsPayload(parts=optimized_parts)
+                )
 
-            # Create new cache
-            return self._create_cache(
-                model,
-                content_parts,
-                strategy,
-                system_instruction,
-                content_hash,
-                conversation_context,
-            )
+        except APIError as e:
+            log.warning("Cache strategy failed, degrading to raw generation: %s", e)
+            return CacheAction(CacheStrategy.GENERATE_RAW, PartsPayload(parts=parts))
 
-        except Exception as e:
-            return CacheResult(
-                success=False,
-                fallback_required=True,
-                error=f"Cache operation failed: {e}",
-            )
+        return CacheAction(CacheStrategy.GENERATE_RAW, PartsPayload(parts=parts))
+
+    def _ensure_explicit_cache(self, parts: List[types.Part], system_instruction: Optional[str], token_count: int) -> CacheInfo:
+        """Ensure explicit cache exists, creating if necessary"""
+        cacheable_parts, _ = self._prepare_cache_parts(parts)
+        content_hash = self._hash_content(cacheable_parts, system_instruction, None)
+
+        # Check for existing cache
+        existing_cache = self._get_existing_cache(content_hash)
+        if existing_cache and existing_cache.success:
+            return existing_cache.cache_info
+
+        # Create new cache
+        ttl_seconds = self._calculate_ttl(token_count)
+        cache_result = self._create_cache(
+            self.config_manager.model, cacheable_parts, ttl_seconds, token_count,
+            system_instruction, content_hash, None
+        )
+        if not cache_result.success:
+            raise APIError(f"Cache creation failed: {cache_result.error}")
+        return cache_result.cache_info
+
+    def _prepare_cache_parts(self, parts: List[types.Part]) -> Tuple[List[types.Part], List[types.Part]]:
+        """Separate cacheable content from prompt parts with fallback handling"""
+        cacheable_parts, prompt_parts = self.content_processor.separate_cacheable_content(parts)
+
+        # Handle empty prompt_parts fallback
+        if not prompt_parts:
+            for part in parts:
+                if part not in cacheable_parts:
+                    prompt_parts = [part]
+                    break
+            if not prompt_parts and parts:
+                prompt_parts = [parts[0]]  # Use first part as fallback
+
+        return cacheable_parts, prompt_parts
 
     def _get_existing_cache(self, content_hash: str) -> Optional[CacheResult]:
         """Check for existing valid cache"""
@@ -212,25 +205,26 @@ class CacheManager:
     def _create_cache(
         self,
         model: str,
-        content_parts: List,
-        strategy: CacheStrategy,
+        content_parts: List[types.Part],
+        ttl_seconds: int,
+        estimated_tokens: int,
         system_instruction: Optional[str],
         content_hash: str,
-        conversation_context: Optional[str],
+        conversation_context: Optional[str] = None,
     ) -> CacheResult:
         """Create new explicit cache"""
         start_time = time.time()
         log.info(
             "Creating new explicit cache for model '%s' with TTL %ds.",
             model,
-            strategy.ttl_seconds,
+            ttl_seconds,
         )
 
         try:
             # Create cache configuration
             cache_config = types.CreateCachedContentConfig(
                 contents=[types.Content(role="user", parts=content_parts)],
-                ttl=f"{strategy.ttl_seconds}s",
+                ttl=f"{ttl_seconds}s",
             )
 
             if system_instruction:
@@ -245,8 +239,8 @@ class CacheManager:
                 content_hash=content_hash,
                 model=model,
                 created_at=datetime.now(timezone.utc),
-                ttl_seconds=strategy.ttl_seconds,
-                token_count=strategy.estimated_tokens,
+                ttl_seconds=ttl_seconds,
+                token_count=estimated_tokens,
                 usage_count=1,
                 last_used=datetime.now(timezone.utc),
                 conversation_context_hash=self._hash_string(conversation_context)
@@ -261,7 +255,7 @@ class CacheManager:
             # Update metrics
             self.metrics.total_caches += 1
             self.metrics.cache_creation_time += time.time() - start_time
-            self.metrics.total_cached_tokens += strategy.estimated_tokens
+            self.metrics.total_cached_tokens += estimated_tokens
             self.metrics.cache_misses += 1
 
             return CacheResult(
@@ -278,7 +272,7 @@ class CacheManager:
 
     def _hash_content(
         self,
-        content_parts: List,
+        content_parts: List[types.Part],
         system_instruction: Optional[str],
         conversation_context: Optional[str],
     ) -> str:
