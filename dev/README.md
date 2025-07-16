@@ -2,6 +2,11 @@
 
 This directory contains development-focused documentation that explains the "why" and "how" behind implementation decisions.
 
+## Structure
+
+- **Implementation Guides** (`logging.md`, `telemetry_internals.md`): How existing systems work
+- **Design Proposals** (`design/`): Architectural proposals and explorations
+
 **What you'll find here:**
 
 - Architectural design decisions and rationale

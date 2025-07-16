@@ -228,17 +228,7 @@ class ResponseProcessor:
                     log.debug("Attempting to parse response text as JSON.")
 
                     # Handle markdown-wrapped JSON (common with Gemini API)
-                    json_text = response_text.strip()
-                    if json_text.startswith("```json") and json_text.endswith("```"):
-                        # Extract JSON from markdown code block
-                        json_text = json_text[7:-3].strip()  # Remove ```json and ```
-                        log.debug("Extracted JSON from markdown wrapper.")
-                    elif json_text.startswith("```") and json_text.endswith("```"):
-                        # Handle generic code block
-                        json_text = json_text[3:-3].strip()  # Remove ``` and ```
-                        log.debug("Extracted content from generic markdown wrapper.")
-
-                    loaded_json = json.loads(json_text)
+                    loaded_json = self._parse_json_response(response_text)
                     if response_schema:
                         log.debug("Validating JSON against provided Pydantic schema.")
                         parsed_data = response_schema.model_validate(loaded_json)
@@ -333,6 +323,28 @@ class ResponseProcessor:
             usage=usage,
         )
 
+    def _parse_json_response(self, response_text: str) -> Any:
+        """
+        Parses a response text to JSON, handling markdown-wrapped JSON.
+        """
+        json_text = response_text.strip()
+
+        # Handle markdown-wrapped JSON (common with Gemini API)
+        if json_text.startswith("```json") and json_text.endswith("```"):
+            # Extract JSON from markdown code block
+            json_text = json_text[7:-3].strip()  # Remove ```json and ```
+            log.debug("Extracted JSON from markdown wrapper.")
+        elif json_text.startswith("```") and json_text.endswith("```"):
+            # Handle generic code block
+            json_text = json_text[3:-3].strip()  # Remove ``` and ```
+            log.debug("Extracted content from generic markdown wrapper.")
+
+        try:
+            return json.loads(json_text)
+        except json.JSONDecodeError as e:
+            log.warning("Failed to decode JSON from response text: %s", e)
+            raise  # Re-raise so caller can handle appropriately
+
     def extract_structured_data(
         self, response, schema: Any, return_confidence: bool = True
     ) -> ProcessedResponse:
@@ -342,7 +354,7 @@ class ResponseProcessor:
         # Simplified and corrected logic for structured data extraction
         try:
             # Assuming response.text contains the JSON string
-            json_data = json.loads(response.text)
+            json_data = self._parse_json_response(response.text)
             model = schema.model_validate(json_data)
             return ProcessedResponse(
                 answers=[str(model)],

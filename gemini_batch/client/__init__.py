@@ -3,8 +3,6 @@ Supporting components for Gemini API client
 
 Note: The main GeminiClient is now at gemini_batch.GeminiClient (root level)
 for better hierarchical architecture. This package contains supporting components.
-
-For backward compatibility, use: from gemini_batch import GeminiClient
 """
 
 from .cache_manager import (
@@ -14,7 +12,7 @@ from .cache_manager import (
     CacheResult,
     CacheStrategy,
 )
-from .configuration import ClientConfiguration, RateLimitConfig
+from .configuration import RateLimitConfig
 
 # Specialized components for custom integrations
 from .content_processor import ContentProcessor
@@ -25,10 +23,8 @@ from .rate_limiter import RateLimiter
 from .token_counter import TokenCounter
 
 # Public API - supporting components only
-# For GeminiClient, use: from gemini_batch import GeminiClient
 __all__ = [
     # Configuration
-    "ClientConfiguration",
     "RateLimitConfig",
     # Advanced components (for custom extensions)
     "ContentProcessor",

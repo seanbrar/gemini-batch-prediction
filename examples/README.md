@@ -36,6 +36,16 @@ Research paper processing and literature review capabilities with structured out
 
 Demonstrates context caching for cost-effective repeated analysis of large content.
 
+## 📊 Telemetry & Monitoring Examples
+
+### [`custom_telemetry_reporter.py`](custom_telemetry_reporter.py)
+
+**Basic telemetry** - Simple example showing how to create custom telemetry reporters. Prints timing and metrics as they happen.
+
+### [`prometheus_telemetry_demo.py`](prometheus_telemetry_demo.py)
+
+**Production monitoring** - Integrate with Prometheus for production monitoring. Shows how to map telemetry events to Prometheus metrics.
+
 ## 🔧 Setup
 
 Make sure your API key is set:

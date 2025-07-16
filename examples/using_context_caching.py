@@ -12,7 +12,7 @@ This example demonstrates:
 - Verifying that caching is active and working
 """
 
-from gemini_batch import BatchProcessor, GeminiClient
+from gemini_batch import BatchProcessor
 
 
 def main():
@@ -75,10 +75,9 @@ def main():
         "What makes machine learning different from traditional programming?",
     ]
 
-    # Create client with caching enabled
-    print("🔧 Creating client with caching enabled...")
-    client = GeminiClient.from_env(enable_caching=True)
-    processor = BatchProcessor(client=client)
+    # Create processor with caching enabled
+    print("🔧 Creating processor with caching enabled...")
+    processor = BatchProcessor(enable_caching=True)
 
     # Process questions (cache will be created automatically)
     print("⚡ Processing questions...")

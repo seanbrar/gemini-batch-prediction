@@ -1,6 +1,9 @@
+import logging
 from typing import Any, Dict, Optional
 
 from ..config import ConfigManager
+
+log = logging.getLogger(__name__)
 
 
 class TokenCounter:
@@ -73,7 +76,7 @@ class TokenCounter:
                 "caching": caching_analysis,
                 "cacheable": caching_analysis["implicit"]
                 or caching_analysis["explicit"],
-                "recommended_strategy": caching_analysis["recommended"],
+                "recommended_strategy": caching_analysis["recommendation"].value,
             }
 
         except Exception as e:
@@ -91,7 +94,7 @@ class TokenCounter:
                 "caching": caching_analysis,
                 "cacheable": caching_analysis["implicit"]
                 or caching_analysis["explicit"],
-                "recommended_strategy": caching_analysis["recommended"],
+                "recommended_strategy": caching_analysis["recommendation"].value,
                 "estimation_error": str(e),
             }
 
@@ -284,14 +287,26 @@ class TokenCounter:
         # Define safety zone around each threshold
         danger_zone = 20
 
-        for threshold_type, threshold in thresholds.items():
-            if threshold is None:
+        # Check each threshold value (not the keys)
+        for threshold_value in thresholds.values():
+            if threshold_value is None:
                 continue
+            # Only compare if threshold_value is an int (or can be cast to int)
+            try:
+                threshold_int = int(threshold_value)
+            except (TypeError, ValueError):
+                continue  # Skip non-integer thresholds
 
-            # If we're close to but below a threshold, add safety buffer
-            if (threshold - danger_zone) <= adjusted_tokens < threshold:
-                buffer_needed = threshold - adjusted_tokens + 10
-                adjusted_tokens += buffer_needed
-                break  # Apply only one threshold correction
+            # Apply safety margin for content near threshold
+            if (threshold_int - danger_zone) <= adjusted_tokens < threshold_int:
+                # Add extra buffer for content near threshold
+                adjusted_tokens = threshold_int + danger_zone
+                log.debug(
+                    "Applied threshold safety margin: %d -> %d (threshold: %d)",
+                    base_tokens,
+                    adjusted_tokens,
+                    threshold_int,
+                )
+                break
 
         return adjusted_tokens

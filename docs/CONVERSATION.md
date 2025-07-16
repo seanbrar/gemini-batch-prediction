@@ -1,197 +1,174 @@
-# Conversation Sessions Guide
+# Conversation System Guide
 
-The conversation system enables contextual multi-turn interactions with persistent memory across questions and sources.
+The Gemini Batch Framework supports **conversation sessions** - persistent, stateful interactions that maintain context across multiple questions and sources.
 
 ## Quick Start
 
 ```python
 from gemini_batch import create_conversation
 
-# Create session with single source
-session = create_conversation("document.pdf")
-
-# Ask questions with automatic context retention
-answer1 = session.ask("What is the main topic?")
-answer2 = session.ask("What evidence supports this?")  # References previous answer
-```
-
-## Multi-Source Conversations
-
-```python
-# Analyze multiple sources together
-sources = [
-    "research_paper.pdf",
-    "https://youtube.com/watch?v=example",
-    "data_directory/"
-]
-
-session = create_conversation(sources)
-
-# Cross-source analysis with context
-session.ask("What are the common themes across all sources?")
-session.ask("Which source provides the strongest evidence?")  # References themes
-```
-
-## Batch Questions with Context
-
-```python
-# Process multiple questions while building conversation history
-questions = [
-    "What are the main findings?",
-    "What methodology was used?", 
-    "What are the limitations?"
-]
-
-answers = session.ask_multiple(questions)
-
-# Follow-up leverages all previous context
-followup = session.ask("Which limitation is most critical?")
-```
-
-## Source Management
-
-```python
-session = create_conversation("initial_document.pdf")
-
-# Dynamic source management during conversation
-session.add_source("supplementary_data.csv")
-session.add_source("https://example.com/article")
-
-# Remove sources no longer needed
-session.remove_source("initial_document.pdf")
-
-# Check current sources
-current_sources = session.list_sources()
-```
-
-## Session Persistence
-
-Save and load conversation sessions with full context:
-
-```python
-# Save current session
-session_id = session.save()  # Auto-generates filename
-# Or specify path
-session_id = session.save("my_analysis_session.json")
-
-# Load previous session with full history
-loaded_session = load_conversation(session_id)
-
-# Continue where you left off
-loaded_session.ask("Based on our previous discussion, what's next?")
-```
-
-## Session Analytics
-
-```python
-# Get conversation statistics
-stats = session.get_stats()
-print(f"Questions asked: {stats['total_turns']}")
-print(f"Success rate: {stats['success_rate']:.1%}")
-print(f"Sources analyzed: {stats['active_sources']}")
-print(f"Session duration: {stats['session_duration']:.1f}s")
-
-# Review conversation history
-history = session.get_history()  # List of (question, answer) pairs
-detailed = session.get_detailed_history()  # Full metadata
-```
-
-## Advanced Configuration
-
-### Custom History Length
-
-Controls how much previous context is included:
-
-```python
-# Limit context to last 3 turns (default: 5)
-session = create_conversation(sources, max_history_turns=3)
-```
-
-### Custom Processor Configuration
-
-```python
-from gemini_batch import BatchProcessor
-
-# Use custom processor with specific settings
-processor = BatchProcessor(
-    model_name="gemini-2.0-flash",
-    enable_caching=True
-)
-
-session = create_conversation(sources, processor=processor)
-```
-
-### System Instructions with Context
-
-```python
-# System instruction combines with conversation history
-answer = session.ask(
-    "Explain this concept",
-    system_instruction="You are a physics professor"
-)
-```
-
-## Error Handling
-
-The system tracks failed interactions while preserving successful context:
-
-```python
-try:
-    answer = session.ask("Complex question")
-except Exception as e:
-    # Error is logged, but conversation continues
-    stats = session.get_stats()
-    print(f"Error rate: {1 - stats['success_rate']:.1%}")
-    
-# Subsequent questions still work with previous successful context
-session.ask("Different question")
-```
-
-## Common Patterns
-
-### Research Analysis
-
-```python
-# Start with broad analysis
+# Create session with sources
 session = create_conversation("research_papers/")
-themes = session.ask("What are the main research themes?")
 
-# Drill down with context
-methods = session.ask("Which methodologies support these themes?")
-future = session.ask("What research directions do these suggest?")
+# Ask questions with context retention
+answers = session.ask_multiple([
+    "What are the main research themes?",
+    "Which papers discuss efficiency techniques?"
+])
+
+# Natural follow-up builds on previous context
+followup = session.ask("How do these techniques compare in practice?")
 ```
 
-### Learning Sessions
+## Core Functionality
+
+### Session Management
 
 ```python
-# Build understanding progressively
-session = create_conversation("textbook.pdf")
-session.ask("What are the basic concepts?")
-session.ask("How do these concepts relate?")  # Uses previous concepts
-session.ask("What's a practical application?")  # Uses relationships
+# Create with single or multiple sources
+session = create_conversation("document.pdf")
+session = create_conversation(["paper1.pdf", "paper2.pdf", "video.mp4"])
+
+# Ask single or multiple questions
+answer = session.ask("What is this about?")
+answers = session.ask_multiple(["Q1", "Q2", "Q3"])
+
+# Session maintains context automatically
+history = session.get_history()
+stats = session.get_stats()
 ```
 
-### Document Synthesis
+### Context Persistence
 
 ```python
-# Combine multiple document perspectives
-sources = ["report1.pdf", "report2.pdf", "report3.pdf"]
-session = create_conversation(sources)
+# Save/load conversation state
+session.save("conversation.json")
+session = load_conversation("conversation.json")
 
-session.ask("What does each report conclude?")
-session.ask("Where do they agree or disagree?")  # References conclusions
-session.ask("What's the overall consensus?")  # Synthesizes agreement/disagreement
-```
+# Add/remove sources dynamically
+session.add_source("new_paper.pdf")
+session.remove_source("old_paper.pdf")
 
-## Session Management
-
-```python
 # Clear history while keeping sources
 session.clear_history()
-
-# Review active sources
-sources = session.list_sources()
-
-# Get session identifier
-session_id = session.session_id
 ```
+
+### Advanced Configuration
+
+```python
+# Custom processor settings
+processor = BatchProcessor(model="gemini-2.0-flash", enable_caching=True)
+session = ConversationSession("sources/", _processor=processor, max_history_turns=15)
+
+# System instructions per question
+answer = session.ask("Summarize this", system_instruction="You are a research assistant.")
+```
+
+## Context Management
+
+### Automatic Token Budgeting
+
+The framework automatically manages context length:
+
+```python
+# Framework handles large documents + long history
+session = create_conversation("large_document.pdf")
+
+# Automatically:
+# - Estimates token usage
+# - Truncates history when needed
+# - Preserves most recent/relevant context
+# - Logs context management decisions
+
+for i in range(20):
+    session.ask(f"Question {i}")  # History automatically managed
+```
+
+### Context Overflow Handling
+
+```python
+# Graceful handling of context overflow
+session = create_conversation("very_large_document.pdf")
+
+# Framework:
+# - Preserves essential context
+# - Logs overflow warnings
+# - Continues processing
+# - Maintains conversation coherence
+```
+
+## Session Data Structure
+
+```json
+{
+  "session_id": "uuid",
+  "sources": ["document.pdf", "https://..."],
+  "history": [
+    {
+      "question": "What is this about?",
+      "answer": "This document discusses...",
+      "timestamp": "2024-01-01T12:00:00Z",
+      "sources_snapshot": ["document.pdf"],
+      "cache_info": {"cache_hit_ratio": 0.8}
+    }
+  ],
+  "created_at": "2024-01-01T12:00:00Z"
+}
+```
+
+## Best Practices
+
+### Efficient Conversations
+
+```python
+# Batch related questions for efficiency
+session.ask_multiple([
+    "What are the main themes?",
+    "What are the key findings?",
+    "What are the implications?"
+])
+
+# Use follow-ups for clarification
+session.ask("Can you elaborate on the third point?")
+
+# Save progress for long conversations
+if len(session.get_history()) > 10:
+    session.save("checkpoint.json")
+```
+
+### Source Organization
+
+```python
+# Group related sources
+session = create_conversation([
+    "papers/neural_networks/",
+    "papers/attention_mechanisms/",
+    "videos/lectures/"
+])
+
+# Add sources as conversation progresses
+session.add_source("new_paper.pdf")
+session.ask("How does this new paper relate to our discussion?")
+```
+
+## Troubleshooting
+
+### Common Issues
+
+#### "Context too long" warnings
+
+- Framework automatically truncates history
+- Consider saving/loading sessions for very long conversations
+- Use `max_history_turns` to limit history size
+
+#### Session loading errors
+
+- Check file permissions and JSON format
+- Verify sources still exist
+- Consider recreating session with same sources
+
+#### Memory usage
+
+- Large history can consume memory
+- Use `clear_history()` periodically
+- Consider session checkpoints for very long conversations
