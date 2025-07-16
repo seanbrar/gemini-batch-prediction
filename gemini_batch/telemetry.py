@@ -1,10 +1,13 @@
 from collections import deque
 from contextlib import contextmanager
 from contextvars import ContextVar
+from dataclasses import dataclass
 import logging
 import os
 import time
-from typing import Any, List, Protocol
+from typing import Any, List, Protocol, TypeAlias, Union, runtime_checkable
+
+from typing_extensions import deprecated
 
 log = logging.getLogger(__name__)
 
@@ -12,91 +15,79 @@ log = logging.getLogger(__name__)
 _scope_stack_var: ContextVar[List[str]] = ContextVar("scope_stack", default=None)
 _call_count_var: ContextVar[int] = ContextVar("call_count", default=0)
 
-# Zero-overhead compile-time optimization - evaluated once at import time
+# Minimal-overhead optimization - evaluated once at import time
 _TELEMETRY_ENABLED = os.getenv("GEMINI_TELEMETRY") == "1" or os.getenv("DEBUG") == "1"
 
-if _TELEMETRY_ENABLED:
-    # Full implementation for performance-critical code
-    def tele_scope(ctx, name, **metadata):
-        return ctx.scope(name, **metadata)
-else:
-    # Zero-overhead no-op that compiles to just the inner block
-    @contextmanager
-    def tele_scope(ctx, name, **metadata):
-        yield ctx
 
-
+@runtime_checkable
 class TelemetryReporter(Protocol):
-    """
-    Duck-typed protocol for telemetry reporters - no inheritance required!
-    Users can implement any subset of these methods.
-    """
+    """Duck-typed protocol for telemetry reporters."""
 
     def record_timing(self, scope: str, duration: float, **metadata) -> None: ...
     def record_metric(self, scope: str, value: Any, **metadata) -> None: ...
 
 
-class TelemetryContext:
-    """
-    Zero-overhead contextual telemetry with extensible reporting.
+@dataclass(frozen=True, slots=True)
+class _NoOpTelemetryContext:
+    """An immutable and stateless no-op context, optimized for negligible overhead."""
 
-    Provides hierarchical scope tracking and metrics collection with optional
-    reporters. When disabled (no reporters), operations have zero runtime cost.
+    def __call__(self, name: str, **metadata):
+        return self  # Self is already a context manager
 
-    Thread-safe and async-ready via contextvars.
+    def __enter__(self):
+        return self
 
-    Example:
-        >>> reporter = SimpleReporter()
-        >>> tele_context = TelemetryContext(reporter)
-        >>> with tele_context.scope("operation"):
-        ...     expensive_operation()
-        >>> print(reporter.get_report())
-    """
+    def __exit__(self, exc_type, exc_val, exc_tb):
+        return None
+
+    def metric(self, name: str, value: Any, **metadata):
+        pass
+
+    def time(self, name: str, **metadata):
+        return self
+
+    def count(self, name: str, increment: int = 1, **metadata):
+        pass
+
+    def gauge(self, name: str, value: float, **metadata):
+        pass
+
+
+class _EnabledTelemetryContext:
+    """Full-featured telemetry context when enabled."""
+
+    __slots__ = ("reporters",)
 
     def __init__(self, *reporters: TelemetryReporter):
         self.reporters = reporters
 
-    @property
-    def enabled(self) -> bool:
-        """Ultra-fast enabled check - single tuple boolean evaluation"""
-        return bool(self.reporters)
+    def __call__(self, name: str, **metadata):
+        return self._create_scope(name, **metadata)
 
     @contextmanager
-    def scope(self, name: str, **metadata):
-        """Contextual scope that automatically tracks nesting and relative timings"""
-        # Validate scope name
+    def _create_scope(self, name: str, **metadata):
+        """The actual scope implementation when enabled."""
         if not name or not isinstance(name, str):
             raise ValueError("Scope name must be a non-empty string")
 
-        if not self.enabled:
-            yield self
-            return
-
-        # Get thread-local state
         scope_stack = _scope_stack_var.get() or []
         call_count = _call_count_var.get()
-
-        # Build hierarchical scope name
         scope_path = ".".join(scope_stack + [name])
         start_time = time.perf_counter()
 
-        # Push scope and update count
-        token = _scope_stack_var.set(scope_stack + [name])
+        scope_token = _scope_stack_var.set(scope_stack + [name])
         count_token = _call_count_var.set(call_count + 1)
 
         try:
-            yield self  # Return self for chaining operations
+            yield self  # Return self so chained methods work
         finally:
-            # Pop scope and record
             duration = time.perf_counter() - start_time
-            _scope_stack_var.reset(token)
+            _scope_stack_var.reset(scope_token)
             _call_count_var.reset(count_token)
 
-            # Get latest state for metadata
             final_stack = _scope_stack_var.get() or []
             final_count = _call_count_var.get()
 
-            # Enhanced metadata with context
             enhanced_metadata = {
                 "depth": len(final_stack),
                 "call_count": final_count,
@@ -104,13 +95,12 @@ class TelemetryContext:
                 **metadata,
             }
 
-            # Report to all registered reporters safely
             for reporter in self.reporters:
                 try:
                     reporter.record_timing(scope_path, duration, **enhanced_metadata)
                 except Exception as e:
                     log.error(
-                        "Telemetry reporter '%s' failed during record_timing: %s",
+                        "Telemetry reporter '%s' failed: %s",
                         type(reporter).__name__,
                         e,
                         exc_info=True,
@@ -118,9 +108,6 @@ class TelemetryContext:
 
     def metric(self, name: str, value: Any, **metadata):
         """Record a metric within current scope context"""
-        if not self.enabled:
-            return
-
         scope_stack = _scope_stack_var.get() or []
         scope_path = ".".join(scope_stack + [name])
         enhanced_metadata = {
@@ -128,13 +115,12 @@ class TelemetryContext:
             "parent_scope": ".".join(scope_stack) if scope_stack else None,
             **metadata,
         }
-
         for reporter in self.reporters:
             try:
                 reporter.record_metric(scope_path, value, **enhanced_metadata)
             except Exception as e:
                 log.error(
-                    "Telemetry reporter '%s' failed during record_metric: %s",
+                    "Telemetry reporter '%s' failed: %s",
                     type(reporter).__name__,
                     e,
                     exc_info=True,
@@ -143,7 +129,7 @@ class TelemetryContext:
     # Convenience methods for chaining
     def time(self, name: str, **metadata):
         """Alias for scope() - more intuitive for timing operations"""
-        return self.scope(name, **metadata)
+        return self(name, **metadata)
 
     def count(self, name: str, increment: int = 1, **metadata):
         """Record a counter metric"""
@@ -154,7 +140,31 @@ class TelemetryContext:
         self.metric(name, value, metric_type="gauge", **metadata)
 
 
-class SimpleReporter:
+_NO_OP_SINGLETON = _NoOpTelemetryContext()
+
+TelemetryContextProtocol: TypeAlias = Union[
+    _EnabledTelemetryContext, _NoOpTelemetryContext
+]
+
+
+def TelemetryContext(*reporters: TelemetryReporter) -> TelemetryContextProtocol:  # noqa: N802
+    """
+    Factory that returns either a full-featured telemetry context or a
+    single, shared, no-op instance for maximum performance when disabled.
+    """
+    if _TELEMETRY_ENABLED and reporters:
+        return _EnabledTelemetryContext(*reporters)
+    else:
+        # Always return the same, pre-existing no-op instance.
+        return _NO_OP_SINGLETON
+
+
+@deprecated("Use ctx(name, **metadata) instead")
+def tele_scope(ctx: TelemetryContextProtocol, name: str, **metadata):
+    return ctx(name, **metadata)
+
+
+class _SimpleReporter:
     """Built-in reporter for development use.
 
     This reporter collects metrics in memory. To view the collected data,

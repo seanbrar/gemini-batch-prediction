@@ -31,7 +31,7 @@ from .constants import (
     RETRY_BASE_DELAY,
 )
 from .exceptions import APIError
-from .telemetry import TelemetryContext
+from .telemetry import TelemetryContext, TelemetryContextProtocol
 
 log = logging.getLogger(__name__)
 
@@ -44,7 +44,7 @@ class GeminiClient:
 
     def __init__(
         self,
-        telemetry_context: Optional[TelemetryContext] = None,
+        telemetry_context: Optional[TelemetryContextProtocol] = None,
         **config_overrides: Unpack[GeminiConfig],
     ):
         """
@@ -215,7 +215,7 @@ class GeminiClient:
         **options,
     ) -> Union[str, Dict[str, Any]]:
         """Generate content from text, files, URLs, or mixed sources"""
-        with self.tele.scope("client.generate_content"):
+        with self.tele("client.generate_content"):
             return self._execute_generation(
                 content=content,
                 prompts=[prompt] if prompt else [],
@@ -236,7 +236,7 @@ class GeminiClient:
         **options,
     ) -> Union[str, Dict[str, Any]]:
         """Process multiple questions about the same content"""
-        with self.tele.scope("client.generate_batch"):
+        with self.tele("client.generate_batch"):
             if not questions:
                 raise APIError("At least one question is required for batch processing")
 
@@ -261,7 +261,7 @@ class GeminiClient:
         **options,
     ) -> Union[str, Dict[str, Any]]:
         """Main generation logic with retries and error handling"""
-        with self.tele.scope(
+        with self.tele(
             "client.execute_generation",
             attributes={
                 "is_batch": is_batch,
@@ -475,7 +475,7 @@ class GeminiClient:
     ) -> Union[str, Dict[str, Any]]:
         """Process GenAI response, extracting text or structured data"""
         log.debug("Entering telemetry scope: client.process_response")
-        with self.tele.scope(
+        with self.tele(
             "client.process_response",
             attributes={
                 "return_usage": return_usage,
@@ -572,7 +572,7 @@ class GeminiClient:
     ):
         """Execute an API call with exponential backoff and retry"""
         log.debug("Preparing to enter telemetry scope: client.api_call_with_retry")
-        with self.tele.scope("client.api_call_with_retry") as ctx:
+        with self.tele("client.api_call_with_retry") as ctx:
             for attempt in range(max_retries + 1):
                 try:
                     # Use rate limiter before making the call
@@ -635,14 +635,14 @@ class GeminiClient:
 
     def cleanup_expired_caches(self) -> int:
         """Clean up all expired caches managed by the client."""
-        with self.tele.scope("client.cleanup_expired_caches"):
+        with self.tele("client.cleanup_expired_caches"):
             if self.cache_manager:
                 return self.cache_manager.cleanup_expired_caches()
             return 0
 
     def get_cache_metrics(self) -> Optional[Dict[str, Any]]:
         """Get cache metrics if caching is enabled."""
-        with self.tele.scope("client.get_cache_metrics"):
+        with self.tele("client.get_cache_metrics"):
             if self.cache_manager:
                 return self.cache_manager.get_cache_metrics().to_dict()
             return None
@@ -652,7 +652,7 @@ class GeminiClient:
         List all active (not expired) caches.
         NOTE: This can be an expensive operation.
         """
-        with self.tele.scope("client.list_active_caches"):
+        with self.tele("client.list_active_caches"):
             if self.cache_manager:
                 return [
                     {

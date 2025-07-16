@@ -25,7 +25,7 @@ from .conversation import (
 from .exceptions import APIError, GeminiBatchError, MissingKeyError, NetworkError
 from .files import FileType
 from .gemini_client import GeminiClient
-from .telemetry import TelemetryContext
+from .telemetry import TelemetryContext, TelemetryReporter
 
 # Version handling
 try:
@@ -74,5 +74,7 @@ __all__ = [
     "MissingKeyError",
     "NetworkError",
     "SchemaAnalyzer",
+    # Telemetry
     "TelemetryContext",
+    "TelemetryReporter",
 ]

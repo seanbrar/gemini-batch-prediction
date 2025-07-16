@@ -17,7 +17,7 @@ from .prompts import BatchPromptBuilder, StructuredPromptBuilder
 from .response import ResponseProcessor
 from .response.result_builder import ResultBuilder
 from .response.types import ProcessingMetrics, ProcessingOptions
-from .telemetry import TelemetryContext, tele_scope
+from .telemetry import TelemetryContext, TelemetryContextProtocol
 
 log = logging.getLogger(__name__)
 
@@ -28,7 +28,7 @@ class BatchProcessor:
     def __init__(
         self,
         _client: Optional[ClientProtocol] = None,
-        telemetry_context: Optional[TelemetryContext] = None,
+        telemetry_context: Optional[TelemetryContextProtocol] = None,
         **config: Unpack[GeminiConfig],
     ):
         """
@@ -158,8 +158,7 @@ class BatchProcessor:
         3. If comparison requested and batch succeeded, run individual for comparison
         4. Build and return results
         """
-        with tele_scope(
-            self.tele,
+        with self.tele(
             "batch.total_processing",
             question_count=len(questions),
             content_type=type(content).__name__,
@@ -171,8 +170,7 @@ class BatchProcessor:
 
             # Primary execution path
             try:
-                with tele_scope(self.tele, "batch.attempt") as ctx:
-                    # Attempt batch processing first - this either succeeds or raises BatchProcessingError
+                with self.tele("batch.attempt") as ctx:
                     log.info("Attempting batch processing.")
                     batch_answers, batch_metrics = self._process_batch(
                         content, questions, config
@@ -185,9 +183,7 @@ class BatchProcessor:
                     batch_succeeded = True
 
             except BatchProcessingError as e:
-                with tele_scope(
-                    self.tele, "batch.individual_fallback", error_type=type(e).__name__
-                ):
+                with self.tele("batch.individual_fallback", error_type=type(e).__name__):
                     # Batch processing failed - explicitly fall back to individual processing
                     log.warning(
                         "Batch processing failed, falling back to individual calls. Reason: %s",
@@ -208,7 +204,7 @@ class BatchProcessor:
 
             # Comparison run (if requested and batch succeeded)
             if config.compare_methods and batch_succeeded:
-                with tele_scope(self.tele, "batch.comparison_run"):
+                with self.tele("batch.comparison_run"):
                     log.debug(
                         "Comparison mode enabled, running individual processing for metrics."
                     )
@@ -218,7 +214,7 @@ class BatchProcessor:
                     )
 
             # Result building
-            with tele_scope(self.tele, "batch.result_building"):
+            with self.tele("batch.result_building"):
                 return self.result_builder.build_standard_result(
                     questions,
                     batch_answers,  # The definitive answers (batch or fallback)
@@ -235,15 +231,14 @@ class BatchProcessor:
         config: ProcessingOptions,
     ) -> Tuple[List[str], ProcessingMetrics]:
         """Process all questions in a single batch call."""
-        with tele_scope(
-            self.tele,
+        with self.tele(
             "batch.processing",
             method="batch",
             schema_enabled=config.response_schema is not None,
         ), self._metrics_tracker(call_count=1) as metrics:
             # 1. Select prompt builder and analyze schema if needed
             if config.response_schema:
-                with tele_scope(self.tele, "batch.schema_analysis"):
+                with self.tele("batch.schema_analysis"):
                     self.schema_analyzer.analyze(config.response_schema)
                     prompt_builder = StructuredPromptBuilder(config.response_schema)
                     log.debug("Using StructuredPromptBuilder for response schema.")
@@ -252,12 +247,12 @@ class BatchProcessor:
                 log.debug("Using BatchPromptBuilder.")
 
             # 2. Create the batch prompt
-            with tele_scope(self.tele, "batch.prompt_creation"):
+            with self.tele("batch.prompt_creation"):
                 batch_prompt = prompt_builder.create_prompt(questions)
 
             try:
                 # 3. Make the API call - use generate_content since we have a single combined prompt
-                with tele_scope(self.tele, "batch.api_call") as api_ctx:
+                with self.tele("batch.api_call") as api_ctx:
                     # Always request usage internally, but filter user's return_usage to avoid conflicts
                     api_options = {
                         k: v for k, v in config.options.items() if k != "return_usage"
@@ -273,7 +268,7 @@ class BatchProcessor:
                     self.tele.metric("api_calls_successful", 1)
 
                 # 4. Process the successful response
-                with tele_scope(self.tele, "batch.response_processing"):
+                with self.tele("batch.response_processing"):
                     extraction_result = self._extract_and_track_response(
                         response, len(questions), metrics, config
                     )
@@ -311,8 +306,7 @@ class BatchProcessor:
         This method is used either as a fallback when batch processing fails,
         or for comparison when compare_methods=True.
         """
-        with tele_scope(
-            self.tele,
+        with self.tele(
             "individual.processing",
             method="individual",
             question_count=len(questions),
@@ -320,7 +314,7 @@ class BatchProcessor:
             answers = []
 
             for i, question in enumerate(questions):
-                with tele_scope(self.tele, f"individual.question_{i + 1}"):
+                with self.tele(f"individual.question_{i + 1}"):
                     try:
                         # Always request usage internally, but filter user's return_usage to avoid conflicts
                         api_options = {
