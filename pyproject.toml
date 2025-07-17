@@ -24,20 +24,30 @@ dependencies = [
 [project.optional-dependencies]
 dev = [
     "pytest>=8.4.0",
-    "pytest-cov>=6.1.1", 
+    "pytest-cov>=6.1.1",
     "pytest-mock>=3.14.1",
     "pyfakefs>=5.0.0",
     "pydantic>=2.0.0",
+    "ruff>=0.5.0",
+    "pip-tools",
+    "vulture",
+    "pytest-golden",
 ]
 viz = [
     "matplotlib>=3.10.3",
     "seaborn>=0.13.2",
     "pandas>=2.3.0",
 ]
+# Combined group for easy installation
+all = [
+    "gemini-batch[dev,viz]",
+]
 
 [project.urls]
 Homepage = "https://github.com/seanbrar/gemini-batch-prediction"
 Repository = "https://github.com/seanbrar/gemini-batch-prediction"
+
+# --- Build, Test, and Coverage Tools ---
 
 [tool.setuptools.packages.find]
 where = ["src"]
@@ -46,8 +56,9 @@ exclude = ["notebooks*", "tests*", "examples*"]
 [tool.pytest.ini_options]
 testpaths = ["tests"]
 addopts = [
+    "--import-mode=importlib",
     "--cov=gemini_batch",
-    "--cov-report=html:coverage_html_report", 
+    "--cov-report=html:coverage_html_report",
     "--cov-report=term-missing",
     "--cov-fail-under=80",
     "-v"
@@ -58,8 +69,7 @@ source = ["src/gemini_batch"]
 omit = [
     "tests/*",
     "src/gemini_batch/__init__.py",
-    "src/gemini_batch/visualization.py",
-    "src/gemini_batch/files/*",  # Temporarily excluded
+    "src/gemini_batch/analysis/visualization.py",
     "setup.py"
 ]
 
@@ -67,10 +77,31 @@ omit = [
 exclude_lines = [
     "pragma: no cover",
     "def __repr__",
-    "raise AssertionError", 
+    "raise AssertionError",
     "raise NotImplementedError",
     "if __name__ == .__main__.:"
 ]
 
 [tool.coverage.html]
 directory = "coverage_html_report"
+
+# --- Ruff Linter and Formatter Configuration ---
+
+[tool.ruff]
+line-length = 88
+target-version = "py313"
+
+[tool.ruff.format]
+quote-style = "double"
+indent-style = "space"
+skip-magic-trailing-comma = false
+line-ending = "auto"
+
+[tool.ruff.lint]
+select = ["E", "F", "I", "N", "W", "UP", "B", "C4", "SIM"]
+ignore = []
+
+[tool.ruff.lint.isort]
+known-first-party = ["gemini_batch"]
+force-sort-within-sections = true
+split-on-trailing-comma = true
