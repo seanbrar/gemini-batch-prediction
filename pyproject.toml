@@ -40,6 +40,7 @@ Homepage = "https://github.com/seanbrar/gemini-batch-prediction"
 Repository = "https://github.com/seanbrar/gemini-batch-prediction"
 
 [tool.setuptools.packages.find]
+where = ["src"]
 exclude = ["notebooks*", "tests*", "examples*"]
 
 [tool.pytest.ini_options]
@@ -53,12 +54,12 @@ addopts = [
 ]
 
 [tool.coverage.run]
-source = ["gemini_batch"]
+source = ["src/gemini_batch"]
 omit = [
     "tests/*",
-    "gemini_batch/__init__.py",
-    "gemini_batch/visualization.py",
-    "gemini_batch/files/*",  # Temporarily excluded
+    "src/gemini_batch/__init__.py",
+    "src/gemini_batch/visualization.py",
+    "src/gemini_batch/files/*",  # Temporarily excluded
     "setup.py"
 ]
 
