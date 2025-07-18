@@ -1,0 +1,55 @@
+# This file characterizes the behavior of the BatchProcessor's comparison mode.
+# It simulates a scenario where `compare_methods=True`, which should trigger
+# both a batch API call and subsequent individual calls for each question.
+# The expected output verifies that both sets of results are present.
+input:
+  content: Content for comparison mode test.
+  questions:
+  - First comparison question
+  - Second comparison question
+output:
+  question_count: 2
+  answers:
+  - Batch answer for Q1.
+  - Batch answer for Q2.
+  efficiency:
+    individual_token_efficiency:
+    batch_token_efficiency:
+    token_efficiency_ratio:
+    overall_efficiency:
+    meets_target: true
+    cache_efficiency:
+      individual_cache_ratio: 0.0
+      batch_cache_ratio: 0.0
+      cache_enabled: false
+    comparison_available: true
+    cache_aware_calculation: false
+  metrics:
+    batch:
+      calls: 1
+      prompt_tokens: 0
+      output_tokens: 0
+      cached_tokens: 0
+      total_tokens: 0
+      effective_tokens: 0
+      cache_hit_ratio: 0.0
+    individual:
+      calls: 2
+      prompt_tokens: 0
+      output_tokens: 0
+      cached_tokens: 0
+      total_tokens: 0
+      effective_tokens: 0
+      cache_hit_ratio: 0.0
+  cache_summary:
+    cache_enabled: false
+  individual_answers:
+  - Individual answer for Q1.
+  - Individual answer for Q2.
+  usage:
+    prompt_tokens: 0
+    output_tokens: 0
+    total_tokens: 0
+    cached_tokens: 0
+    effective_tokens: 0
+    cache_hit_ratio: 0.0

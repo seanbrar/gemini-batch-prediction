@@ -63,6 +63,7 @@ addopts = [
     "--cov-fail-under=80",
     "-v"
 ]
+enable_assertion_pass_hook = true
 
 [tool.coverage.run]
 source = ["src/gemini_batch"]
