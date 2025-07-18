@@ -311,9 +311,8 @@ class GeminiClient:
                     )
 
                 # 2. Execute the plan based on the strategy
-                raw_response = None
                 if action.strategy == CacheStrategy.GENERATE_RAW:
-                    raw_response = self._generate_with_parts(
+                    return self._generate_with_parts(
                         action.payload.parts,  # Raw parts
                         system_instruction=system_instruction,
                         return_usage=return_usage,
@@ -322,7 +321,7 @@ class GeminiClient:
                     )
 
                 elif action.strategy == CacheStrategy.GENERATE_WITH_OPTIMIZED_PARTS:
-                    raw_response = self._generate_with_parts(
+                    return self._generate_with_parts(
                         action.payload.parts,  # Optimized parts
                         system_instruction=system_instruction,
                         return_usage=return_usage,
@@ -331,7 +330,7 @@ class GeminiClient:
                     )
 
                 elif action.strategy == CacheStrategy.GENERATE_FROM_EXPLICIT_CACHE:
-                    raw_response = self._generate_with_cache_reference(
+                    return self._generate_with_cache_reference(
                         cache_name=action.payload.cache_name,
                         prompt_parts=action.payload.parts,
                         return_usage=return_usage,
@@ -341,18 +340,13 @@ class GeminiClient:
 
                 else:
                     # Fallback for unknown strategies
-                    raw_response = self._generate_with_parts(
+                    return self._generate_with_parts(
                         parts,
                         system_instruction=system_instruction,
                         return_usage=return_usage,
                         response_schema=response_schema,
                         **options,
                     )
-
-                # 3. Process the response (responsibility remains with the client)
-                return self._process_response(
-                    raw_response, return_usage, response_schema
-                )
 
             except Exception as e:
                 # The client is responsible for top-level error handling.
