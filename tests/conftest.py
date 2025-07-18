@@ -94,16 +94,6 @@ def batch_processor(mock_gemini_client):
     return BatchProcessor(_client=mock_gemini_client)
 
 
-@pytest.fixture
-def fs(fs):
-    """
-    A fixture for pyfakefs that automatically enables OS-specific path separators.
-    This makes filesystem tests more robust across different operating systems.
-    """
-    fs.os = os
-    return fs
-
-
 # --- Advanced Fixtures for Client Behavior Testing ---
 
 
