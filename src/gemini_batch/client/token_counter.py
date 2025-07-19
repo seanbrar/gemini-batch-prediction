@@ -1,4 +1,4 @@
-import logging
+import logging  # noqa: D100
 from typing import Any
 
 from ..config import ConfigManager
@@ -21,7 +21,7 @@ class TokenCounter:
     integrates with the configuration system to recommend optimal caching strategies.
     """
 
-    def __init__(self, client, config_manager: ConfigManager):
+    def __init__(self, client, config_manager: ConfigManager):  # noqa: D107
         self.client = client
         self.config_manager = config_manager
 
@@ -29,7 +29,7 @@ class TokenCounter:
         self,
         model: str,
         content: Any,
-        prefer_implicit: bool = True,
+        prefer_implicit: bool = True,  # noqa: FBT001, FBT002
     ) -> dict[str, Any]:
         """Get comprehensive token estimate optimized for caching decisions.
 

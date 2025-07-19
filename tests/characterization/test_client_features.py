@@ -28,7 +28,7 @@ def test_explicit_caching_behavior(
 
     # We define a side effect to log the interactions with the mocked API.
     # This lets us capture the behavior of our client.
-    def log_generate_content(*args, **kwargs):
+    def log_generate_content(*args, **kwargs):  # noqa: ARG001
         call_details = {"method": "generate_content"}
         # Check if the call is using a cache
         if (
@@ -49,7 +49,7 @@ def test_explicit_caching_behavior(
         mock_response.usage_metadata.cached_content_token_count = 0
         return mock_response
 
-    def log_cache_create(*args, **kwargs):
+    def log_cache_create(*args, **kwargs):  # noqa: ARG001
         interaction_log.append({"method": "caches.create"})
         # The conftest fixture already configures the return value for this
         return mocked_internal_genai_client.caches.create.return_value

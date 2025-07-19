@@ -1,10 +1,10 @@
-"""Usage metrics extraction from API responses"""
+"""Usage metrics extraction from API responses"""  # noqa: D415
 
 from typing import Any
 
 
 def _get_token_count(usage_obj, attr_name: str) -> int:
-    """Safely extract token count from usage object"""
+    """Safely extract token count from usage object"""  # noqa: D415
     try:
         value = getattr(usage_obj, attr_name, 0)
         # Handle None values and ensure we return an int
@@ -15,7 +15,7 @@ def _get_token_count(usage_obj, attr_name: str) -> int:
 
 
 def extract_usage_metrics(response) -> dict[str, int]:
-    """Extract token usage from API response"""
+    """Extract token usage from API response"""  # noqa: D415
     # Default values
     prompt_tokens = 0
     output_tokens = 0
@@ -74,7 +74,7 @@ def calculate_cache_savings(
 
     # Cache effectiveness (how much of the potential was cached)
     # Handle zero prompt_tokens case correctly
-    if prompt_tokens == 0:
+    if prompt_tokens == 0:  # noqa: SIM108
         cache_effectiveness = 0.0
     else:
         cache_effectiveness = cached_tokens / prompt_tokens
@@ -89,7 +89,7 @@ def calculate_cache_savings(
 
 def extract_detailed_usage_metrics(
     response,
-    include_cache_analysis: bool = True,
+    include_cache_analysis: bool = True,  # noqa: FBT001, FBT002
 ) -> dict[str, Any]:
     """Extract comprehensive usage metrics with optional cache analysis.
 

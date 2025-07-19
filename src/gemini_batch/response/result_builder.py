@@ -1,15 +1,15 @@
-import logging
+import logging  # noqa: D100
 from typing import Any
 
-from .types import ProcessingMetrics, ProcessingOptions
+from .types import ProcessingMetrics, ProcessingOptions  # noqa: TC001
 
 log = logging.getLogger(__name__)
 
 
 class ResultBuilder:
-    """Unified result building for different processing modes"""
+    """Unified result building for different processing modes"""  # noqa: D415
 
-    def __init__(self, efficiency_calculator):
+    def __init__(self, efficiency_calculator):  # noqa: D107
         self.efficiency_calculator = efficiency_calculator
 
     def build_standard_result(
@@ -21,7 +21,7 @@ class ResultBuilder:
         individual_answers: list[str] | None,
         config: "ProcessingOptions",
     ) -> dict[str, Any]:
-        """Build result for standard processing mode"""
+        """Build result for standard processing mode"""  # noqa: D415
         # Check if batch processing failed (0 calls) and we have individual metrics
         if batch_metrics.calls == 0 and individual_metrics.calls > 0:
             # Batch failed, use individual metrics as primary
@@ -87,7 +87,7 @@ class ResultBuilder:
         individual_metrics: "ProcessingMetrics",
         individual_answers: list[str],
     ) -> None:
-        """Add efficiency comparison metrics to ResponseProcessor result"""
+        """Add efficiency comparison metrics to ResponseProcessor result"""  # noqa: D415
         efficiency = self.efficiency_calculator(individual_metrics, batch_metrics)
 
         result.update(
@@ -108,7 +108,7 @@ class ResultBuilder:
         individual_answers: list[str] | None,
         config: "ProcessingOptions",
     ) -> None:
-        """Add optional data to result dictionary"""
+        """Add optional data to result dictionary"""  # noqa: D415
         # Add structured data if available
         if batch_metrics.structured_output and batch_metrics.structured_output.get(
             "structured_data",

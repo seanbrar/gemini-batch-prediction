@@ -1,4 +1,4 @@
-"""File operations for the Gemini Batch Framework"""
+"""File operations for the Gemini Batch Framework"""  # noqa: D415
 
 import logging
 from pathlib import Path
@@ -13,19 +13,19 @@ log = logging.getLogger(__name__)
 
 
 class FileOperations:
-    """Low-level file and directory operations"""
+    """Low-level file and directory operations"""  # noqa: D415
 
     def __init__(self):
-        """Initialize file operations components"""
+        """Initialize file operations components"""  # noqa: D415
         self.scanner = DirectoryScanner()
         self.extractor_manager = ContentExtractorManager()
 
     def _validate_path(
         self,
         file_path: str | Path,
-        must_be_file: bool = True,
+        must_be_file: bool = True,  # noqa: FBT001, FBT002
     ) -> Path:
-        """Validate path exists and is of the correct type"""
+        """Validate path exists and is of the correct type"""  # noqa: D415
         path = Path(file_path)
 
         if not path.exists():
@@ -39,7 +39,7 @@ class FileOperations:
         return path
 
     def extract_content(self, file_path: str | Path) -> ExtractedContent:
-        """Extract content from a file for processing"""
+        """Extract content from a file for processing"""  # noqa: D415
         path = self._validate_path(file_path, must_be_file=True)
 
         # Create FileInfo for the extractor
@@ -49,11 +49,11 @@ class FileOperations:
         return self.extractor_manager.extract_content(file_info)
 
     def extract_from_url(self, url: str) -> ExtractedContent:
-        """Extract content from URL using URLExtractor"""
+        """Extract content from URL using URLExtractor"""  # noqa: D415
         return self.extractor_manager.extract_from_url(url)
 
     def validate_file(self, file_path: str | Path) -> dict[str, Any]:
-        """Validate a file and return metadata"""
+        """Validate a file and return metadata"""  # noqa: D415
         path = self._validate_path(file_path, must_be_file=True)
 
         # Get basic file info
@@ -91,16 +91,16 @@ class FileOperations:
         directory_path: str | Path,
         **kwargs,
     ) -> dict[FileType, list[FileInfo]]:
-        """Scan directory for supported files"""
+        """Scan directory for supported files"""  # noqa: D415
         path = self._validate_path(directory_path, must_be_file=False)
         return self.scanner.scan_directory(path, **kwargs)
 
     def get_file_info(
         self,
         file_path: str | Path,
-        root_dir: str | Path = None,
+        root_dir: str | Path = None,  # noqa: RUF013
     ) -> FileInfo:
-        """Get FileInfo object for a single file"""
+        """Get FileInfo object for a single file"""  # noqa: D415
         path = self._validate_path(file_path, must_be_file=True)
 
         root_dir = Path(root_dir) if root_dir else path.parent
@@ -111,12 +111,12 @@ class FileOperations:
         directory_path: str | Path,
         **kwargs,
     ) -> dict[str, Any]:
-        """Get a summary of files in a directory"""
+        """Get a summary of files in a directory"""  # noqa: D415
         scan_results = self.scan_directory(directory_path, **kwargs)
         return self.scanner.get_summary(scan_results)
 
     def process_source(self, source: str | Path) -> ExtractedContent:
-        """Process any source type (text, URLs, files, directories) using appropriate extractors"""
+        """Process any source type (text, URLs, files, directories) using appropriate extractors"""  # noqa: D415
         result = self.extractor_manager.process_source(source)
         log.debug(
             "Processed source '%s': %s -> %s",
@@ -127,7 +127,7 @@ class FileOperations:
         return result
 
     def is_multimodal_content(self, extracted_content: ExtractedContent) -> bool:
-        """Check if extracted content is multimodal (PDF, image, video, audio)"""
+        """Check if extracted content is multimodal (PDF, image, video, audio)"""  # noqa: D415
         multimodal_types = {
             FileType.PDF,
             FileType.IMAGE,

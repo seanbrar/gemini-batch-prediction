@@ -1,6 +1,6 @@
 """Content processing orchestration - converts multiple mixed sources
 into processed ExtractedContent objects for API consumption
-"""
+"""  # noqa: D205, D415
 
 import io
 import logging
@@ -19,7 +19,7 @@ from .file_upload_manager import FileUploadManager
 
 
 def _flatten_sources(sources: str | Path | list) -> list[str | Path]:
-    """Flatten nested source lists to avoid deep recursion in processing"""
+    """Flatten nested source lists to avoid deep recursion in processing"""  # noqa: D415
     if not isinstance(sources, list):
         return [sources]
 
@@ -52,13 +52,13 @@ class ContentProcessor:
     needing to handle complex source orchestration logic.
     """
 
-    def __init__(self):
+    def __init__(self):  # noqa: D107
         self.file_ops = FileOperations()
         # Lazy initialization of file upload manager
         self._file_upload_manager: FileUploadManager | None = None
 
     def _get_file_upload_manager(self, client: Any) -> FileUploadManager:
-        """Lazy initialization of file upload manager"""
+        """Lazy initialization of file upload manager"""  # noqa: D415
         if self._file_upload_manager is None:
             self._file_upload_manager = FileUploadManager(client)
         return self._file_upload_manager
@@ -84,7 +84,7 @@ class ContentProcessor:
         self,
         source: str | Path | list[str | Path],
     ) -> list[ExtractedContent]:
-        """Convert any content source into list of ExtractedContent for API consumption"""
+        """Convert any content source into list of ExtractedContent for API consumption"""  # noqa: D415
         # Flatten nested lists first to avoid deep recursion
         flattened_sources = _flatten_sources(source)
 
@@ -102,14 +102,14 @@ class ContentProcessor:
         return extracted_contents
 
     def is_multimodal_content(self, extracted_content: ExtractedContent) -> bool:
-        """Check if content is multimodal by delegating to FileOperations"""
+        """Check if content is multimodal by delegating to FileOperations"""  # noqa: D415
         return self.file_ops.is_multimodal_content(extracted_content)
 
     def _process_single_source(
         self,
         source: str | Path,
     ) -> list[ExtractedContent]:
-        """Process a single content source to list of ExtractedContent (directories expand to multiple)"""
+        """Process a single content source to list of ExtractedContent (directories expand to multiple)"""  # noqa: D415
         try:
             # Get initial extraction from file operations
             extracted_content = self.file_ops.process_source(source)
@@ -129,7 +129,7 @@ class ContentProcessor:
         self,
         directory_extract: ExtractedContent,
     ) -> list[ExtractedContent]:
-        """Expand a directory marker into individual file extractions"""
+        """Expand a directory marker into individual file extractions"""  # noqa: D415
         directory_path = Path(directory_extract.metadata["directory_path"])
         log.debug("Expanding directory: %s", directory_path)
 
@@ -139,7 +139,7 @@ class ContentProcessor:
 
             # Flatten all files into a single list
             all_files = []
-            for file_type, files in categorized_files.items():
+            for file_type, files in categorized_files.items():  # noqa: B007
                 all_files.extend(files)
 
             if not all_files:
@@ -197,7 +197,7 @@ class ContentProcessor:
     def create_api_parts(
         self,
         extracted_contents: list[ExtractedContent],
-        cache_enabled: bool = False,
+        cache_enabled: bool = False,  # noqa: FBT001, FBT002
         client: Any | None = None,
     ) -> list[types.Part]:
         """Coordinate conversion of extracted content to API parts.
@@ -221,7 +221,7 @@ class ContentProcessor:
             self.file_ops.is_multimodal_content(e) for e in extracted_contents
         )
 
-        for i, extracted in enumerate(extracted_contents):
+        for i, extracted in enumerate(extracted_contents):  # noqa: B007
             # Make upload decision based on strategy and caching
             strategy = self._determine_processing_strategy(
                 extracted,
@@ -247,8 +247,8 @@ class ContentProcessor:
     def _determine_processing_strategy(
         self,
         extracted: ExtractedContent,
-        cache_enabled: bool,
-        is_multimodal: bool,
+        cache_enabled: bool,  # noqa: FBT001
+        is_multimodal: bool,  # noqa: FBT001
     ) -> str:
         """Determine processing strategy, forcing upload for multimodal if caching."""
         strategy = extracted.processing_strategy
@@ -269,7 +269,7 @@ class ContentProcessor:
         extracted: ExtractedContent,
         client: Any | None,
     ) -> types.Part:
-        """Coordinate file upload through low-level utility"""
+        """Coordinate file upload through low-level utility"""  # noqa: D415
         # Handle arXiv PDFs that need download-first-then-upload
         if extracted.extraction_method == "arxiv_pdf_download":
             log.debug("Handling arXiv PDF upload for: %s", extracted.file_info.path)
@@ -308,7 +308,7 @@ class ContentProcessor:
         extracted: ExtractedContent,
         client: Any | None,
     ) -> types.Part:
-        """Handle arXiv PDF upload using Files API (for large PDFs)"""
+        """Handle arXiv PDF upload using Files API (for large PDFs)"""  # noqa: D415
         if client is None:
             raise APIError("Client required for arXiv PDF upload but not provided")
 
@@ -336,7 +336,7 @@ class ContentProcessor:
         )
 
     def _create_url_part(self, extracted: ExtractedContent) -> types.Part:
-        """Create part from URL-based content (YouTube, PDF URLs)"""
+        """Create part from URL-based content (YouTube, PDF URLs)"""  # noqa: D415
         url = extracted.metadata.get("url")
         if url:
             return types.Part(file_data=types.FileData(file_uri=url))
@@ -344,7 +344,7 @@ class ContentProcessor:
         return types.Part(text=extracted.content)
 
     def _create_inline_part(self, extracted: ExtractedContent) -> types.Part:
-        """Create inline part from extracted content - handles URLs and files"""
+        """Create inline part from extracted content - handles URLs and files"""  # noqa: D415
         if extracted.file_path:
             # File path - read file data
             content_bytes = extracted.file_path.read_bytes()
@@ -385,7 +385,7 @@ class ContentProcessor:
         extracted: ExtractedContent,
         source_url: str,
     ) -> bytes:
-        """Download URL content"""
+        """Download URL content"""  # noqa: D415
         # Check if content is cached to avoid double download
         if extracted.metadata.get("content_cached", False):
             # Get cached content from URLExtractor
@@ -419,7 +419,7 @@ class ContentProcessor:
         self,
         parts: list[types.Part],
     ) -> tuple[list[types.Part], list[types.Part]]:
-        """Separate content parts from prompt parts for explicit caching"""
+        """Separate content parts from prompt parts for explicit caching"""  # noqa: D415
         # Heuristic: cache large text and all file parts. Keep small text as prompt.
         content_parts = []
         prompt_parts = []
@@ -431,7 +431,7 @@ class ContentProcessor:
         return content_parts, prompt_parts
 
     def optimize_for_implicit_cache(self, parts: list[types.Part]) -> list[types.Part]:
-        """Prepares parts for implicit caching by merging text parts"""
+        """Prepares parts for implicit caching by merging text parts"""  # noqa: D415
         if not parts:
             return []
 

@@ -1,4 +1,4 @@
-"""File upload management for Gemini Files API"""
+"""File upload management for Gemini Files API"""  # noqa: D415
 
 from pathlib import Path
 import time
@@ -11,9 +11,9 @@ from ..exceptions import APIError
 
 
 class FileUploadManager:
-    """Manages file uploads to Gemini Files API with processing status tracking"""
+    """Manages file uploads to Gemini Files API with processing status tracking"""  # noqa: D415
 
-    def __init__(self, client: genai.Client):
+    def __init__(self, client: genai.Client):  # noqa: D107
         self.client = client
 
     def upload_and_wait(self, file_path: Path) -> Any:

@@ -1,4 +1,4 @@
-"""Main Gemini API client for content generation and batch processing"""
+"""Main Gemini API client for content generation and batch processing"""  # noqa: D415
 
 from collections.abc import Callable
 import logging
@@ -38,7 +38,7 @@ log = logging.getLogger(__name__)
 class GeminiClient:
     """A unified, zero-ceremony Gemini client that uses ambient configuration but
     allows for local overrides, providing a simple and flexible interface.
-    """
+    """  # noqa: D205
 
     def __init__(
         self,
@@ -96,7 +96,7 @@ class GeminiClient:
             )
 
     def _get_rate_limit_config(self) -> RateLimitConfig:
-        """Get rate limiting configuration for the current model"""
+        """Get rate limiting configuration for the current model"""  # noqa: D415
         try:
             rate_config = self.config_manager.get_rate_limiter_config(
                 self.config_manager.model,
@@ -112,7 +112,7 @@ class GeminiClient:
             )
 
     def get_config_summary(self) -> dict[str, Any]:
-        """Get current configuration summary for debugging"""
+        """Get current configuration summary for debugging"""  # noqa: D415
         summary = self.config_manager.get_config_summary()
         summary.update(
             {
@@ -147,7 +147,7 @@ class GeminiClient:
 
         return summary
 
-    def should_cache_content(self, content, prefer_implicit: bool = True) -> bool:
+    def should_cache_content(self, content, prefer_implicit: bool = True) -> bool:  # noqa: FBT001, FBT002
         """Simple caching decision - returns True if content should be cached.
 
         Returns False when caching is disabled - this is the expected behavior.
@@ -167,7 +167,7 @@ class GeminiClient:
     def analyze_caching_strategy(
         self,
         content,
-        prefer_implicit: bool = True,
+        prefer_implicit: bool = True,  # noqa: FBT001, FBT002
     ) -> dict[str, Any]:
         """Detailed caching analysis with strategy recommendations.
 
@@ -210,11 +210,11 @@ class GeminiClient:
         content: str | Path | list[str | Path],
         prompt: str | None = None,
         system_instruction: str | None = None,
-        return_usage: bool = False,
+        return_usage: bool = False,  # noqa: FBT001, FBT002
         response_schema: Any | None = None,
         **options,
     ) -> str | dict[str, Any]:
-        """Generate content from text, files, URLs, or mixed sources"""
+        """Generate content from text, files, URLs, or mixed sources"""  # noqa: D415
         with self.tele("client.generate_content"):
             return self._execute_generation(
                 content=content,
@@ -231,11 +231,11 @@ class GeminiClient:
         content: str | Path | list[str | Path],
         questions: list[str],
         system_instruction: str | None = None,
-        return_usage: bool = False,
+        return_usage: bool = False,  # noqa: FBT001, FBT002
         response_schema: Any | None = None,
         **options,
     ) -> str | dict[str, Any]:
-        """Process multiple questions about the same content"""
+        """Process multiple questions about the same content"""  # noqa: D415
         with self.tele("client.generate_batch"):
             if not questions:
                 raise APIError("At least one question is required for batch processing")
@@ -255,12 +255,12 @@ class GeminiClient:
         content: str | Path | list[str | Path],
         prompts: list[str],
         system_instruction: str | None = None,
-        return_usage: bool = False,
+        return_usage: bool = False,  # noqa: FBT001, FBT002
         response_schema: Any | None = None,
-        is_batch: bool = False,
+        is_batch: bool = False,  # noqa: FBT001, FBT002
         **options,
     ) -> str | dict[str, Any]:
-        """Main generation logic with retries and error handling"""
+        """Main generation logic with retries and error handling"""  # noqa: D415
         with self.tele(
             "client.execute_generation",
             attributes={
@@ -269,7 +269,7 @@ class GeminiClient:
                 "has_system_instruction": bool(system_instruction),
                 "has_response_schema": bool(response_schema),
             },
-        ) as ctx:
+        ) as ctx:  # noqa: F841
             # Handle prompts by combining them with content
             if prompts:
                 if is_batch:
@@ -283,7 +283,7 @@ class GeminiClient:
                         content = f"{content}\n\n{combined_prompt}"
                     elif isinstance(content, list):
                         # Add prompt to the end of the content list
-                        content = content + [combined_prompt]
+                        content = content + [combined_prompt]  # noqa: RUF005
                     else:
                         # For file content, add prompt as additional text
                         content = [content, combined_prompt]
@@ -293,7 +293,7 @@ class GeminiClient:
                     if isinstance(content, str):
                         content = f"{content}\n\n{single_prompt}"
                     elif isinstance(content, list):
-                        content = content + [single_prompt]
+                        content = content + [single_prompt]  # noqa: RUF005
                     else:
                         content = [content, single_prompt]
 
@@ -364,11 +364,11 @@ class GeminiClient:
         self,
         parts: list[types.Part],
         system_instruction: str | None = None,
-        return_usage: bool = False,
+        return_usage: bool = False,  # noqa: FBT001, FBT002
         response_schema: Any | None = None,
         **options,
     ) -> str | dict[str, Any]:
-        """Low-level generation from processed parts"""
+        """Low-level generation from processed parts"""  # noqa: D415
 
         def api_call():
             # Build configuration properly
@@ -408,11 +408,11 @@ class GeminiClient:
         self,
         cache_name: str,
         prompt_parts: list[types.Part],
-        return_usage: bool = False,
+        return_usage: bool = False,  # noqa: FBT001, FBT002
         response_schema: Any | None = None,
         **options,
     ) -> str | dict[str, Any]:
-        """Generate content using explicit cache reference"""
+        """Generate content using explicit cache reference"""  # noqa: D415
 
         def api_call():
             # Build configuration properly
@@ -452,7 +452,7 @@ class GeminiClient:
         )
 
     def _get_content_type_description(self, content) -> str:
-        """Get a user-friendly description of the content type"""
+        """Get a user-friendly description of the content type"""  # noqa: D415
         if isinstance(content, str):
             return "text"
         if isinstance(content, Path):
@@ -467,11 +467,11 @@ class GeminiClient:
     def _process_response(
         self,
         response,
-        return_usage: bool = False,
+        return_usage: bool = False,  # noqa: FBT001, FBT002
         response_schema: Any | None = None,
-        extra_metadata: dict[str, Any] | None = None,
+        extra_metadata: dict[str, Any] | None = None,  # noqa: ARG002
     ) -> str | dict[str, Any]:
-        """Process GenAI response, extracting text or structured data"""
+        """Process GenAI response, extracting text or structured data"""  # noqa: D415
         log.debug("Entering telemetry scope: client.process_response")
         with self.tele(
             "client.process_response",
@@ -552,7 +552,7 @@ class GeminiClient:
         usage_info: dict[str, int],
         response,
     ) -> dict[str, int]:
-        """Enhance usage metadata with cache-specific metrics"""
+        """Enhance usage metadata with cache-specific metrics"""  # noqa: D415
         if hasattr(response, "usage_metadata"):
             cache_usage = response.usage_metadata
             usage_info["cached_content_token_count"] = (
@@ -569,14 +569,14 @@ class GeminiClient:
 
         return usage_info
 
-    def _api_call_with_retry(
+    def _api_call_with_retry(  # noqa: RET503
         self,
         api_call_func: Callable,
         max_retries: int = MAX_RETRIES,
     ):
-        """Execute an API call with exponential backoff and retry"""
+        """Execute an API call with exponential backoff and retry"""  # noqa: D415
         log.debug("Preparing to enter telemetry scope: client.api_call_with_retry")
-        with self.tele("client.api_call_with_retry") as ctx:
+        with self.tele("client.api_call_with_retry") as ctx:  # noqa: F841
             for attempt in range(max_retries + 1):
                 try:
                     # Use rate limiter before making the call
@@ -654,7 +654,7 @@ class GeminiClient:
     def list_active_caches(self) -> list[dict[str, Any]]:
         """List all active (not expired) caches.
         NOTE: This can be an expensive operation.
-        """
+        """  # noqa: D205
         with self.tele("client.list_active_caches"):
             if self.cache_manager:
                 return [
@@ -669,5 +669,5 @@ class GeminiClient:
                 ]
             return []
 
-    def __repr__(self):
+    def __repr__(self):  # noqa: D105
         return f"<GeminiClient config={self.config_manager!r}>"

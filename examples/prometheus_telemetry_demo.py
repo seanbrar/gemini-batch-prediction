@@ -20,7 +20,7 @@ To use with a real Prometheus server:
    ```
 
 3. Keep PrometheusReporter unchanged - it works with both mock and real clients.
-"""
+"""  # noqa: D415
 
 import os
 
@@ -35,7 +35,7 @@ from gemini_batch.telemetry import TelemetryContext, TelemetryReporter
 class MockPrometheusClient:
     """Mock Prometheus client for demonstration."""
 
-    def __init__(self):
+    def __init__(self):  # noqa: D107
         self._metrics = {}
 
     def _get_metric_key(self, name: str, labels: dict[str, str]) -> str:
@@ -44,8 +44,8 @@ class MockPrometheusClient:
         label_str = ",".join(f'{k}="{v}"' for k, v in sorted(labels.items()))
         return f"{name}{{{label_str}}}"
 
-    def Counter(
-        self, name: str, description: str = "", labelnames: tuple[str, ...] = ()
+    def Counter(  # noqa: D102, N802
+        self, name: str, description: str = "", labelnames: tuple[str, ...] = ()  # noqa: ARG002
     ):
         self._metrics.setdefault(
             name, {"type": "COUNTER", "desc": description, "values": {}}
@@ -65,8 +65,8 @@ class MockPrometheusClient:
 
         return LabeledCounter()
 
-    def Histogram(
-        self, name: str, description: str = "", labelnames: tuple[str, ...] = ()
+    def Histogram(  # noqa: D102, N802
+        self, name: str, description: str = "", labelnames: tuple[str, ...] = ()  # noqa: ARG002
     ):
         self._metrics.setdefault(
             name, {"type": "HISTOGRAM", "desc": description, "values": {}}
@@ -117,7 +117,7 @@ class MockPrometheusClient:
 class PrometheusReporter(TelemetryReporter):
     """TelemetryReporter that sends metrics to Prometheus."""
 
-    def __init__(self, client: Any, model_name: str):
+    def __init__(self, client: Any, model_name: str):  # noqa: D107
         self.prometheus = client
         self.model_name = model_name
         self.api_call_duration = self.prometheus.Histogram(
@@ -136,12 +136,12 @@ class PrometheusReporter(TelemetryReporter):
             labelnames=("model",),
         )
 
-    def record_timing(self, scope: str, duration: float, **metadata):
+    def record_timing(self, scope: str, duration: float, **metadata):  # noqa: ARG002
         """Maps timing data to Prometheus Histograms."""
         if scope.endswith("client.api_call_with_retry"):
             self.api_call_duration.labels(model=self.model_name).observe(duration)
 
-    def record_metric(self, scope: str, value: Any, **metadata):
+    def record_metric(self, scope: str, value: Any, **metadata):  # noqa: ARG002
         """Maps data to Prometheus Counters."""
         if scope.endswith("batch_success"):
             self.batch_operations.labels(status="success").inc(int(value))

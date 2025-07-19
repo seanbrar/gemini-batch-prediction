@@ -1,4 +1,4 @@
-from collections import deque
+from collections import deque  # noqa: D100
 from contextlib import contextmanager
 from contextvars import ContextVar
 from dataclasses import dataclass
@@ -22,15 +22,15 @@ _TELEMETRY_ENABLED = os.getenv("GEMINI_TELEMETRY") == "1" or os.getenv("DEBUG") 
 class TelemetryReporter(Protocol):
     """Duck-typed protocol for telemetry reporters."""
 
-    def record_timing(self, scope: str, duration: float, **metadata) -> None: ...
-    def record_metric(self, scope: str, value: Any, **metadata) -> None: ...
+    def record_timing(self, scope: str, duration: float, **metadata) -> None: ...  # noqa: D102
+    def record_metric(self, scope: str, value: Any, **metadata) -> None: ...  # noqa: D102
 
 
 @dataclass(frozen=True, slots=True)
 class _NoOpTelemetryContext:
     """An immutable and stateless no-op context, optimized for negligible overhead."""
 
-    def __call__(self, name: str, **metadata):
+    def __call__(self, name: str, **metadata):  # noqa: ARG002
         return self  # Self is already a context manager
 
     def __enter__(self):
@@ -42,7 +42,7 @@ class _NoOpTelemetryContext:
     def metric(self, name: str, value: Any, **metadata):
         pass
 
-    def time(self, name: str, **metadata):
+    def time(self, name: str, **metadata):  # noqa: ARG002
         return self
 
     def count(self, name: str, increment: int = 1, **metadata):
@@ -71,10 +71,10 @@ class _EnabledTelemetryContext:
 
         scope_stack = _scope_stack_var.get() or []
         call_count = _call_count_var.get()
-        scope_path = ".".join(scope_stack + [name])
+        scope_path = ".".join(scope_stack + [name])  # noqa: RUF005
         start_time = time.perf_counter()
 
-        scope_token = _scope_stack_var.set(scope_stack + [name])
+        scope_token = _scope_stack_var.set(scope_stack + [name])  # noqa: RUF005
         count_token = _call_count_var.set(call_count + 1)
 
         try:
@@ -106,9 +106,9 @@ class _EnabledTelemetryContext:
                     )
 
     def metric(self, name: str, value: Any, **metadata):
-        """Record a metric within current scope context"""
+        """Record a metric within current scope context"""  # noqa: D415
         scope_stack = _scope_stack_var.get() or []
-        scope_path = ".".join(scope_stack + [name])
+        scope_path = ".".join(scope_stack + [name])  # noqa: RUF005
         enhanced_metadata = {
             "depth": len(scope_stack),
             "parent_scope": ".".join(scope_stack) if scope_stack else None,
@@ -127,27 +127,27 @@ class _EnabledTelemetryContext:
 
     # Convenience methods for chaining
     def time(self, name: str, **metadata):
-        """Alias for scope() - more intuitive for timing operations"""
+        """Alias for scope() - more intuitive for timing operations"""  # noqa: D415
         return self(name, **metadata)
 
     def count(self, name: str, increment: int = 1, **metadata):
-        """Record a counter metric"""
+        """Record a counter metric"""  # noqa: D415
         self.metric(name, increment, metric_type="counter", **metadata)
 
     def gauge(self, name: str, value: float, **metadata):
-        """Record a gauge metric"""
+        """Record a gauge metric"""  # noqa: D415
         self.metric(name, value, metric_type="gauge", **metadata)
 
 
 _NO_OP_SINGLETON = _NoOpTelemetryContext()
 
-TelemetryContextProtocol: TypeAlias = _EnabledTelemetryContext | _NoOpTelemetryContext
+TelemetryContextProtocol: TypeAlias = _EnabledTelemetryContext | _NoOpTelemetryContext  # noqa: UP040
 
 
-def TelemetryContext(*reporters: TelemetryReporter) -> TelemetryContextProtocol:
+def TelemetryContext(*reporters: TelemetryReporter) -> TelemetryContextProtocol:  # noqa: N802
     """Factory that returns either a full-featured telemetry context or a
     single, shared, no-op instance for maximum performance when disabled.
-    """
+    """  # noqa: D205
     if _TELEMETRY_ENABLED and reporters:
         return _EnabledTelemetryContext(*reporters)
     # Always return the same, pre-existing no-op instance.
@@ -155,7 +155,7 @@ def TelemetryContext(*reporters: TelemetryReporter) -> TelemetryContextProtocol:
 
 
 @deprecated("Use ctx(name, **metadata) instead")
-def tele_scope(ctx: TelemetryContextProtocol, name: str, **metadata):
+def tele_scope(ctx: TelemetryContextProtocol, name: str, **metadata):  # noqa: D103
     return ctx(name, **metadata)
 
 
@@ -184,10 +184,10 @@ class _SimpleReporter:
     def print_report(self):
         """Prints the report to stdout if any data was collected."""
         if self.timings or self.metrics:
-            print(self.get_report())
+            print(self.get_report())  # noqa: T201
 
     def get_report(self) -> str:
-        """Generate hierarchical telemetry report"""
+        """Generate hierarchical telemetry report"""  # noqa: D415
         lines = ["=== Telemetry Report ===\n"]
 
         # Group by hierarchy
@@ -197,7 +197,7 @@ class _SimpleReporter:
         if self.metrics:
             lines.append("\n--- Metrics ---")
             for scope, values in sorted(self.metrics.items()):
-                total = sum(v[0] for v in values if isinstance(v[0], (int, float)))
+                total = sum(v[0] for v in values if isinstance(v[0], (int, float)))  # noqa: UP038
                 lines.append(
                     f"{scope:<40} | Count: {len(values):<4} | Total: {total:,.0f}",
                 )
@@ -205,7 +205,7 @@ class _SimpleReporter:
         return "\n".join(lines)
 
     def _build_hierarchy(self, data):
-        """Build tree structure from dot-separated scope names"""
+        """Build tree structure from dot-separated scope names"""  # noqa: D415
         tree = {}
         for scope, values in data.items():
             parts = scope.split(".")
@@ -216,7 +216,7 @@ class _SimpleReporter:
         return tree
 
     def _format_tree(self, tree, lines, title, depth=0):
-        """Format hierarchical tree with indentation"""
+        """Format hierarchical tree with indentation"""  # noqa: D415
         if depth == 0:
             lines.append(f"\n--- {title} ---")
 

@@ -1,4 +1,4 @@
-from abc import ABC, abstractmethod
+from abc import ABC, abstractmethod  # noqa: D100
 
 
 class BasePromptBuilder(ABC):

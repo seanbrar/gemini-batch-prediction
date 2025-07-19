@@ -1,4 +1,4 @@
-from .base import BasePromptBuilder
+from .base import BasePromptBuilder  # noqa: D100
 
 
 class BatchPromptBuilder(BasePromptBuilder):

@@ -1,4 +1,4 @@
-"""Error handling for Gemini API generation requests"""
+"""Error handling for Gemini API generation requests"""  # noqa: D415
 
 from typing import Any
 
@@ -6,16 +6,16 @@ from ..exceptions import APIError
 
 
 class GenerationErrorHandler:
-    """Handles and enriches errors from Gemini API generation requests"""
+    """Handles and enriches errors from Gemini API generation requests"""  # noqa: D415
 
     def handle_generation_error(
         self,
         error: Exception,
         response_schema: Any | None = None,
         content_type: str = "unknown",
-        cache_enabled: bool = False,
+        cache_enabled: bool = False,  # noqa: FBT001, FBT002
     ) -> None:
-        """Transform API errors into informative error messages"""
+        """Transform API errors into informative error messages"""  # noqa: D415
         error_str = str(error).lower()
 
         # Cache-specific error handling

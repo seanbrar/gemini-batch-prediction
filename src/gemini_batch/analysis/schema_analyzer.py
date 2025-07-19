@@ -1,4 +1,4 @@
-from typing import Any
+from typing import Any  # noqa: D100
 import warnings
 
 
@@ -40,7 +40,7 @@ class SchemaAnalyzer:
                 f"Schema '{schema.__name__}' is complex and may cause API errors or poor performance due to: "
                 f"{'; '.join(warnings_found)}. Consider simplifying the schema."
             )
-            warnings.warn(message, UserWarning)
+            warnings.warn(message, UserWarning)  # noqa: B028
 
     def _get_nesting_depth(self, schema: Any, depth: int = 1) -> int:
         """Recursively calculates the maximum nesting depth of Pydantic models."""

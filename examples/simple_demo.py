@@ -6,12 +6,12 @@ This is the simplest possible example - see examples/ for advanced features,
 efficiency analysis, and multi-source processing capabilities.
 
 Perfect starting point for understanding how the framework works.
-"""
+"""  # noqa: D415
 
 from gemini_batch import BatchProcessor
 
 
-def main():
+def main():  # noqa: D103
     print("🚀 Gemini Batch Processing Framework - MVP Demo\n")
 
     processor = BatchProcessor()

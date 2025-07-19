@@ -3,7 +3,7 @@
 This module handles the extraction, validation, and packaging of responses
 from the Gemini API. It supports both structured JSON responses and fallback
 text parsing, with built-in quality assessment and error handling.
-"""
+"""  # noqa: D415
 
 import json
 import logging
@@ -19,17 +19,17 @@ log = logging.getLogger(__name__)
 
 
 class ResponseProcessor:
-    """Processes and validates responses from the Gemini API"""
+    """Processes and validates responses from the Gemini API"""  # noqa: D415
 
     def __init__(self):
-        """Initialize the response processor"""
+        """Initialize the response processor"""  # noqa: D415
 
     def process_batch_response(
         self,
         raw_response,
         questions: list[str],
         response_schema: Any | None = None,
-        return_usage: bool = True,
+        return_usage: bool = True,  # noqa: FBT001, FBT002
         comparison_answers: list[str] | None = None,
         api_call_time: float | None = None,
     ) -> dict[str, Any]:
@@ -48,7 +48,7 @@ class ResponseProcessor:
 
         Returns:
             Complete result dict with processed response and all metadata
-        """
+        """  # noqa: D415
         import time
 
         start_time = time.time()
@@ -64,7 +64,7 @@ class ResponseProcessor:
 
         # Extract usage information from raw response
         usage = {}
-        if return_usage:
+        if return_usage:  # noqa: SIM102
             if isinstance(raw_response, dict):
                 usage = raw_response.get(
                     "usage",
@@ -99,7 +99,7 @@ class ResponseProcessor:
         expected_questions: int,
         schema: Any | None = None,
         comparison_answers: list[str] | None = None,
-        return_confidence: bool = True,
+        return_confidence: bool = True,  # noqa: FBT001, FBT002
     ) -> ProcessedResponse:
         """Process an API response with structured validation and quality assessment
 
@@ -112,7 +112,7 @@ class ResponseProcessor:
 
         Returns:
             ProcessedResponse with all relevant data and metadata
-        """
+        """  # noqa: D415
         # Extract answers using simplified logic
         extraction_result = self.extract_answers_from_response(
             response,
@@ -136,7 +136,7 @@ class ResponseProcessor:
 
         # Calculate quality score if comparison available
         quality_score = None
-        if comparison_answers and extraction_result.answers:
+        if comparison_answers and extraction_result.answers:  # noqa: SIM102
             if isinstance(extraction_result.answers, list):
                 quality_score = calculate_quality_score(
                     comparison_answers,
@@ -176,7 +176,7 @@ class ResponseProcessor:
         Implements a "Trust, but Verify" approach: first attempts to use structured
         data from response.parsed, then falls back to parsing response.text as JSON
         if needed. Validates against provided schema when available.
-        """
+        """  # noqa: D415
         response_text_preview = str(getattr(response, "text", ""))[:200]
         log.debug(
             "Extracting answers from response. type=%s, schema=%s, preview='%s...'",
@@ -207,7 +207,7 @@ class ResponseProcessor:
             usage = extract_usage_metrics(response)
 
         # Auto-detect batch vs individual
-        is_batch = question_count > 1
+        is_batch = question_count > 1  # noqa: F841
         structured_quality = None
         parsed_data = None
         answers = []
@@ -348,7 +348,7 @@ class ResponseProcessor:
         self,
         response,
         schema: Any,
-        return_confidence: bool = True,
+        return_confidence: bool = True,  # noqa: FBT001, FBT002
     ) -> ProcessedResponse:
         """Extracts structured data from a model's response using Pydantic."""
         # Simplified and corrected logic for structured data extraction

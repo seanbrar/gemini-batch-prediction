@@ -9,13 +9,13 @@ This example demonstrates:
 - Enabling caching with enable_caching=True
 - Processing multiple questions about the same content
 - Verifying that caching is active and working
-"""
+"""  # noqa: D415
 
 from gemini_batch import BatchProcessor
 
 
 def main():
-    """Simple example of using context caching for repeated content analysis"""
+    """Simple example of using context caching for repeated content analysis"""  # noqa: D415
     print("📄 Context Caching Example")
     print("=" * 30)
 

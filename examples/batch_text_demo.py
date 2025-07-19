@@ -10,7 +10,7 @@ from gemini_batch.response import calculate_quality_score
 
 
 def get_short_ai_content():
-    """Original short AI content for quick testing"""
+    """Original short AI content for quick testing"""  # noqa: D415
     content = """
     Artificial Intelligence represents one of the most transformative technologies
     of the 21st century, fundamentally reshaping how we interact with information
@@ -38,7 +38,7 @@ def get_short_ai_content():
 
 
 def get_extended_ai_content():
-    """Extended AI content for better batch processing demonstration"""
+    """Extended AI content for better batch processing demonstration"""  # noqa: D415
     content = """
     Artificial Intelligence (AI) represents one of the most transformative technologies
     of the 21st century, fundamentally reshaping how we interact with information,
@@ -139,7 +139,7 @@ def get_extended_ai_content():
 
 
 def get_public_domain_content():
-    """Fetch content from a public domain source for demonstration"""
+    """Fetch content from a public domain source for demonstration"""  # noqa: D415
     try:
         print("📥 Attempting to fetch Pride and Prejudice from Project Gutenberg...")
         # Example: Fetch a short public domain text
@@ -181,8 +181,8 @@ def get_public_domain_content():
     return get_extended_ai_content()
 
 
-def run_demo_with_content(name, content, questions, processor, compare_methods=True):
-    """Run demo with specific content and display results"""
+def run_demo_with_content(name, content, questions, processor, compare_methods=True):  # noqa: FBT002
+    """Run demo with specific content and display results"""  # noqa: D415
     print(f"\n{'=' * 60}")
     print(f"🧪 TESTING: {name}")
     print(f"Content length: {len(content):,} characters")
@@ -241,7 +241,7 @@ def run_demo_with_content(name, content, questions, processor, compare_methods=T
     return results
 
 
-def main():
+def main():  # noqa: D103
     print("Gemini Batch Processing Framework - Enhanced Demo")
     print("Testing different content lengths to demonstrate efficiency gains")
 

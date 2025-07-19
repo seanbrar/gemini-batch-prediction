@@ -26,7 +26,7 @@ def pytest_configure(config):
         config.addinivalue_line("markers", marker)
 
 
-def pytest_collection_modifyitems(config, items):
+def pytest_collection_modifyitems(config, items):  # noqa: ARG001
     """Automatically skip API tests when API key is unavailable."""
     if not (os.getenv("GEMINI_API_KEY") and os.getenv("ENABLE_API_TESTS")):
         skip_api = pytest.mark.skip(
@@ -58,7 +58,7 @@ def mock_env(mock_api_key, monkeypatch):
 
 
 @pytest.fixture
-def mock_gemini_client(mock_env):
+def mock_gemini_client(mock_env):  # noqa: ARG001
     """
     Provides a MagicMock of the GeminiClient.
 
@@ -125,7 +125,7 @@ def mocked_internal_genai_client():
 
 
 @pytest.fixture
-def caching_gemini_client(mock_env, mocked_internal_genai_client):
+def caching_gemini_client(mock_env, mocked_internal_genai_client):  # noqa: ARG001
     """
     Provides a real GeminiClient instance configured for caching, but with
     its internal API calls mocked.
@@ -135,7 +135,7 @@ def caching_gemini_client(mock_env, mocked_internal_genai_client):
     # when it tries to initialize its internal client.
     # We explicitly enable caching for this test client.
     client = GeminiClient(enable_caching=True)
-    return client
+    return client  # noqa: RET504
 
 
 @pytest.fixture
@@ -158,7 +158,7 @@ def mock_get_mime_type():
     # We patch the function in the `utils` module where it is defined.
     with patch("gemini_batch.files.utils.get_mime_type") as mock_func:
         # Define a simple side effect to simulate MIME type detection based on file extension.
-        def side_effect(file_path, use_magic=True):
+        def side_effect(file_path, use_magic=True):  # noqa: ARG001, FBT002
             if str(file_path).endswith(".png"):
                 return "image/png"
             if str(file_path).endswith(".txt") or str(file_path).endswith(".md"):

@@ -1,4 +1,4 @@
-"""Efficiency tracking and metrics for Gemini Batch Framework"""
+"""Efficiency tracking and metrics for Gemini Batch Framework"""  # noqa: D415
 
 from .metrics import extract_usage_metrics
 from .tracking import (

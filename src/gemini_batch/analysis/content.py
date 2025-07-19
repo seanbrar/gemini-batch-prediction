@@ -1,4 +1,4 @@
-from dataclasses import dataclass
+from dataclasses import dataclass  # noqa: D100
 from pathlib import Path
 
 from ..client.content_processor import ContentProcessor
@@ -8,20 +8,20 @@ from ..files import FileType
 
 @dataclass
 class SourceSummary:
-    """Source breakdown for efficiency demonstration"""
+    """Source breakdown for efficiency demonstration"""  # noqa: D415
 
     total_count: int
     breakdown: dict[str, int]  # source_type -> count
     file_types: dict[FileType, int]  # file_type -> count
-    traditional_api_calls: int  # sources × questions
+    traditional_api_calls: int  # sources × questions  # noqa: RUF003
     batch_api_calls: int  # typically 1
     efficiency_factor: float  # traditional / batch
 
 
 class ContentAnalyzer:
-    """Source analysis for batch processing efficiency demonstration"""
+    """Source analysis for batch processing efficiency demonstration"""  # noqa: D415
 
-    EXTRACTION_METHOD_TO_TYPE = {
+    EXTRACTION_METHOD_TO_TYPE = {  # noqa: RUF012
         "direct_text": "text_content",
         "youtube_api": "youtube_video",
         "pdf_url_api": "arxiv_paper",
@@ -31,7 +31,7 @@ class ContentAnalyzer:
         "empty_directory": "empty_directory",
     }
 
-    def __init__(self):
+    def __init__(self):  # noqa: D107
         self.content_processor = ContentProcessor()
 
     def analyze_sources(
@@ -39,7 +39,7 @@ class ContentAnalyzer:
         sources: str | Path | list[str | Path],
         questions: list[str] | None = None,
     ) -> SourceSummary:
-        """Analyze sources for batch processing efficiency demonstration"""
+        """Analyze sources for batch processing efficiency demonstration"""  # noqa: D415
         if not sources:
             raise ValidationError("Sources cannot be empty")
 
@@ -69,7 +69,7 @@ class ContentAnalyzer:
         )
 
     def _convert_to_analysis_format(self, extracted_contents) -> list[dict[str, any]]:
-        """Convert ExtractedContent list to analysis format"""
+        """Convert ExtractedContent list to analysis format"""  # noqa: D415
         expanded = []
 
         for extracted in extracted_contents:
@@ -88,12 +88,12 @@ class ContentAnalyzer:
         return expanded
 
     def _classify_source_type(self, extracted_content) -> str:
-        """Simple source type classification"""
+        """Simple source type classification"""  # noqa: D415
         method = extracted_content.extraction_method
         return self.EXTRACTION_METHOD_TO_TYPE.get(method, "local_file")
 
     def _categorize_sources(self, expanded_sources: list[dict]) -> dict[str, int]:
-        """Count sources by type for demo display"""
+        """Count sources by type for demo display"""  # noqa: D415
         breakdown = {}
 
         for source in expanded_sources:
@@ -106,7 +106,7 @@ class ContentAnalyzer:
         self,
         expanded_sources: list[dict],
     ) -> dict[FileType, int]:
-        """Count sources by file type"""
+        """Count sources by file type"""  # noqa: D415
         file_types = {}
 
         for source in expanded_sources:

@@ -1,7 +1,7 @@
 #!/usr/bin/env python3
 """Minimal custom telemetry reporter example for gemini-batch.
 Shows how to print timing and metric events as they happen.
-"""
+"""  # noqa: D205
 
 import os
 
@@ -29,29 +29,29 @@ class PrintReporter(TelemetryReporter):
 
     # # Production extensions (commented out):
     # def __init__(self):
-    #     self.timings = []
-    #     self.metrics = []
+    #     self.timings = []  # noqa: ERA001
+    #     self.metrics = []  # noqa: ERA001
     #
     # def record_timing(self, scope, duration, **meta):
-    #     self.timings.append({"scope": scope, "duration": duration, "meta": meta})
-    #     print(f"[timing] {scope}: {duration:.3f}s")
+    #     self.timings.append({"scope": scope, "duration": duration, "meta": meta})  # noqa: ERA001
+    #     print(f"[timing] {scope}: {duration:.3f}s")  # noqa: ERA001
     #
     # def record_metric(self, scope, value, **meta):
-    #     self.metrics.append({"scope": scope, "value": value, "meta": meta})
-    #     print(f"[metric] {scope}: {value}")
+    #     self.metrics.append({"scope": scope, "value": value, "meta": meta})  # noqa: ERA001
+    #     print(f"[metric] {scope}: {value}")  # noqa: ERA001
     #
     # def export_to_csv(self, filename="telemetry.csv"):
-    #     import csv
+    #     import csv  # noqa: ERA001
     #     with open(filename, 'w') as f:
-    #         writer = csv.writer(f)
-    #         writer.writerow(["type", "scope", "value", "meta"])
+    #         writer = csv.writer(f)  # noqa: ERA001
+    #         writer.writerow(["type", "scope", "value", "meta"])  # noqa: ERA001
     #         for t in self.timings:
-    #             writer.writerow(["timing", t["scope"], t["duration"], str(t["meta"])])
+    #             writer.writerow(["timing", t["scope"], t["duration"], str(t["meta"])])  # noqa: ERA001
     #         for m in self.metrics:
-    #             writer.writerow(["metric", m["scope"], m["value"], str(m["meta"])])
+    #             writer.writerow(["metric", m["scope"], m["value"], str(m["meta"])])  # noqa: ERA001
 
 
-def main():
+def main():  # noqa: D103
     reporter = PrintReporter()
     tele = TelemetryContext(reporter)
     processor = BatchProcessor()

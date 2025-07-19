@@ -2,7 +2,7 @@
 
 Note: The main GeminiClient is now at gemini_batch.GeminiClient (root level)
 for better hierarchical architecture. This package contains supporting components.
-"""
+"""  # noqa: D415
 
 from .cache_manager import (
     CacheInfo,
@@ -22,7 +22,7 @@ from .rate_limiter import RateLimiter
 from .token_counter import TokenCounter
 
 # Public API - supporting components only
-__all__ = [
+__all__ = [  # noqa: RUF022
     # Configuration
     "RateLimitConfig",
     # Advanced components (for custom extensions)

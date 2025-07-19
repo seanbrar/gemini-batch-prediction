@@ -1,4 +1,4 @@
-from typing import Any
+from typing import Any  # noqa: D100
 
 from .base import BasePromptBuilder
 
@@ -6,7 +6,7 @@ from .base import BasePromptBuilder
 class StructuredPromptBuilder(BasePromptBuilder):
     """Builds a prompt to get a structured JSON object based on a user-provided schema."""
 
-    def __init__(self, schema: Any):
+    def __init__(self, schema: Any):  # noqa: D107
         self.schema = schema
 
     def create_prompt(self, questions: list[str]) -> str:

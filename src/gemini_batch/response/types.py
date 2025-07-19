@@ -3,7 +3,7 @@
 This module defines the core data structures used throughout the response
 processing system, including extraction results, processed responses,
 and validation outcomes.
-"""
+"""  # noqa: D415
 
 from dataclasses import dataclass, field
 from typing import Any
@@ -11,7 +11,7 @@ from typing import Any
 
 @dataclass
 class ExtractionResult:
-    """Result from response extraction with usage metrics and quality data"""
+    """Result from response extraction with usage metrics and quality data"""  # noqa: D415
 
     answers: list[str] | str  # List for batch (multiple questions), str for individual
     usage: dict[str, int]
@@ -19,13 +19,13 @@ class ExtractionResult:
 
     @property
     def is_batch_result(self) -> bool:
-        """True if this represents a batch response (multiple answers)"""
+        """True if this represents a batch response (multiple answers)"""  # noqa: D415
         return isinstance(self.answers, list)
 
 
 @dataclass
 class ProcessedResponse:
-    """Complete processed response with metadata and quality metrics"""
+    """Complete processed response with metadata and quality metrics"""  # noqa: D415
 
     # Core results
     answers: list[str]
@@ -47,7 +47,7 @@ class ProcessedResponse:
     metadata: dict[str, Any] = None
     errors: list[str] = None
 
-    def __post_init__(self):
+    def __post_init__(self):  # noqa: D105
         if self.metadata is None:
             self.metadata = {}
         if self.errors is None:
@@ -55,23 +55,23 @@ class ProcessedResponse:
 
     @property
     def answer_count(self) -> int:
-        """Number of answers extracted"""
+        """Number of answers extracted"""  # noqa: D415
         return len(self.answers)
 
     @property
     def has_structured_data(self) -> bool:
-        """Whether structured data was successfully extracted and validated"""
+        """Whether structured data was successfully extracted and validated"""  # noqa: D415
         return self.structured_data is not None and self.schema_validation_success
 
     @property
     def has_quality_metrics(self) -> bool:
-        """Whether quality comparison metrics are available"""
+        """Whether quality comparison metrics are available"""  # noqa: D415
         return self.quality_score is not None
 
 
 @dataclass
 class ValidationResult:
-    """Result of structured response validation"""
+    """Result of structured response validation"""  # noqa: D415
 
     is_valid: bool
     corrected_data: Any | None = None
@@ -81,7 +81,7 @@ class ValidationResult:
 
 @dataclass
 class ProcessingMetrics:
-    """Metrics for a single processing operation"""
+    """Metrics for a single processing operation"""  # noqa: D415
 
     calls: int = 0
     prompt_tokens: int = 0
@@ -91,26 +91,26 @@ class ProcessingMetrics:
     structured_output: dict[str, Any] | None = None
 
     @classmethod
-    def empty(cls):
+    def empty(cls):  # noqa: D102
         return cls()
 
     @property
-    def total_tokens(self) -> int:
+    def total_tokens(self) -> int:  # noqa: D102
         return self.prompt_tokens + self.output_tokens
 
     @property
     def effective_tokens(self) -> int:
-        """Tokens that are actually billed (uncached input + all output)"""
+        """Tokens that are actually billed (uncached input + all output)"""  # noqa: D415
         return max(0, (self.prompt_tokens - self.cached_tokens) + self.output_tokens)
 
     @property
     def cache_hit_ratio(self) -> float:
-        """Ratio of cached to total prompt tokens"""
+        """Ratio of cached to total prompt tokens"""  # noqa: D415
         if self.prompt_tokens == 0:
             return 0.0
         return min(1.0, self.cached_tokens / self.prompt_tokens)  # Cap at 100%
 
-    def to_dict(self) -> dict[str, Any]:
+    def to_dict(self) -> dict[str, Any]:  # noqa: D102
         return {
             "calls": self.calls,
             "prompt_tokens": self.prompt_tokens,
@@ -125,7 +125,7 @@ class ProcessingMetrics:
 
 @dataclass
 class ProcessingOptions:
-    """Options for processing a request"""
+    """Options for processing a request"""  # noqa: D415
 
     compare_methods: bool = False
     return_usage: bool = False
@@ -135,7 +135,7 @@ class ProcessingOptions:
 
 @dataclass
 class ParsingResult:
-    """Result from JSON parsing with method and error information"""
+    """Result from JSON parsing with method and error information"""  # noqa: D415
 
     success: bool
     parsed_data: Any

@@ -2,7 +2,7 @@
 
 This module provides metrics to compare the quality of individual vs batch
 responses, helping evaluate the effectiveness of batch processing.
-"""
+"""  # noqa: D415
 
 
 def calculate_quality_score(
@@ -18,7 +18,7 @@ def calculate_quality_score(
 
     Returns a score between 0.0 and 1.0, where higher scores indicate
     better quality match between individual and batch responses.
-    """
+    """  # noqa: D415
     # Handle case where individual answers aren't available
     if not individual_answers or not batch_answers:
         return None

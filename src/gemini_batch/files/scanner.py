@@ -1,4 +1,4 @@
-"""File discovery and categorization for batch processing"""
+"""File discovery and categorization for batch processing"""  # noqa: D415
 
 from dataclasses import dataclass
 from enum import Enum
@@ -11,7 +11,7 @@ from . import utils
 
 
 class FileType(Enum):
-    """File types supported by Gemini API"""
+    """File types supported by Gemini API"""  # noqa: D415
 
     TEXT = "text"  # JavaScript, Python, TXT, HTML, CSS, Markdown, CSV, XML, RTF
     PDF = "pdf"  # PDF documents (handled natively by Gemini)
@@ -23,7 +23,7 @@ class FileType(Enum):
 
 @dataclass
 class FileInfo:
-    """Information about a discovered file"""
+    """Information about a discovered file"""  # noqa: D415
 
     path: Path
     file_type: FileType
@@ -35,10 +35,10 @@ class FileInfo:
 
 
 class DirectoryScanner:
-    """File discovery and categorization with filtering capabilities"""
+    """File discovery and categorization with filtering capabilities"""  # noqa: D415
 
     # Default exclusions
-    DEFAULT_EXCLUDE_DIRS = {
+    DEFAULT_EXCLUDE_DIRS = {  # noqa: RUF012
         ".git",
         ".svn",
         ".hg",
@@ -54,7 +54,7 @@ class DirectoryScanner:
         ".coverage",
     }
 
-    DEFAULT_EXCLUDE_FILES = {
+    DEFAULT_EXCLUDE_FILES = {  # noqa: RUF012
         ".DS_Store",
         "Thumbs.db",
         ".gitignore",
@@ -73,7 +73,7 @@ class DirectoryScanner:
         exclude_files: set[str] | None = None,
         include_patterns: list[str] | None = None,
         exclude_patterns: list[str] | None = None,
-        use_magic: bool = True,
+        use_magic: bool = True,  # noqa: FBT001, FBT002
     ):
         """Initialize directory scanner with filtering options
 
@@ -86,7 +86,7 @@ class DirectoryScanner:
             include_patterns: Glob patterns for files to include
             exclude_patterns: Glob patterns for files to exclude
             use_magic: Whether to use python-magic for content-based MIME detection
-        """
+        """  # noqa: D415
         self.max_file_size = max_file_size
         self.include_types = include_types
         self.exclude_types = exclude_types or set()
@@ -100,17 +100,17 @@ class DirectoryScanner:
         self.exclude_patterns = exclude_patterns or []
 
     def _get_file_type(self, file_path: Path) -> tuple[FileType, str | None]:
-        """Determine file type using centralized utilities"""
+        """Determine file type using centralized utilities"""  # noqa: D415
         mime_type = utils.get_mime_type(file_path, self.use_magic)
         file_type, detected_mime = utils.determine_file_type(file_path, mime_type)
         return file_type, detected_mime
 
     def _should_exclude_dir(self, dir_name: str) -> bool:
-        """Check if directory should be excluded"""
+        """Check if directory should be excluded"""  # noqa: D415
         return dir_name in self.exclude_dirs
 
     def _should_exclude_file(self, file_path: Path) -> bool:
-        """Check if file should be excluded based on various criteria"""
+        """Check if file should be excluded based on various criteria"""  # noqa: D415
         # Check file name exclusions
         if file_path.name in self.exclude_files:
             return True
@@ -135,7 +135,7 @@ class DirectoryScanner:
         return not self._passes_pattern_filters(file_path)
 
     def _passes_pattern_filters(self, file_path: Path) -> bool:
-        """Check if file passes include/exclude pattern filters"""
+        """Check if file passes include/exclude pattern filters"""  # noqa: D415
         # If include patterns exist, file must match at least one
         if self.include_patterns and not self._matches_patterns(
             file_path,
@@ -150,7 +150,7 @@ class DirectoryScanner:
         )
 
     def _matches_patterns(self, file_path: Path, patterns: list[str]) -> bool:
-        """Check if file matches any of the given patterns"""
+        """Check if file matches any of the given patterns"""  # noqa: D415
         if not patterns:
             return False
 
@@ -165,9 +165,9 @@ class DirectoryScanner:
     def scan_directory(
         self,
         directory: str | Path,
-        recursive: bool = True,
+        recursive: bool = True,  # noqa: FBT001, FBT002
     ) -> dict[FileType, list[FileInfo]]:
-        """Scan directory and return categorized files"""
+        """Scan directory and return categorized files"""  # noqa: D415
         directory = Path(directory)
 
         if not directory.exists():
@@ -197,7 +197,7 @@ class DirectoryScanner:
         root_dir: Path,
         categorized_files: dict[FileType, list[FileInfo]],
     ):
-        """Recursively scan directories"""
+        """Recursively scan directories"""  # noqa: D415
         try:
             for item in current_dir.iterdir():
                 if item.is_dir():
@@ -215,7 +215,7 @@ class DirectoryScanner:
         root_dir: Path,
         categorized_files: dict[FileType, list[FileInfo]],
     ):
-        """Scan single directory level"""
+        """Scan single directory level"""  # noqa: D415
         for item in directory.iterdir():
             if item.is_file():
                 self._process_file(item, root_dir, categorized_files)
@@ -226,13 +226,13 @@ class DirectoryScanner:
         root_dir: Path,
         categorized_files: dict[FileType, list[FileInfo]],
     ):
-        """Process a single file if it passes filters"""
+        """Process a single file if it passes filters"""  # noqa: D415
         if not self._should_exclude_file(file_path):
             file_info = self._create_file_info(file_path, root_dir)
             categorized_files[file_info.file_type].append(file_info)
 
     def _create_file_info(self, file_path: Path, root_dir: Path) -> FileInfo:
-        """Create FileInfo object from path with MIME type detection"""
+        """Create FileInfo object from path with MIME type detection"""  # noqa: D415
         stat = file_path.stat()
         file_type, mime_type = self._get_file_type(file_path)
 
@@ -250,7 +250,7 @@ class DirectoryScanner:
         self,
         scan_results: dict[FileType, list[FileInfo]],
     ) -> dict[str, int]:
-        """Generate summary statistics from scan results"""
+        """Generate summary statistics from scan results"""  # noqa: D415
         summary = {"total_files": 0, "total_size": 0}
 
         for file_type, files in scan_results.items():

@@ -1,4 +1,4 @@
-from dataclasses import dataclass, field
+from dataclasses import dataclass, field  # noqa: D100
 from datetime import UTC, datetime
 import json
 import logging
@@ -11,7 +11,7 @@ from typing import (
 from uuid import uuid4
 
 from gemini_batch.batch_processor import BatchProcessor
-from gemini_batch.client.token_counter import TokenCounter
+from gemini_batch.client.token_counter import TokenCounter  # noqa: TC001
 from gemini_batch.constants import CACHING_VALIDATION_THRESHOLD, LARGE_CONTENT_THRESHOLD
 
 from .config import ConversationConfig, GeminiConfig, ProcessorProtocol, get_config
@@ -21,7 +21,7 @@ log = logging.getLogger(__name__)
 
 @dataclass
 class ConversationTurn:
-    """Single turn in conversation history"""
+    """Single turn in conversation history"""  # noqa: D415
 
     question: str
     answer: str
@@ -65,7 +65,7 @@ class ConversationSession:
             self.processor = BatchProcessor(**processor_config)
 
     def ask(self, question: str, **options) -> str:
-        """Ask single question with full conversation context"""
+        """Ask single question with full conversation context"""  # noqa: D415
         try:
             # Pass raw sources to BatchProcessor for proper file handling
             # Add conversation history as additional context
@@ -95,7 +95,7 @@ class ConversationSession:
             except IndexError:
                 error_message = f"No answer found for question: '{question}'"
                 self._record_failed_turn(question, error_message)
-                raise ValueError(error_message)
+                raise ValueError(error_message)  # noqa: B904
 
             return answer
 
@@ -104,7 +104,7 @@ class ConversationSession:
             raise e
 
     def ask_multiple(self, questions: list[str], **options) -> list[str]:
-        """Ask batch of questions with conversation context"""
+        """Ask batch of questions with conversation context"""  # noqa: D415
         log.debug(
             "Processing %d questions with %d sources",
             len(questions),
@@ -225,7 +225,7 @@ class ConversationSession:
                     CACHING_VALIDATION_THRESHOLD,
                 )
 
-        except Exception:
+        except Exception:  # noqa: S110
             # Fallback to safe constant-based limit
             pass
 
@@ -266,7 +266,7 @@ class ConversationSession:
         answer: str,
         result: dict[str, Any],
     ):
-        """Record a successful conversation turn"""
+        """Record a successful conversation turn"""  # noqa: D415
         turn = ConversationTurn(
             question=question,
             answer=answer,
@@ -276,7 +276,7 @@ class ConversationSession:
         self.history.append(turn)
 
     def _record_failed_turn(self, question: str, error_msg: str):
-        """Record a failed conversation turn"""
+        """Record a failed conversation turn"""  # noqa: D415
         turn = ConversationTurn(
             question=question,
             answer="",
@@ -287,22 +287,22 @@ class ConversationSession:
 
     # Source management
     def add_source(self, source) -> None:
-        """Add new content source to conversation"""
+        """Add new content source to conversation"""  # noqa: D415
         if source not in self.sources:
             self.sources.append(source)
 
     def remove_source(self, source) -> None:
-        """Remove content source from conversation"""
+        """Remove content source from conversation"""  # noqa: D415
         if source in self.sources:
             self.sources.remove(source)
 
     def list_sources(self) -> list[str]:
-        """List current conversation sources"""
+        """List current conversation sources"""  # noqa: D415
         return self.sources.copy()
 
     # Session persistence
     def save(self, path: str | None = None) -> str:
-        """Save conversation session to file"""
+        """Save conversation session to file"""  # noqa: D415
         # Fix: Convert sources to strings for JSON serialization
         serializable_sources = [str(s) for s in self.sources]
 
@@ -326,7 +326,7 @@ class ConversationSession:
         if path is None:
             path = f"conversation_{self.session_id}.json"
 
-        with open(path, "w") as f:
+        with open(path, "w") as f:  # noqa: PTH123
             json.dump(session_data, f, indent=2)
 
         return self.session_id
@@ -338,11 +338,11 @@ class ConversationSession:
         path: str | None = None,
         processor: BatchProcessor | None = None,
     ) -> "ConversationSession":
-        """Load conversation session from file"""
+        """Load conversation session from file"""  # noqa: D415
         if path is None:
             path = f"conversation_{session_id}.json"
 
-        with open(path) as f:
+        with open(path) as f:  # noqa: PTH123
             session_data = json.load(f)
 
         # Create session with restored state
@@ -365,15 +365,15 @@ class ConversationSession:
 
     # Session analytics
     def get_history(self) -> list[tuple[str, str]]:
-        """Get conversation history as (question, answer) pairs"""
+        """Get conversation history as (question, answer) pairs"""  # noqa: D415
         return [(turn.question, turn.answer) for turn in self.history]
 
     def get_detailed_history(self) -> list[ConversationTurn]:
-        """Get full conversation history with metadata"""
+        """Get full conversation history with metadata"""  # noqa: D415
         return self.history.copy()
 
     def get_stats(self) -> dict[str, Any]:
-        """Get comprehensive conversation statistics"""
+        """Get comprehensive conversation statistics"""  # noqa: D415
         total_turns = len(self.history)
         successful_turns = len([t for t in self.history if t.error is None])
         error_turns = total_turns - successful_turns
@@ -401,7 +401,7 @@ class ConversationSession:
         }
 
     def clear_history(self) -> None:
-        """Clear conversation history while preserving sources"""
+        """Clear conversation history while preserving sources"""  # noqa: D415
         self.history.clear()
 
 
@@ -429,7 +429,7 @@ def load_conversation(
     if path is None:
         path = f"conversation_{session_id}.json"
 
-    with open(path) as f:
+    with open(path) as f:  # noqa: PTH123
         session_data = json.load(f)
 
     # Create session, now passing the configured processor

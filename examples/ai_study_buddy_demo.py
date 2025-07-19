@@ -6,12 +6,12 @@ Shows how conversation sessions enable natural learning progression:
 - Add video content for practical understanding
 - Build knowledge through contextual follow-ups
 - Demonstrate session persistence and analytics
-"""
+"""  # noqa: D415
 
 from gemini_batch import create_conversation, load_conversation
 
 
-def main():
+def main():  # noqa: D103
     print("🎓 AI Study Buddy: Learning Deep Learning Fundamentals")
     print("=" * 60)
 

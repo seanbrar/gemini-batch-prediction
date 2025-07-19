@@ -1,4 +1,4 @@
-"""Batch processor for multimodal content analysis"""
+"""Batch processor for multimodal content analysis"""  # noqa: D415
 
 from contextlib import contextmanager
 import logging
@@ -56,7 +56,7 @@ class BatchProcessor:
 
     @contextmanager
     def _metrics_tracker(self, call_count: int = 1):
-        """Context manager for tracking processing metrics"""
+        """Context manager for tracking processing metrics"""  # noqa: D415
         metrics = ProcessingMetrics(calls=call_count)
         start_time = time.time()
         try:
@@ -65,7 +65,7 @@ class BatchProcessor:
             metrics.time = time.time() - start_time
 
     def _extract_and_track_response(self, response, question_count, metrics, config):
-        """Extract answers from response and track usage metrics"""
+        """Extract answers from response and track usage metrics"""  # noqa: D415
         extraction_result = self.response_processor.extract_answers_from_response(
             response,
             question_count,
@@ -83,7 +83,7 @@ class BatchProcessor:
         self,
         content: str | Path | list[str | Path],
         questions: list[str],
-        compare_methods: bool = False,
+        compare_methods: bool = False,  # noqa: FBT001, FBT002
         response_schema: Any | None = None,
         client: GeminiClient | None = None,
         **kwargs,  # Accept additional parameters for flexibility
@@ -118,7 +118,7 @@ class BatchProcessor:
         response_schema: Any | None = None,
         **kwargs,
     ) -> dict[str, Any]:
-        """Process multiple sources in a single batch for maximum efficiency"""
+        """Process multiple sources in a single batch for maximum efficiency"""  # noqa: D415
         if not sources:
             raise ValueError("At least one source is required")
         if not questions:
@@ -167,7 +167,7 @@ class BatchProcessor:
 
             # Primary execution path
             try:
-                with self.tele("batch.attempt") as ctx:
+                with self.tele("batch.attempt") as ctx:  # noqa: F841
                     log.info("Attempting batch processing.")
                     batch_answers, batch_metrics = self._process_batch(
                         content,
@@ -261,7 +261,7 @@ class BatchProcessor:
 
             try:
                 # 3. Make the API call - use generate_content since we have a single combined prompt
-                with self.tele("batch.api_call") as api_ctx:
+                with self.tele("batch.api_call") as api_ctx:  # noqa: F841
                     # Always request usage internally, but filter user's return_usage to avoid conflicts
                     api_options = {
                         k: v for k, v in config.options.items() if k != "return_usage"
@@ -375,7 +375,7 @@ class BatchProcessor:
         individual_metrics: ProcessingMetrics,
         batch_metrics: ProcessingMetrics,
     ) -> dict[str, Any]:
-        """Calculate efficiency metrics between individual and batch processing"""
+        """Calculate efficiency metrics between individual and batch processing"""  # noqa: D415
         return track_efficiency(
             individual_calls=individual_metrics.calls,
             batch_calls=batch_metrics.calls,
@@ -392,19 +392,19 @@ class BatchProcessor:
 
     # Cache management methods
     def get_cache_efficiency_summary(self) -> dict[str, Any] | None:
-        """Get cache efficiency summary from the underlying client"""
+        """Get cache efficiency summary from the underlying client"""  # noqa: D415
         if hasattr(self.client, "get_cache_metrics"):
             return self.client.get_cache_metrics()
         return None
 
     def cleanup_caches(self) -> int:
-        """Clean up expired caches"""
+        """Clean up expired caches"""  # noqa: D415
         if hasattr(self.client, "cleanup_expired_caches"):
             return self.client.cleanup_expired_caches()
         return 0
 
     def get_config_summary(self) -> dict[str, Any]:
-        """Get configuration summary for debugging"""
+        """Get configuration summary for debugging"""  # noqa: D415
         summary = {
             "config": get_config(),
             "client_model": getattr(self.client.config_manager, "model", "unknown"),

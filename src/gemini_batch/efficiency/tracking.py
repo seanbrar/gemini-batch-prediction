@@ -1,10 +1,10 @@
-"""Efficiency tracking and metrics calculation for batch processing"""
+"""Efficiency tracking and metrics calculation for batch processing"""  # noqa: D415
 
 from ..constants import TARGET_EFFICIENCY_RATIO
 
 
 def calculate_token_efficiency(prompt_tokens: int, output_tokens: int) -> float:
-    """Calculate token efficiency: output tokens / total tokens"""
+    """Calculate token efficiency: output tokens / total tokens"""  # noqa: D415
     total_tokens = prompt_tokens + output_tokens
     return output_tokens / max(total_tokens, 1)
 
@@ -91,7 +91,7 @@ def _calculate_cache_efficiency_metrics(
     individual_prompt_tokens: int,
     batch_prompt_tokens: int,
 ) -> dict[str, float]:
-    """Calculate cache-specific efficiency metrics"""
+    """Calculate cache-specific efficiency metrics"""  # noqa: D415
     individual_cache_ratio = individual_cached_tokens / max(individual_prompt_tokens, 1)
     batch_cache_ratio = batch_cached_tokens / max(batch_prompt_tokens, 1)
 
@@ -125,9 +125,9 @@ def track_efficiency(
     # Cache-aware parameters
     individual_cached_tokens: int = 0,
     batch_cached_tokens: int = 0,
-    include_cache_metrics: bool = True,
+    include_cache_metrics: bool = True,  # noqa: FBT001, FBT002
 ) -> dict[str, float]:
-    """Calculate efficiency metrics for batch processing with optional cache awareness"""
+    """Calculate efficiency metrics for batch processing with optional cache awareness"""  # noqa: D415
     # Determine if comparison data is available
     comparison_available = individual_calls > 0 and batch_calls > 0
 

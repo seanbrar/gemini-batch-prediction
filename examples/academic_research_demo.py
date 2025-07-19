@@ -11,7 +11,7 @@ This example shows how to:
 - Analyze source composition and efficiency
 
 Adapt this template for your own research questions and sources.
-"""
+"""  # noqa: D415
 
 from pydantic import BaseModel
 
@@ -20,7 +20,7 @@ from gemini_batch.analysis import ContentAnalyzer
 
 
 class ResearchSynthesis(BaseModel):
-    """Structured output schema for research synthesis"""
+    """Structured output schema for research synthesis"""  # noqa: D415
 
     executive_summary: str
     main_techniques: list[str]
@@ -30,7 +30,7 @@ class ResearchSynthesis(BaseModel):
 
 
 def analyze_ai_efficiency_research():
-    """Example: Analyze AI model efficiency research across multiple sources"""
+    """Example: Analyze AI model efficiency research across multiple sources"""  # noqa: D415
     # Define research sources (mix of local files, URLs, videos)
     sources = [
         "../examples/test_data/research_papers/",  # Directory of papers
@@ -59,7 +59,7 @@ def analyze_ai_efficiency_research():
     print(f"Total sources: {content_summary.total_count}")
     print(f"Traditional approach: {content_summary.traditional_api_calls} API calls")
     print(f"Batch approach: {content_summary.batch_api_calls} API call")
-    print(f"Efficiency potential: {content_summary.efficiency_factor:.1f}× improvement")
+    print(f"Efficiency potential: {content_summary.efficiency_factor:.1f}× improvement")  # noqa: RUF001
     print()
 
     # Process all sources with structured output
@@ -97,7 +97,7 @@ def analyze_ai_efficiency_research():
 
 
 def custom_research_template():
-    """Template for adapting to your own research questions"""
+    """Template for adapting to your own research questions"""  # noqa: D415
     # TODO: Replace with your sources
     your_sources = [
         "path/to/your/papers/",
@@ -129,7 +129,7 @@ def custom_research_template():
     return result["structured_data"]
 
 
-def main():
+def main():  # noqa: D103
     print("🔬 Academic Research Demo: Multi-Source Literature Analysis")
     print("=" * 60)
     print()

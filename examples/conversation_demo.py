@@ -3,12 +3,12 @@
 
 Shows how to use conversation sessions for analyzing and synthesizing
 information across multiple documents with natural follow-up questions.
-"""
+"""  # noqa: D415
 
 from gemini_batch import create_conversation
 
 
-def main():
+def main():  # noqa: D103
     print("📄 Document Analysis & Synthesis Demo")
     print("=" * 45)
 

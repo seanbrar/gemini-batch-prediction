@@ -1,4 +1,4 @@
-"""Files processing module for Gemini Batch Framework"""
+"""Files processing module for Gemini Batch Framework"""  # noqa: D415
 
 from . import utils
 from .extractors import (

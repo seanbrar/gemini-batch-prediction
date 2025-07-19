@@ -1,4 +1,4 @@
-"""Project-wide constants for Gemini Batch Processing Framework"""
+"""Project-wide constants for Gemini Batch Processing Framework"""  # noqa: D415
 
 # ==============================================================================
 # API and Network Configuration

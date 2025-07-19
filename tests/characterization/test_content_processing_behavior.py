@@ -42,7 +42,7 @@ def _serialize_extracted_content(extracted_contents):
 
 
 @pytest.mark.golden_test("golden_files/test_content_processor_directory.yml")
-def test_directory_processing_behavior(golden, fs, mock_get_mime_type):
+def test_directory_processing_behavior(golden, fs, mock_get_mime_type):  # noqa: ARG001
     """
     Characterizes the behavior of processing a directory source.
     """
@@ -114,7 +114,7 @@ def test_url_arxiv_processing_behavior(golden, mock_httpx_client):
 
 
 @pytest.mark.golden_test("golden_files/test_content_processor_local_image.yml")
-def test_local_multimodal_file_behavior(golden, fs, mock_get_mime_type):
+def test_local_multimodal_file_behavior(golden, fs, mock_get_mime_type):  # noqa: ARG001
     """
     Characterizes processing of a local, non-text file (an image).
     """
@@ -133,7 +133,7 @@ def test_local_multimodal_file_behavior(golden, fs, mock_get_mime_type):
 
 
 @pytest.mark.golden_test("golden_files/test_content_processor_mixed_list.yml")
-def test_mixed_content_list_behavior(golden, fs, mock_get_mime_type):
+def test_mixed_content_list_behavior(golden, fs, mock_get_mime_type):  # noqa: ARG001
     """
     Characterizes processing of a list containing mixed content types.
     """
