@@ -1,4 +1,4 @@
-#!/usr/bin/env python3
+#!/usr/bin/env python3  # noqa: EXE001
 """
 Using Context Caching
 
@@ -10,13 +10,13 @@ This example demonstrates:
 - Enabling caching with enable_caching=True
 - Processing multiple questions about the same content
 - Verifying that caching is active and working
-"""
+"""  # noqa: D212, D415
 
 from gemini_batch import BatchProcessor
 
 
-def main():
-    """Simple example of using context caching for repeated content analysis"""
+def main():  # noqa: ANN201
+    """Simple example of using context caching for repeated content analysis"""  # noqa: D202, D415
 
     print("📄 Context Caching Example")
     print("=" * 30)
@@ -90,7 +90,7 @@ def main():
     # Display results
     print(f"\n📝 Generated {len(results['answers'])} answers:")
     for i, answer in enumerate(results["answers"], 1):
-        print(f"\n{i}. {answer[:150]}{'...' if len(answer) > 150 else ''}")
+        print(f"\n{i}. {answer[:150]}{'...' if len(answer) > 150 else ''}")  # noqa: PLR2004
 
     # Verify caching is working
     print("\n🔍 Cache Status:")
@@ -105,7 +105,7 @@ def main():
         if cached_tokens > 0:
             print(f"  📊 Cached tokens: {cached_tokens:,}")
             print(
-                "  💡 Subsequent calls with same content will be much faster/cheaper!"
+                "  💡 Subsequent calls with same content will be much faster/cheaper!"  # noqa: COM812
             )
         else:
             print("  📊 Cache created (future calls will benefit)")

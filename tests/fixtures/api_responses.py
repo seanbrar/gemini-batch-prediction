@@ -14,7 +14,7 @@ class MockResponse:
     text: str
     usage_metadata: MockUsageMetadata
 
-    def __post_init__(self):
+    def __post_init__(self):  # noqa: ANN204
         # Handle API evolution - add new fields with defaults
         if not hasattr(self.usage_metadata, "total_token_count"):
             self.usage_metadata.total_token_count = (
@@ -28,7 +28,7 @@ SAMPLE_RESPONSES = {
     "simple_answer": MockResponse(
         text=json.dumps(["Artificial Intelligence is a transformative technology..."]),
         usage_metadata=MockUsageMetadata(
-            prompt_token_count=150, candidates_token_count=75
+            prompt_token_count=150, candidates_token_count=75  # noqa: COM812
         ),
     ),
     "batch_answer": MockResponse(
@@ -37,10 +37,10 @@ SAMPLE_RESPONSES = {
                 "AI capabilities include natural language processing...",
                 "Machine learning drives modern AI through...",
                 "Neural networks form the backbone of modern AI.",
-            ]
+            ]  # noqa: COM812
         ),
         usage_metadata=MockUsageMetadata(
-            prompt_token_count=800, candidates_token_count=200
+            prompt_token_count=800, candidates_token_count=200  # noqa: COM812
         ),
     ),
     "error_response": Exception("Rate limit exceeded"),

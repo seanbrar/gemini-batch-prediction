@@ -13,7 +13,7 @@ from gemini_batch import BatchProcessor, GeminiClient
 # --- Test Environment Markers ---
 
 
-def pytest_configure(config):
+def pytest_configure(config):  # noqa: ANN001, ANN201
     """Configure custom markers for test organization."""
     markers = [
         "unit: Fast, isolated unit tests",
@@ -26,11 +26,11 @@ def pytest_configure(config):
         config.addinivalue_line("markers", marker)
 
 
-def pytest_collection_modifyitems(config, items):
+def pytest_collection_modifyitems(config, items):  # noqa: ANN001, ANN201, ARG001
     """Automatically skip API tests when API key is unavailable."""
     if not (os.getenv("GEMINI_API_KEY") and os.getenv("ENABLE_API_TESTS")):
         skip_api = pytest.mark.skip(
-            reason="API tests require GEMINI_API_KEY and ENABLE_API_TESTS=1"
+            reason="API tests require GEMINI_API_KEY and ENABLE_API_TESTS=1"  # noqa: COM812
         )
         for item in items:
             if "api" in item.keywords:
@@ -41,13 +41,13 @@ def pytest_collection_modifyitems(config, items):
 
 
 @pytest.fixture
-def mock_api_key():
+def mock_api_key():  # noqa: ANN201
     """Provide a consistent, fake API key for tests."""
     return "test_api_key_12345_67890_abcdef_ghijkl"
 
 
 @pytest.fixture
-def mock_env(mock_api_key, monkeypatch):
+def mock_env(mock_api_key, monkeypatch):  # noqa: ANN001, ANN201
     """
     Mocks essential environment variables to ensure tests run in a
     consistent, isolated environment.
@@ -58,7 +58,7 @@ def mock_env(mock_api_key, monkeypatch):
 
 
 @pytest.fixture
-def mock_gemini_client(mock_env):
+def mock_gemini_client(mock_env):  # noqa: ANN001, ANN201, ARG001
     """
     Provides a MagicMock of the GeminiClient.
 
@@ -83,7 +83,7 @@ def mock_gemini_client(mock_env):
 
 
 @pytest.fixture
-def batch_processor(mock_gemini_client):
+def batch_processor(mock_gemini_client):  # noqa: ANN001, ANN201
     """
     Provides a BatchProcessor instance that is pre-configured with a
     mocked GeminiClient. This is the standard way to test BatchProcessor
@@ -98,7 +98,7 @@ def batch_processor(mock_gemini_client):
 
 
 @pytest.fixture
-def mocked_internal_genai_client():
+def mocked_internal_genai_client():  # noqa: ANN201
     """
     Mocks the internal `google.genai.Client` that GeminiClient uses.
 
@@ -112,10 +112,10 @@ def mocked_internal_genai_client():
 
         # Mock the nested structure for creating and using caches
         mock_instance.caches.create.return_value = MagicMock(
-            name="caches.create_return"
+            name="caches.create_return"  # noqa: COM812
         )
         type(mock_instance.caches.create.return_value).name = PropertyMock(
-            return_value="cachedContents/mock-cache-123"
+            return_value="cachedContents/mock-cache-123"  # noqa: COM812
         )
 
         # Mock the token counter to avoid real API calls during planning
@@ -125,7 +125,7 @@ def mocked_internal_genai_client():
 
 
 @pytest.fixture
-def caching_gemini_client(mock_env, mocked_internal_genai_client):
+def caching_gemini_client(mock_env, mocked_internal_genai_client):  # noqa: ANN001, ANN201, ARG001
     """
     Provides a real GeminiClient instance configured for caching, but with
     its internal API calls mocked.
@@ -135,11 +135,11 @@ def caching_gemini_client(mock_env, mocked_internal_genai_client):
     # when it tries to initialize its internal client.
     # We explicitly enable caching for this test client.
     client = GeminiClient(enable_caching=True)
-    return client
+    return client  # noqa: RET504
 
 
 @pytest.fixture
-def mock_httpx_client():
+def mock_httpx_client():  # noqa: ANN201
     """
     Mocks the httpx.Client to prevent real network requests for URL processing.
     """
@@ -150,15 +150,15 @@ def mock_httpx_client():
 
 
 @pytest.fixture
-def mock_get_mime_type():
+def mock_get_mime_type():  # noqa: ANN201
     """
     Mocks the get_mime_type utility function to prevent python-magic
     from bypassing pyfakefs, making MIME type detection deterministic in tests.
     """
     # We patch the function in the `utils` module where it is defined.
     with patch("gemini_batch.files.utils.get_mime_type") as mock_func:
-        # Define a simple side effect to simulate MIME type detection based on file extension.
-        def side_effect(file_path, use_magic=True):
+        # Define a simple side effect to simulate MIME type detection based on file extension.  # noqa: E501
+        def side_effect(file_path, use_magic=True):  # noqa: ANN001, ANN202, ARG001, FBT002
             if str(file_path).endswith(".png"):
                 return "image/png"
             if str(file_path).endswith(".txt") or str(file_path).endswith(".md"):
@@ -172,7 +172,7 @@ def mock_get_mime_type():
 
 # --- Helper Fixtures ---
 @pytest.fixture
-def fs(fs):
+def fs(fs):  # noqa: ANN001, ANN201
     """
     A fixture for pyfakefs that automatically enables OS-specific path separators.
     This makes filesystem tests more robust across different operating systems.

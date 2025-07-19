@@ -1,10 +1,10 @@
 """
 Gemini Batch Processing Framework
-"""
+"""  # noqa: D200, D212, D415
 
 import importlib.metadata
 import logging
-from typing import Any, List, Unpack
+from typing import Any, List, Unpack  # noqa: UP035
 
 from .analysis.schema_analyzer import SchemaAnalyzer
 from .batch_processor import BatchProcessor
@@ -34,22 +34,22 @@ except importlib.metadata.PackageNotFoundError:
     __version__ = "0.7.0"  # fallback version
 
 # Set up a null handler for the library's root logger.
-# This prevents 'No handler found' errors if the consuming app has no logging configured.
+# This prevents 'No handler found' errors if the consuming app has no logging configured.  # noqa: E501
 logging.getLogger(__name__).addHandler(logging.NullHandler())
 
 
 def process_questions(
-    content: Any, questions: List[str], **config: Unpack[GeminiConfig]
+    content: Any, questions: List[str], **config: Unpack[GeminiConfig]  # noqa: ANN401, COM812, UP006
 ) -> dict:
     """
     Process questions against content in a single call. Perfect for scripts and notebooks.
-    """
+    """  # noqa: D200, D212, E501
     processor = BatchProcessor(**config)
     return processor.process_questions(content, questions)
 
 
 # Public API
-__all__ = [
+__all__ = [  # noqa: RUF022
     # Core Classes
     "GeminiClient",
     "BatchProcessor",

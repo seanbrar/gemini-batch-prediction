@@ -1,20 +1,20 @@
 """
 Prompt construction for single and batch content generation
-"""
+"""  # noqa: D200, D212, D415
 
-from typing import Any, List, Optional
+from typing import Any, List, Optional  # noqa: UP035
 
 
 class PromptBuilder:
-    """Builds prompts for single and batch content generation"""
+    """Builds prompts for single and batch content generation"""  # noqa: D415
 
     def create_batch_prompt(
-        self, questions: List[str], response_schema: Optional[Any] = None
+        self, questions: List[str], response_schema: Optional[Any] = None  # noqa: ANN401, COM812, UP006, UP045
     ) -> str:
-        """Create batch prompt for multiple questions with optional structured output"""
+        """Create batch prompt for multiple questions with optional structured output"""  # noqa: D415
         if response_schema:
             prompt = "Please answer each of the following questions. "
-            prompt += "Your response will be automatically formatted according to the specified schema.\n\n"
+            prompt += "Your response will be automatically formatted according to the specified schema.\n\n"  # noqa: E501
 
             for i, question in enumerate(questions, 1):
                 prompt += f"Question {i}: {question}\n"
@@ -33,5 +33,5 @@ class PromptBuilder:
         return prompt
 
     def create_single_prompt(self, prompt: str) -> str:
-        """Pass through single prompt unchanged"""
+        """Pass through single prompt unchanged"""  # noqa: D415
         return prompt

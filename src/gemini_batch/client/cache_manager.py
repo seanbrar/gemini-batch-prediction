@@ -3,7 +3,7 @@ Cache lifecycle management for Gemini API context caching.
 
 Handles explicit cache creation, tracking, and cleanup while integrating
 with existing TokenCounter analysis and ConfigManager capabilities.
-"""
+"""  # noqa: D212
 
 from contextlib import suppress
 from dataclasses import dataclass
@@ -11,7 +11,7 @@ from datetime import datetime, timedelta, timezone
 import hashlib
 import logging
 import time
-from typing import Any, Dict, List, Optional, Tuple
+from typing import Any, Dict, List, Optional, Tuple  # noqa: UP035
 
 from google import genai
 from google.genai import types
@@ -20,7 +20,7 @@ from gemini_batch.client.content_processor import ContentProcessor
 from gemini_batch.client.token_counter import TokenCounter
 from gemini_batch.exceptions import APIError
 
-from ..config import CachingRecommendation, ConfigManager
+from ..config import CachingRecommendation, ConfigManager  # noqa: TID252
 from .models import CacheAction, CacheStrategy, ExplicitCachePayload, PartsPayload
 
 log = logging.getLogger(__name__)
@@ -28,7 +28,7 @@ log = logging.getLogger(__name__)
 
 @dataclass
 class CacheInfo:
-    """Information about an active cache"""
+    """Information about an active cache"""  # noqa: D415
 
     cache_name: str
     content_hash: str
@@ -37,24 +37,24 @@ class CacheInfo:
     ttl_seconds: int
     token_count: int
     usage_count: int = 0
-    last_used: Optional[datetime] = None
-    conversation_context_hash: Optional[str] = None
+    last_used: Optional[datetime] = None  # noqa: UP045
+    conversation_context_hash: Optional[str] = None  # noqa: UP045
 
 
 @dataclass
 class CacheResult:
-    """Result of cache operation"""
+    """Result of cache operation"""  # noqa: D415
 
     success: bool
-    cache_info: Optional[CacheInfo] = None
-    cache_name: Optional[str] = None
-    error: Optional[str] = None
+    cache_info: Optional[CacheInfo] = None  # noqa: UP045
+    cache_name: Optional[str] = None  # noqa: UP045
+    error: Optional[str] = None  # noqa: UP045
     fallback_required: bool = False
 
 
 @dataclass
 class CacheMetrics:
-    """Cache usage metrics for efficiency tracking"""
+    """Cache usage metrics for efficiency tracking"""  # noqa: D415
 
     total_caches: int = 0
     active_caches: int = 0
@@ -64,8 +64,8 @@ class CacheMetrics:
     cache_creation_time: float = 0.0
     cache_savings_estimate: float = 0.0
 
-    def to_dict(self) -> Dict[str, Any]:
-        """Convert metrics to dictionary format"""
+    def to_dict(self) -> Dict[str, Any]:  # noqa: UP006
+        """Convert metrics to dictionary format"""  # noqa: D415
         return {
             "total_caches": self.total_caches,
             "active_caches": self.active_caches,
@@ -80,7 +80,7 @@ class CacheMetrics:
 class CacheManager:
     """Manages explicit cache lifecycle for Gemini API context caching."""
 
-    def __init__(
+    def __init__(  # noqa: ANN204, D107
         self,
         client: genai.Client,
         config_manager: ConfigManager,
@@ -95,21 +95,21 @@ class CacheManager:
         self.content_processor = content_processor
 
         # Cache tracking
-        self.active_caches: Dict[str, CacheInfo] = {}
-        self.content_to_cache: Dict[str, str] = {}
+        self.active_caches: Dict[str, CacheInfo] = {}  # noqa: UP006
+        self.content_to_cache: Dict[str, str] = {}  # noqa: UP006
         self.metrics = CacheMetrics()
 
     def plan_generation(
         self,
-        parts: List[types.Part],
-        system_instruction: Optional[str] = None,
+        parts: List[types.Part],  # noqa: UP006
+        system_instruction: Optional[str] = None,  # noqa: UP045
     ) -> CacheAction:
-        """Analyzes content and returns a plan for the client to execute."""
+        """Analyzes content and returns a plan for the client to execute."""  # noqa: D202
 
         # 1. Analyze content and determine strategy
-        token_analysis = self.token_counter.estimate_for_caching(self.config_manager.model, parts)
+        token_analysis = self.token_counter.estimate_for_caching(self.config_manager.model, parts)  # noqa: E501
         token_count = token_analysis["tokens"]
-        cache_analysis = self.config_manager.can_use_caching(self.config_manager.model, token_count)
+        cache_analysis = self.config_manager.can_use_caching(self.config_manager.model, token_count)  # noqa: E501
 
         if not cache_analysis.get("supported"):
             return CacheAction(CacheStrategy.GENERATE_RAW, PartsPayload(parts=parts))
@@ -119,18 +119,18 @@ class CacheManager:
         # 2. Simple strategy dispatch
         try:
             if strategy_name == CachingRecommendation.EXPLICIT:
-                cache_info = self._ensure_explicit_cache(parts, system_instruction, token_count)
+                cache_info = self._ensure_explicit_cache(parts, system_instruction, token_count)  # noqa: E501
                 _, prompt_parts = self._prepare_cache_parts(parts)
                 return CacheAction(
                     CacheStrategy.GENERATE_FROM_EXPLICIT_CACHE,
-                    ExplicitCachePayload(cache_name=cache_info.cache_name, parts=prompt_parts)
+                    ExplicitCachePayload(cache_name=cache_info.cache_name, parts=prompt_parts)  # noqa: COM812, E501
                 )
 
-            elif strategy_name == CachingRecommendation.IMPLICIT:
-                optimized_parts = self.content_processor.optimize_for_implicit_cache(parts)
+            elif strategy_name == CachingRecommendation.IMPLICIT:  # noqa: RET505
+                optimized_parts = self.content_processor.optimize_for_implicit_cache(parts)  # noqa: E501
                 return CacheAction(
                     CacheStrategy.GENERATE_WITH_OPTIMIZED_PARTS,
-                    PartsPayload(parts=optimized_parts)
+                    PartsPayload(parts=optimized_parts)  # noqa: COM812
                 )
 
         except APIError as e:
@@ -139,8 +139,8 @@ class CacheManager:
 
         return CacheAction(CacheStrategy.GENERATE_RAW, PartsPayload(parts=parts))
 
-    def _ensure_explicit_cache(self, parts: List[types.Part], system_instruction: Optional[str], token_count: int) -> CacheInfo:
-        """Ensure explicit cache exists, creating if necessary"""
+    def _ensure_explicit_cache(self, parts: List[types.Part], system_instruction: Optional[str], token_count: int) -> CacheInfo:  # noqa: E501, UP006, UP045
+        """Ensure explicit cache exists, creating if necessary"""  # noqa: D415
         cacheable_parts, _ = self._prepare_cache_parts(parts)
         content_hash = self._hash_content(cacheable_parts, system_instruction, None)
 
@@ -153,15 +153,15 @@ class CacheManager:
         ttl_seconds = self._calculate_ttl(token_count)
         cache_result = self._create_cache(
             self.config_manager.model, cacheable_parts, ttl_seconds, token_count,
-            system_instruction, content_hash, None
+            system_instruction, content_hash, None  # noqa: COM812
         )
         if not cache_result.success:
-            raise APIError(f"Cache creation failed: {cache_result.error}")
+            raise APIError(f"Cache creation failed: {cache_result.error}")  # noqa: EM102, TRY003
         return cache_result.cache_info
 
-    def _prepare_cache_parts(self, parts: List[types.Part]) -> Tuple[List[types.Part], List[types.Part]]:
-        """Separate cacheable content from prompt parts with fallback handling"""
-        cacheable_parts, prompt_parts = self.content_processor.separate_cacheable_content(parts)
+    def _prepare_cache_parts(self, parts: List[types.Part]) -> Tuple[List[types.Part], List[types.Part]]:  # noqa: E501, UP006
+        """Separate cacheable content from prompt parts with fallback handling"""  # noqa: D415
+        cacheable_parts, prompt_parts = self.content_processor.separate_cacheable_content(parts)  # noqa: E501
 
         # Handle empty prompt_parts fallback
         if not prompt_parts:
@@ -174,8 +174,8 @@ class CacheManager:
 
         return cacheable_parts, prompt_parts
 
-    def _get_existing_cache(self, content_hash: str) -> Optional[CacheResult]:
-        """Check for existing valid cache"""
+    def _get_existing_cache(self, content_hash: str) -> Optional[CacheResult]:  # noqa: UP045
+        """Check for existing valid cache"""  # noqa: D415
         if content_hash not in self.content_to_cache:
             return None
 
@@ -197,22 +197,22 @@ class CacheManager:
 
         # Update usage tracking
         cache_info.usage_count += 1
-        cache_info.last_used = datetime.now(timezone.utc)
+        cache_info.last_used = datetime.now(timezone.utc)  # noqa: UP017
         self.metrics.cache_hits += 1
 
         return CacheResult(success=True, cache_info=cache_info, cache_name=cache_name)
 
-    def _create_cache(
+    def _create_cache(  # noqa: PLR0913
         self,
         model: str,
-        content_parts: List[types.Part],
+        content_parts: List[types.Part],  # noqa: UP006
         ttl_seconds: int,
         estimated_tokens: int,
-        system_instruction: Optional[str],
+        system_instruction: Optional[str],  # noqa: UP045
         content_hash: str,
-        conversation_context: Optional[str] = None,
+        conversation_context: Optional[str] = None,  # noqa: UP045
     ) -> CacheResult:
-        """Create new explicit cache"""
+        """Create new explicit cache"""  # noqa: D415
         start_time = time.time()
         log.info(
             "Creating new explicit cache for model '%s' with TTL %ds.",
@@ -238,11 +238,11 @@ class CacheManager:
                 cache_name=cache.name,
                 content_hash=content_hash,
                 model=model,
-                created_at=datetime.now(timezone.utc),
+                created_at=datetime.now(timezone.utc),  # noqa: UP017
                 ttl_seconds=ttl_seconds,
                 token_count=estimated_tokens,
                 usage_count=1,
-                last_used=datetime.now(timezone.utc),
+                last_used=datetime.now(timezone.utc),  # noqa: UP017
                 conversation_context_hash=self._hash_string(conversation_context)
                 if conversation_context
                 else None,
@@ -259,7 +259,7 @@ class CacheManager:
             self.metrics.cache_misses += 1
 
             return CacheResult(
-                success=True, cache_info=cache_info, cache_name=cache.name
+                success=True, cache_info=cache_info, cache_name=cache.name  # noqa: COM812
             )
 
         except Exception as e:
@@ -272,11 +272,11 @@ class CacheManager:
 
     def _hash_content(
         self,
-        content_parts: List[types.Part],
-        system_instruction: Optional[str],
-        conversation_context: Optional[str],
+        content_parts: List[types.Part],  # noqa: UP006
+        system_instruction: Optional[str],  # noqa: UP045
+        conversation_context: Optional[str],  # noqa: UP045
     ) -> str:
-        """Generate hash for content deduplication"""
+        """Generate hash for content deduplication"""  # noqa: D415
         hasher = hashlib.sha256()
 
         # Hash content parts
@@ -296,22 +296,22 @@ class CacheManager:
         return hasher.hexdigest()
 
     def _hash_string(self, text: str) -> str:
-        """Generate short hash for string content"""
+        """Generate short hash for string content"""  # noqa: D415
         return hashlib.sha256(text.encode("utf-8")).hexdigest()[:16]
 
     def _calculate_ttl(self, token_count: int) -> int:
-        """Calculate optimal TTL based on content size"""
-        if token_count > 100_000:
+        """Calculate optimal TTL based on content size"""  # noqa: D415
+        if token_count > 100_000:  # noqa: PLR2004
             return self.default_ttl_seconds * 4  # 4 hours for large content
-        elif token_count > 50_000:
+        elif token_count > 50_000:  # noqa: PLR2004, RET505
             return self.default_ttl_seconds * 2  # 2 hours for medium content
         else:
             return self.default_ttl_seconds  # 1 hour for smaller content
 
     def _is_cache_valid(self, cache_info: CacheInfo) -> bool:
-        """Check if cache is within TTL"""
-        return datetime.now(timezone.utc) < cache_info.created_at + timedelta(
-            seconds=cache_info.ttl_seconds
+        """Check if cache is within TTL"""  # noqa: D415
+        return datetime.now(timezone.utc) < cache_info.created_at + timedelta(  # noqa: UP017
+            seconds=cache_info.ttl_seconds  # noqa: COM812
         )
 
     def cleanup_expired_caches(self) -> int:
@@ -320,7 +320,7 @@ class CacheManager:
         # Iterate over a copy of keys since we might modify the dict
         for cache_name in list(self.active_caches.keys()):
             cache_info = self.active_caches.get(cache_name)
-            if cache_info and not self._is_cache_valid(cache_info):
+            if cache_info and not self._is_cache_valid(cache_info):  # noqa: SIM102
                 if self._cleanup_cache(cache_name):
                     cleaned_count += 1
 
@@ -344,16 +344,16 @@ class CacheManager:
                 if content_hash in self.content_to_cache:
                     del self.content_to_cache[content_hash]
 
-            return True
+            return True  # noqa: TRY300
 
-        except Exception:
+        except Exception:  # noqa: BLE001
             return False
 
     def get_cache_metrics(self) -> CacheMetrics:
-        """Get current cache usage metrics"""
+        """Get current cache usage metrics"""  # noqa: D415
         self.metrics.active_caches = len(self.active_caches)
         return self.metrics
 
-    def list_active_caches(self) -> List[CacheInfo]:
-        """List all active caches with their info"""
+    def list_active_caches(self) -> List[CacheInfo]:  # noqa: UP006
+        """List all active caches with their info"""  # noqa: D415
         return list(self.active_caches.values())

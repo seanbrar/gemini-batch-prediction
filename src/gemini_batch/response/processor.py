@@ -4,15 +4,15 @@ Response processor for structured JSON outputs from the Gemini API
 This module handles the extraction, validation, and packaging of responses
 from the Gemini API. It supports both structured JSON responses and fallback
 text parsing, with built-in quality assessment and error handling.
-"""
+"""  # noqa: D212, D415
 
 import json
 import logging
-from typing import Any, Dict, List, Optional
+from typing import Any, Dict, List, Optional  # noqa: UP035
 
 from pydantic import ValidationError
 
-from ..efficiency.metrics import extract_usage_metrics
+from ..efficiency.metrics import extract_usage_metrics  # noqa: TID252
 from .quality import calculate_quality_score
 from .types import ExtractionResult, ProcessedResponse
 
@@ -20,21 +20,21 @@ log = logging.getLogger(__name__)
 
 
 class ResponseProcessor:
-    """Processes and validates responses from the Gemini API"""
+    """Processes and validates responses from the Gemini API"""  # noqa: D415
 
-    def __init__(self):
-        """Initialize the response processor"""
-        pass
+    def __init__(self):  # noqa: ANN204
+        """Initialize the response processor"""  # noqa: D415
+        pass  # noqa: PIE790
 
-    def process_batch_response(
+    def process_batch_response(  # noqa: PLR0913
         self,
-        raw_response,
-        questions: List[str],
-        response_schema: Optional[Any] = None,
-        return_usage: bool = True,
-        comparison_answers: Optional[List[str]] = None,
-        api_call_time: Optional[float] = None,
-    ) -> Dict[str, Any]:
+        raw_response,  # noqa: ANN001
+        questions: List[str],  # noqa: UP006
+        response_schema: Optional[Any] = None,  # noqa: ANN401, UP045
+        return_usage: bool = True,  # noqa: FBT001, FBT002
+        comparison_answers: Optional[List[str]] = None,  # noqa: UP006, UP045
+        api_call_time: Optional[float] = None,  # noqa: UP045
+    ) -> Dict[str, Any]:  # noqa: UP006
         """
         Process a raw batch API response with comprehensive result packaging
 
@@ -51,8 +51,8 @@ class ResponseProcessor:
 
         Returns:
             Complete result dict with processed response and all metadata
-        """
-        import time
+        """  # noqa: D212, D415, E501
+        import time  # noqa: PLC0415
 
         start_time = time.time()
 
@@ -67,10 +67,10 @@ class ResponseProcessor:
 
         # Extract usage information from raw response
         usage = {}
-        if return_usage:
+        if return_usage:  # noqa: SIM102
             if isinstance(raw_response, dict):
                 usage = raw_response.get(
-                    "usage", {"prompt_tokens": 0, "output_tokens": 0, "total_tokens": 0}
+                    "usage", {"prompt_tokens": 0, "output_tokens": 0, "total_tokens": 0}  # noqa: COM812
                 )
             # For non-dict responses, usage extraction could be enhanced here
 
@@ -97,11 +97,11 @@ class ResponseProcessor:
 
     def process_response(
         self,
-        response,
+        response,  # noqa: ANN001
         expected_questions: int,
-        schema: Optional[Any] = None,
-        comparison_answers: Optional[List[str]] = None,
-        return_confidence: bool = True,
+        schema: Optional[Any] = None,  # noqa: ANN401, UP045
+        comparison_answers: Optional[List[str]] = None,  # noqa: UP006, UP045
+        return_confidence: bool = True,  # noqa: FBT001, FBT002
     ) -> ProcessedResponse:
         """
         Process an API response with structured validation and quality assessment
@@ -115,10 +115,10 @@ class ResponseProcessor:
 
         Returns:
             ProcessedResponse with all relevant data and metadata
-        """
+        """  # noqa: D212, D415
         # Extract answers using simplified logic
         extraction_result = self.extract_answers_from_response(
-            response, expected_questions, schema
+            response, expected_questions, schema  # noqa: COM812
         )
 
         # Determine success based on errors
@@ -137,10 +137,10 @@ class ResponseProcessor:
 
         # Calculate quality score if comparison available
         quality_score = None
-        if comparison_answers and extraction_result.answers:
+        if comparison_answers and extraction_result.answers:  # noqa: SIM102
             if isinstance(extraction_result.answers, list):
                 quality_score = calculate_quality_score(
-                    comparison_answers, extraction_result.answers
+                    comparison_answers, extraction_result.answers  # noqa: COM812
                 )
 
         return ProcessedResponse(
@@ -165,8 +165,8 @@ class ResponseProcessor:
             else [],
         )
 
-    def extract_answers_from_response(
-        self, response: Any, question_count: int, response_schema: Optional[Any] = None
+    def extract_answers_from_response(  # noqa: C901, PLR0912, PLR0915
+        self, response: Any, question_count: int, response_schema: Optional[Any] = None  # noqa: ANN401, COM812, UP045
     ) -> ExtractionResult:
         """
         Extract answers from API response using structured validation with fallback parsing
@@ -174,7 +174,7 @@ class ResponseProcessor:
         Implements a "Trust, but Verify" approach: first attempts to use structured
         data from response.parsed, then falls back to parsing response.text as JSON
         if needed. Validates against provided schema when available.
-        """
+        """  # noqa: D202, D212, D415, E501
 
         response_text_preview = str(getattr(response, "text", ""))[:200]
         log.debug(
@@ -200,13 +200,13 @@ class ResponseProcessor:
                     "cached_tokens": response_usage.get("cached_tokens", 0),
                     "cache_hit_ratio": response_usage.get("cache_hit_ratio", 0.0),
                     "cache_enabled": response_usage.get("cache_enabled", False),
-                }
+                }  # noqa: COM812
             )
         else:
             usage = extract_usage_metrics(response)
 
         # Auto-detect batch vs individual
-        is_batch = question_count > 1
+        is_batch = question_count > 1  # noqa: F841
         structured_quality = None
         parsed_data = None
         answers = []
@@ -237,12 +237,12 @@ class ResponseProcessor:
                         parsed_data = loaded_json
                 except json.JSONDecodeError:
                     log.warning(
-                        "Failed to decode JSON from response. Treating as single raw text answer."
+                        "Failed to decode JSON from response. Treating as single raw text answer."  # noqa: COM812, E501
                     )
                     errors.append("Response was not valid JSON.")
                     parsed_data = [response_text]  # Fallback to a list with one item
                 except ValidationError as e:
-                    log.error(
+                    log.error(  # noqa: G201
                         "Response JSON did not match the provided schema.",
                         exc_info=True,
                     )
@@ -250,7 +250,7 @@ class ResponseProcessor:
                     parsed_data = [response_text]  # Fallback
                 except Exception as e:
                     log.exception(
-                        "An unexpected error occurred during response parsing."
+                        "An unexpected error occurred during response parsing."  # noqa: COM812
                     )
                     errors.append(f"Unexpected parsing error: {e}")
                     parsed_data = [response_text]  # Fallback
@@ -273,12 +273,12 @@ class ResponseProcessor:
             else:
                 # This case might occur if the JSON was valid but not a list
                 log.warning(
-                    "Parsed data was not a list as expected. Treating as single answer."
+                    "Parsed data was not a list as expected. Treating as single answer."  # noqa: COM812
                 )
                 answers = [str(parsed_data)]
         elif errors:
             log.debug(
-                "No parsed data available, using raw response text as fallback answer."
+                "No parsed data available, using raw response text as fallback answer."  # noqa: COM812
             )
             if isinstance(response, dict):
                 raw_text = response.get("text", "")
@@ -323,10 +323,10 @@ class ResponseProcessor:
             usage=usage,
         )
 
-    def _parse_json_response(self, response_text: str) -> Any:
+    def _parse_json_response(self, response_text: str) -> Any:  # noqa: ANN401
         """
         Parses a response text to JSON, handling markdown-wrapped JSON.
-        """
+        """  # noqa: D200, D212
         json_text = response_text.strip()
 
         # Handle markdown-wrapped JSON (common with Gemini API)
@@ -346,11 +346,11 @@ class ResponseProcessor:
             raise  # Re-raise so caller can handle appropriately
 
     def extract_structured_data(
-        self, response, schema: Any, return_confidence: bool = True
+        self, response, schema: Any, return_confidence: bool = True  # noqa: ANN001, ANN401, COM812, FBT001, FBT002
     ) -> ProcessedResponse:
         """
         Extracts structured data from a model's response using Pydantic.
-        """
+        """  # noqa: D200, D212
         # Simplified and corrected logic for structured data extraction
         try:
             # Assuming response.text contains the JSON string
@@ -374,13 +374,13 @@ class ResponseProcessor:
 
     def extract_text_answers(
         self,
-        response,
+        response,  # noqa: ANN001
         question_count: int,
-        comparison_answers: Optional[List[str]] = None,
+        comparison_answers: Optional[List[str]] = None,  # noqa: UP006, UP045
     ) -> ProcessedResponse:
         """
         Extracts plain text answers from a response, assuming a simple format.
-        """
+        """  # noqa: D200, D212
         # Simplified logic for text extraction
         answers = [line.strip() for line in response.text.split("\n") if line.strip()]
         success = len(answers) == question_count

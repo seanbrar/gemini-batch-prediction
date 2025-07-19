@@ -1,26 +1,26 @@
 """
 Content processing orchestration - converts multiple mixed sources
 into processed ExtractedContent objects for API consumption
-"""
+"""  # noqa: D205, D212, D415
 
 import io
 import logging
 from pathlib import Path
-from typing import Any, List, Optional, Union
+from typing import Any, List, Optional, Union  # noqa: UP035
 
 from google.genai import types
 import httpx
 
 from gemini_batch.constants import LARGE_TEXT_THRESHOLD
 
-from ..exceptions import APIError
-from ..files import FileOperations
-from ..files.extractors import ExtractedContent
+from ..exceptions import APIError  # noqa: TID252
+from ..files import FileOperations  # noqa: TID252
+from ..files.extractors import ExtractedContent  # noqa: TID252
 from .file_upload_manager import FileUploadManager
 
 
-def _flatten_sources(sources: Union[str, Path, List]) -> List[Union[str, Path]]:
-    """Flatten nested source lists to avoid deep recursion in processing"""
+def _flatten_sources(sources: Union[str, Path, List]) -> List[Union[str, Path]]:  # noqa: UP006, UP007
+    """Flatten nested source lists to avoid deep recursion in processing"""  # noqa: D415
     if not isinstance(sources, list):
         return [sources]
 
@@ -52,39 +52,39 @@ class ContentProcessor:
     This class serves as an abstraction layer between GeminiClient (high-level API)
     and FileOperations (low-level file handling), preventing GeminiClient from
     needing to handle complex source orchestration logic.
-    """
+    """  # noqa: D212
 
-    def __init__(self):
+    def __init__(self):  # noqa: ANN204, D107
         self.file_ops = FileOperations()
         # Lazy initialization of file upload manager
-        self._file_upload_manager: Optional[FileUploadManager] = None
+        self._file_upload_manager: Optional[FileUploadManager] = None  # noqa: UP045
 
-    def _get_file_upload_manager(self, client: Any) -> FileUploadManager:
-        """Lazy initialization of file upload manager"""
+    def _get_file_upload_manager(self, client: Any) -> FileUploadManager:  # noqa: ANN401
+        """Lazy initialization of file upload manager"""  # noqa: D415
         if self._file_upload_manager is None:
             self._file_upload_manager = FileUploadManager(client)
         return self._file_upload_manager
 
     def process(
         self,
-        content: Union[str, Path, List[Union[str, Path]]],
-        client: Optional[Any] = None,
-    ) -> List[types.Part]:
+        content: Union[str, Path, List[Union[str, Path]]],  # noqa: UP006, UP007
+        client: Optional[Any] = None,  # noqa: ANN401, UP045
+    ) -> List[types.Part]:  # noqa: UP006
         """
         Convert content to API parts - unified interface for GeminiClient.
 
         This method combines process_content() and create_api_parts() to provide
         a simple interface for converting any content source into API-ready parts.
-        """
+        """  # noqa: D212
         extracted_contents = self.process_content(content)
         return self.create_api_parts(
-            extracted_contents, cache_enabled=False, client=client
+            extracted_contents, cache_enabled=False, client=client  # noqa: COM812
         )
 
     def process_content(
-        self, source: Union[str, Path, List[Union[str, Path]]]
-    ) -> List[ExtractedContent]:
-        """Convert any content source into list of ExtractedContent for API consumption"""
+        self, source: Union[str, Path, List[Union[str, Path]]]  # noqa: COM812, UP006, UP007
+    ) -> List[ExtractedContent]:  # noqa: UP006
+        """Convert any content source into list of ExtractedContent for API consumption"""  # noqa: D415, E501
         # Flatten nested lists first to avoid deep recursion
         flattened_sources = _flatten_sources(source)
 
@@ -102,13 +102,13 @@ class ContentProcessor:
         return extracted_contents
 
     def is_multimodal_content(self, extracted_content: ExtractedContent) -> bool:
-        """Check if content is multimodal by delegating to FileOperations"""
+        """Check if content is multimodal by delegating to FileOperations"""  # noqa: D415
         return self.file_ops.is_multimodal_content(extracted_content)
 
     def _process_single_source(
-        self, source: Union[str, Path]
-    ) -> List[ExtractedContent]:
-        """Process a single content source to list of ExtractedContent (directories expand to multiple)"""
+        self, source: Union[str, Path]  # noqa: COM812, UP007
+    ) -> List[ExtractedContent]:  # noqa: UP006
+        """Process a single content source to list of ExtractedContent (directories expand to multiple)"""  # noqa: D415, E501
         try:
             # Get initial extraction from file operations
             extracted_content = self.file_ops.process_source(source)
@@ -116,19 +116,19 @@ class ContentProcessor:
             # Check if this is a directory marker that needs expansion
             if extracted_content.extraction_method == "directory_scan":
                 return self._expand_directory(extracted_content)
-            else:
+            else:  # noqa: RET505
                 return [extracted_content]
 
         except Exception as e:
-            log.error("Error processing source '%s': %s", source, e, exc_info=True)
-            # Let the error bubble up rather than trying to create invalid ExtractedContent
+            log.error("Error processing source '%s': %s", source, e, exc_info=True)  # noqa: G201
+            # Let the error bubble up rather than trying to create invalid ExtractedContent  # noqa: E501
             # The caller (GeminiClient) can handle this more appropriately
-            raise RuntimeError(f"Error processing {source}: {e}") from e
+            raise RuntimeError(f"Error processing {source}: {e}") from e  # noqa: EM102, TRY003
 
     def _expand_directory(
-        self, directory_extract: ExtractedContent
-    ) -> List[ExtractedContent]:
-        """Expand a directory marker into individual file extractions"""
+        self, directory_extract: ExtractedContent  # noqa: COM812
+    ) -> List[ExtractedContent]:  # noqa: UP006
+        """Expand a directory marker into individual file extractions"""  # noqa: D415
         directory_path = Path(directory_extract.metadata["directory_path"])
         log.debug("Expanding directory: %s", directory_path)
 
@@ -138,14 +138,14 @@ class ContentProcessor:
 
             # Flatten all files into a single list
             all_files = []
-            for file_type, files in categorized_files.items():
+            for file_type, files in categorized_files.items():  # noqa: B007, PERF102
                 all_files.extend(files)
 
             if not all_files:
                 # Return empty directory marker
                 return [
                     ExtractedContent(
-                        content=f"Directory {directory_path} contains no processable files.",
+                        content=f"Directory {directory_path} contains no processable files.",  # noqa: E501
                         extraction_method="empty_directory",
                         metadata={
                             "directory_path": str(directory_path),
@@ -153,7 +153,7 @@ class ContentProcessor:
                             "requires_api_upload": False,
                         },
                         file_info=directory_extract.file_info,
-                    )
+                    )  # noqa: COM812
                 ]
 
             # Process each file individually
@@ -162,7 +162,7 @@ class ContentProcessor:
                 try:
                     file_extract = self.file_ops.extract_content(file_info.path)
                     file_extracts.append(file_extract)
-                except Exception as e:
+                except Exception as e:  # noqa: BLE001
                     # Create error extract for this specific file
                     error_extract = ExtractedContent(
                         content=f"Error processing {file_info.path}: {e}",
@@ -176,9 +176,9 @@ class ContentProcessor:
                     )
                     file_extracts.append(error_extract)
 
-            return file_extracts
+            return file_extracts  # noqa: TRY300
 
-        except Exception as e:
+        except Exception as e:  # noqa: BLE001
             # Return error for the entire directory
             return [
                 ExtractedContent(
@@ -190,15 +190,15 @@ class ContentProcessor:
                         "requires_api_upload": False,
                     },
                     file_info=directory_extract.file_info,
-                )
+                )  # noqa: COM812
             ]
 
     def create_api_parts(
         self,
-        extracted_contents: List[ExtractedContent],
-        cache_enabled: bool = False,
-        client: Optional[Any] = None,
-    ) -> List[types.Part]:
+        extracted_contents: List[ExtractedContent],  # noqa: UP006
+        cache_enabled: bool = False,  # noqa: FBT001, FBT002
+        client: Optional[Any] = None,  # noqa: ANN401, UP045
+    ) -> List[types.Part]:  # noqa: UP006
         """
         Coordinate conversion of extracted content to API parts.
 
@@ -209,7 +209,7 @@ class ContentProcessor:
 
         Returns:
             List of Gemini API Part objects
-        """
+        """  # noqa: D212
         log.info(
             "Creating API parts for %d content items (cache_enabled=%s)",
             len(extracted_contents),
@@ -221,10 +221,10 @@ class ContentProcessor:
             self.file_ops.is_multimodal_content(e) for e in extracted_contents
         )
 
-        for i, extracted in enumerate(extracted_contents):
+        for i, extracted in enumerate(extracted_contents):  # noqa: B007
             # Make upload decision based on strategy and caching
             strategy = self._determine_processing_strategy(
-                extracted, cache_enabled, is_multimodal
+                extracted, cache_enabled, is_multimodal  # noqa: COM812
             )
 
             # Create appropriate API part
@@ -243,7 +243,7 @@ class ContentProcessor:
         return api_parts
 
     def _determine_processing_strategy(
-        self, extracted: ExtractedContent, cache_enabled: bool, is_multimodal: bool
+        self, extracted: ExtractedContent, cache_enabled: bool, is_multimodal: bool  # noqa: COM812, FBT001
     ) -> str:
         """Determine processing strategy, forcing upload for multimodal if caching."""
         strategy = extracted.processing_strategy
@@ -260,9 +260,9 @@ class ContentProcessor:
         return strategy
 
     def _create_upload_part(
-        self, extracted: ExtractedContent, client: Optional[Any]
+        self, extracted: ExtractedContent, client: Optional[Any]  # noqa: ANN401, COM812, UP045
     ) -> types.Part:
-        """Coordinate file upload through low-level utility"""
+        """Coordinate file upload through low-level utility"""  # noqa: D202, D415
 
         # Handle arXiv PDFs that need download-first-then-upload
         if extracted.extraction_method == "arxiv_pdf_download":
@@ -275,37 +275,37 @@ class ContentProcessor:
                 "Content requires upload but no file path available for: %s",
                 extracted.file_info.path,
             )
-            raise APIError("Content requires upload but no file path available")
+            raise APIError("Content requires upload but no file path available")  # noqa: EM101, TRY003
 
         if client is None:
             log.error(
                 "Client required for file upload but not provided for: %s",
                 extracted.file_info.path,
             )
-            raise APIError("Client required for file upload but not provided")
+            raise APIError("Client required for file upload but not provided")  # noqa: EM101, TRY003
 
         log.debug("Uploading file: %s", extracted.file_path)
         upload_manager = self._get_file_upload_manager(client)
         uploaded_file = upload_manager.upload_and_wait(extracted.file_path)
 
         mime_type = extracted.metadata.get("mime_type") or getattr(
-            uploaded_file, "mime_type", None
+            uploaded_file, "mime_type", None  # noqa: COM812
         )
         return types.Part(
-            file_data=types.FileData(file_uri=uploaded_file.uri, mime_type=mime_type)
+            file_data=types.FileData(file_uri=uploaded_file.uri, mime_type=mime_type)  # noqa: COM812
         )
 
     def _handle_arxiv_pdf_upload(
-        self, extracted: ExtractedContent, client: Optional[Any]
+        self, extracted: ExtractedContent, client: Optional[Any]  # noqa: ANN401, COM812, UP045
     ) -> types.Part:
-        """Handle arXiv PDF upload using Files API (for large PDFs)"""
+        """Handle arXiv PDF upload using Files API (for large PDFs)"""  # noqa: D202, D415
 
         if client is None:
-            raise APIError("Client required for arXiv PDF upload but not provided")
+            raise APIError("Client required for arXiv PDF upload but not provided")  # noqa: EM101, TRY003
 
         source_url = extracted.metadata.get("url")
         if not source_url:
-            raise APIError("arXiv PDF extraction missing URL")
+            raise APIError("arXiv PDF extraction missing URL")  # noqa: EM101, TRY003
 
         # Download content to memory
         content_bytes = self._download_url_content(extracted, source_url)
@@ -314,34 +314,34 @@ class ContentProcessor:
         doc_io = io.BytesIO(content_bytes)
 
         uploaded_file = client.files.upload(
-            file=doc_io, config={"mime_type": "application/pdf"}
+            file=doc_io, config={"mime_type": "application/pdf"}  # noqa: COM812
         )
 
         # Return proper Part with file data (fixed: was returning raw uploaded_file)
         return types.Part(
             file_data=types.FileData(
-                file_uri=uploaded_file.uri, mime_type="application/pdf"
-            )
+                file_uri=uploaded_file.uri, mime_type="application/pdf"  # noqa: COM812
+            )  # noqa: COM812
         )
 
     def _create_url_part(self, extracted: ExtractedContent) -> types.Part:
-        """Create part from URL-based content (YouTube, PDF URLs)"""
+        """Create part from URL-based content (YouTube, PDF URLs)"""  # noqa: D415
         url = extracted.metadata.get("url")
         if url:
             return types.Part(file_data=types.FileData(file_uri=url))
-        else:
+        else:  # noqa: RET505
             # Fallback to text if URL is missing
             return types.Part(text=extracted.content)
 
     def _create_inline_part(self, extracted: ExtractedContent) -> types.Part:
-        """Create inline part from extracted content - handles URLs and files"""
+        """Create inline part from extracted content - handles URLs and files"""  # noqa: D202, D415
 
         if extracted.file_path:
             # File path - read file data
             content_bytes = extracted.file_path.read_bytes()
             mime_type = extracted.metadata.get("mime_type", "application/octet-stream")
             log.debug(
-                "Read %d bytes from file: %s", len(content_bytes), extracted.file_path
+                "Read %d bytes from file: %s", len(content_bytes), extracted.file_path  # noqa: COM812
             )
         else:
             # Check if this is URL content that needs to be downloaded
@@ -350,10 +350,10 @@ class ContentProcessor:
                 # URL content - download it (restore the missing logic)
                 content_bytes = self._download_url_content(extracted, source_url)
                 mime_type = extracted.metadata.get(
-                    "mime_type", "application/octet-stream"
+                    "mime_type", "application/octet-stream"  # noqa: COM812
                 )
                 log.debug(
-                    "Downloaded %d bytes from URL: %s", len(content_bytes), source_url
+                    "Downloaded %d bytes from URL: %s", len(content_bytes), source_url  # noqa: COM812
                 )
             else:
                 # Text content - encode to bytes
@@ -367,9 +367,9 @@ class ContentProcessor:
         )
 
     def _download_url_content(
-        self, extracted: ExtractedContent, source_url: str
+        self, extracted: ExtractedContent, source_url: str  # noqa: COM812
     ) -> bytes:
-        """Download URL content"""
+        """Download URL content"""  # noqa: D202, D415
 
         # Check if content is cached to avoid double download
         if extracted.metadata.get("content_cached", False):
@@ -401,9 +401,9 @@ class ContentProcessor:
         return file_data
 
     def separate_cacheable_content(
-        self, parts: List[types.Part]
-    ) -> tuple[List[types.Part], List[types.Part]]:
-        """Separate content parts from prompt parts for explicit caching"""
+        self, parts: List[types.Part]  # noqa: COM812, UP006
+    ) -> tuple[List[types.Part], List[types.Part]]:  # noqa: UP006
+        """Separate content parts from prompt parts for explicit caching"""  # noqa: D415
         # Heuristic: cache large text and all file parts. Keep small text as prompt.
         content_parts = []
         prompt_parts = []
@@ -414,8 +414,8 @@ class ContentProcessor:
                 prompt_parts.append(part)
         return content_parts, prompt_parts
 
-    def optimize_for_implicit_cache(self, parts: List[types.Part]) -> List[types.Part]:
-        """Prepares parts for implicit caching by merging text parts"""
+    def optimize_for_implicit_cache(self, parts: List[types.Part]) -> List[types.Part]:  # noqa: UP006
+        """Prepares parts for implicit caching by merging text parts"""  # noqa: D415
         if not parts:
             return []
 
@@ -446,18 +446,18 @@ class ContentProcessor:
 
         return new_parts
 
-    def _is_text_part(self, part) -> bool:
+    def _is_text_part(self, part) -> bool:  # noqa: ANN001
         """Check if a part is a simple text part."""
         # In the native library, text parts can be strings
         return isinstance(part, str) or (
             hasattr(part, "text") and not hasattr(part, "file_data")
         )
 
-    def _is_file_part(self, part) -> bool:
+    def _is_file_part(self, part) -> bool:  # noqa: ANN001
         """Check if a part is a file/blob part."""
         return hasattr(part, "file_data") or isinstance(part, types.Blob)
 
-    def _is_large_text_part(self, part, threshold=LARGE_TEXT_THRESHOLD) -> bool:
+    def _is_large_text_part(self, part, threshold=LARGE_TEXT_THRESHOLD) -> bool:  # noqa: ANN001
         """Check if a text part is considered large."""
         if not self._is_text_part(part):
             return False

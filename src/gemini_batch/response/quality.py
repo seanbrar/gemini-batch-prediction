@@ -3,14 +3,14 @@ Quality assessment and comparison for batch responses
 
 This module provides metrics to compare the quality of individual vs batch
 responses, helping evaluate the effectiveness of batch processing.
-"""
+"""  # noqa: D212, D415
 
-from typing import List, Optional
+from typing import List, Optional  # noqa: UP035
 
 
 def calculate_quality_score(
-    individual_answers: List[str], batch_answers: List[str]
-) -> Optional[float]:
+    individual_answers: List[str], batch_answers: List[str]  # noqa: COM812, UP006
+) -> Optional[float]:  # noqa: UP045
     """
     Calculate quality comparison between individual and batch answers
 
@@ -21,7 +21,7 @@ def calculate_quality_score(
 
     Returns a score between 0.0 and 1.0, where higher scores indicate
     better quality match between individual and batch responses.
-    """
+    """  # noqa: D212, D415
     # Handle case where individual answers aren't available
     if not individual_answers or not batch_answers:
         return None
@@ -31,10 +31,10 @@ def calculate_quality_score(
 
     quality_scores = []
 
-    for ind, batch in zip(individual_answers, batch_answers):
+    for ind, batch in zip(individual_answers, batch_answers):  # noqa: B905
         # Completeness check: both answers should be substantive (>10 chars)
-        ind_complete = len(ind.strip()) > 10
-        batch_complete = len(batch.strip()) > 10
+        ind_complete = len(ind.strip()) > 10  # noqa: PLR2004
+        batch_complete = len(batch.strip()) > 10  # noqa: PLR2004
         completeness = 1.0 if (ind_complete and batch_complete) else 0.5
 
         # Word overlap similarity using Jaccard index
@@ -43,7 +43,7 @@ def calculate_quality_score(
 
         if len(ind_words.union(batch_words)) > 0:
             overlap = len(ind_words.intersection(batch_words)) / len(
-                ind_words.union(batch_words)
+                ind_words.union(batch_words)  # noqa: COM812
             )
         else:
             overlap = 0.0

@@ -1,15 +1,15 @@
 """
 Centralized file type detection, MIME type handling, and validation utilities
-"""
+"""  # noqa: D200, D212, D415
 
 from dataclasses import dataclass
 from functools import lru_cache
 import mimetypes
 from pathlib import Path
 import sys
-from typing import Optional, Set, Tuple, Union
+from typing import Optional, Set, Tuple, Union  # noqa: UP035
 
-from ..constants import (
+from ..constants import (  # noqa: TID252
     FILES_API_THRESHOLD,
     MAX_FILE_SIZE,
     MAX_FILES_API_SIZE,
@@ -24,12 +24,12 @@ mimetypes.init()
 
 @dataclass(frozen=True)
 class FileTypeInfo:
-    """Consolidated file type information"""
+    """Consolidated file type information"""  # noqa: D415
 
-    mime_types: Set[str]
-    extensions: Set[str]
+    mime_types: Set[str]  # noqa: UP006
+    extensions: Set[str]  # noqa: UP006
     gemini_native: bool = True  # Whether natively supported by Gemini API
-    preferred_mime_map: Optional[dict] = (
+    preferred_mime_map: Optional[dict] = (  # noqa: UP045
         None  # Extension -> preferred MIME type mapping
     )
 
@@ -185,8 +185,8 @@ EXTENSION_TO_FILETYPE = {
 
 # Lazy evaluation for expensive computations
 @lru_cache(maxsize=1)
-def _get_extension_to_mime_mapping():
-    """Generate extension to MIME type mapping from file type info"""
+def _get_extension_to_mime_mapping():  # noqa: ANN202
+    """Generate extension to MIME type mapping from file type info"""  # noqa: D415
     mapping = {}
     for info in _FILE_TYPE_INFO.values():
         if info.preferred_mime_map:
@@ -195,8 +195,8 @@ def _get_extension_to_mime_mapping():
 
 
 @lru_cache(maxsize=1)
-def _get_gemini_native_text_constants():
-    """Generate Gemini-native text constants from file type info"""
+def _get_gemini_native_text_constants():  # noqa: ANN202
+    """Generate Gemini-native text constants from file type info"""  # noqa: D415
     # Define Gemini-native subsets
     native_mime_types = {
         "text/plain",
@@ -228,8 +228,8 @@ def _get_gemini_native_text_constants():
 
 
 @lru_cache(maxsize=1)
-def _get_gemini_native_mime_types():
-    """Generate all Gemini-native MIME types"""
+def _get_gemini_native_mime_types():  # noqa: ANN202
+    """Generate all Gemini-native MIME types"""  # noqa: D415
     native_text_mime_types, _ = _get_gemini_native_text_constants()
     return native_text_mime_types | {
         mime
@@ -255,14 +255,14 @@ OTHER_TEXT_EXTENSIONS = (
 )
 
 
-def get_mime_type(file_path: Path, use_magic: bool = True) -> Optional[str]:
-    """Get MIME type using content-based detection or extension fallback"""
+def get_mime_type(file_path: Path, use_magic: bool = True) -> Optional[str]:  # noqa: FBT001, FBT002, UP045
+    """Get MIME type using content-based detection or extension fallback"""  # noqa: D415
     if use_magic:
         try:
-            import magic
+            import magic  # noqa: PLC0415
 
             return magic.Magic(mime=True).from_file(str(file_path))
-        except (ImportError, Exception):
+        except (ImportError, Exception):  # noqa: S110
             pass
 
     # Try our preferred mapping first, then fall back to mimetypes
@@ -275,9 +275,9 @@ def get_mime_type(file_path: Path, use_magic: bool = True) -> Optional[str]:
 
 
 def determine_file_type(
-    file_path: Path, mime_type: Optional[str] = None
-) -> Tuple[FileType, Optional[str]]:
-    """Determine file type using MIME type with extension fallback"""
+    file_path: Path, mime_type: Optional[str] = None  # noqa: COM812, UP045
+) -> Tuple[FileType, Optional[str]]:  # noqa: UP006, UP045
+    """Determine file type using MIME type with extension fallback"""  # noqa: D415
     mime_type = mime_type or get_mime_type(file_path)
 
     if mime_type:
@@ -305,11 +305,11 @@ def determine_file_type(
 
 def _check_gemini_native(
     file_type: FileType,
-    mime_type: Optional[str] = None,
-    extension: Optional[str] = None,
-    text_only: bool = False,
+    mime_type: Optional[str] = None,  # noqa: UP045
+    extension: Optional[str] = None,  # noqa: UP045
+    text_only: bool = False,  # noqa: FBT001, FBT002
 ) -> bool:
-    """Helper for Gemini-native checks"""
+    """Helper for Gemini-native checks"""  # noqa: D415
     if text_only and file_type != FileType.TEXT:
         return False
 
@@ -340,24 +340,24 @@ def _check_gemini_native(
 
 def is_gemini_native_text(
     file_type: FileType,
-    mime_type: Optional[str] = None,
-    extension: Optional[str] = None,
+    mime_type: Optional[str] = None,  # noqa: UP045
+    extension: Optional[str] = None,  # noqa: UP045
 ) -> bool:
-    """Check if a text file is natively supported by Gemini API"""
+    """Check if a text file is natively supported by Gemini API"""  # noqa: D415
     return _check_gemini_native(file_type, mime_type, extension, text_only=True)
 
 
 def is_gemini_native_file(
     file_type: FileType,
-    mime_type: Optional[str] = None,
-    extension: Optional[str] = None,
+    mime_type: Optional[str] = None,  # noqa: UP045
+    extension: Optional[str] = None,  # noqa: UP045
 ) -> bool:
-    """Check if file is natively supported by Gemini API"""
+    """Check if file is natively supported by Gemini API"""  # noqa: D415
     return _check_gemini_native(file_type, mime_type, extension, text_only=False)
 
 
-def is_text_file(file_type: FileType, mime_type: Optional[str] = None) -> bool:
-    """Check if file is text-based"""
+def is_text_file(file_type: FileType, mime_type: Optional[str] = None) -> bool:  # noqa: UP045
+    """Check if file is text-based"""  # noqa: D415
     if file_type == FileType.TEXT:
         return True
     if mime_type:
@@ -367,17 +367,17 @@ def is_text_file(file_type: FileType, mime_type: Optional[str] = None) -> bool:
 
 
 def requires_files_api(file_size: int) -> bool:
-    """Check if file size requires Files API (>20MB) vs inline submission"""
+    """Check if file size requires Files API (>20MB) vs inline submission"""  # noqa: D415
     return file_size > FILES_API_THRESHOLD
 
 
 def is_supported_file(
-    file_path: Optional[Path] = None,
-    mime_type: Optional[str] = None,
-    extension: Optional[str] = None,
-    file_type: Optional[FileType] = None,
+    file_path: Optional[Path] = None,  # noqa: UP045
+    mime_type: Optional[str] = None,  # noqa: UP045
+    extension: Optional[str] = None,  # noqa: UP045
+    file_type: Optional[FileType] = None,  # noqa: UP045
 ) -> bool:
-    """Check if a file is supported by the framework"""
+    """Check if a file is supported by the framework"""  # noqa: D415
     # Determine properties from file_path if needed
     if file_path:
         mime_type = mime_type or get_mime_type(file_path)
@@ -405,9 +405,9 @@ def is_supported_file(
 
 
 def validate_file_size(
-    file_path: Path, file_type: FileType, for_gemini_api: bool = False
-) -> Tuple[bool, Optional[str]]:
-    """Validate file size against appropriate limits"""
+    file_path: Path, file_type: FileType, for_gemini_api: bool = False  # noqa: COM812, FBT001, FBT002
+) -> Tuple[bool, Optional[str]]:  # noqa: UP006, UP045
+    """Validate file size against appropriate limits"""  # noqa: D415
     try:
         size = file_path.stat().st_size
     except OSError as e:
@@ -441,7 +441,7 @@ def validate_file_size(
 
 
 def is_youtube_url(url: str) -> bool:
-    """Check if URL is a YouTube URL"""
+    """Check if URL is a YouTube URL"""  # noqa: D415
     youtube_patterns = [
         "youtube.com/watch?v=",
         "youtu.be/",
@@ -456,18 +456,18 @@ def is_youtube_url(url: str) -> bool:
 
 
 def is_url(text: str) -> bool:
-    """Check if string is a URL"""
+    """Check if string is a URL"""  # noqa: D415
     return text.startswith(("http://", "https://"))
 
 
-def is_text_content(text: str, original_source: Union[str, Path]) -> bool:
-    """Determine if string is text content vs URL/path"""
+def is_text_content(text: str, original_source: Union[str, Path]) -> bool:  # noqa: UP007
+    """Determine if string is text content vs URL/path"""  # noqa: D415
     # If it's a Path object, it's definitely a file path
     if isinstance(original_source, Path):
         return False
 
     # Heuristic: if it has newlines or is long, likely text content
-    if "\n" in text or len(text) > 200:
+    if "\n" in text or len(text) > 200:  # noqa: PLR2004
         return True
 
     if is_url(text):

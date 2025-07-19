@@ -21,8 +21,8 @@ from gemini_batch import BatchProcessor
 from tests.conftest import SimpleSummary
 
 
-def _remove_timing_fields(output_dict):
-    """Remove timing-sensitive fields from output for consistent golden test comparisons."""
+def _remove_timing_fields(output_dict):  # noqa: ANN001, ANN202
+    """Remove timing-sensitive fields from output for consistent golden test comparisons."""  # noqa: E501
     # Remove processing_time from top level
     output_dict.pop("processing_time", None)
 
@@ -39,7 +39,7 @@ def _remove_timing_fields(output_dict):
     return output_dict
 
 @pytest.mark.golden_test("golden_files/test_batch_processor_basic.yml")
-def test_batch_processor_basic_behavior(golden, mock_gemini_client):
+def test_batch_processor_basic_behavior(golden, mock_gemini_client):  # noqa: ANN001, ANN201
     """
     Characterizes the output of BatchProcessor.process_questions for a basic
     text-based query.
@@ -49,7 +49,7 @@ def test_batch_processor_basic_behavior(golden, mock_gemini_client):
     questions = golden["input"]["questions"]
 
     mock_response_text = json.dumps(
-        ["Mocked answer for question 1", "Mocked answer for question 2"]
+        ["Mocked answer for question 1", "Mocked answer for question 2"]  # noqa: COM812
     )
     mock_gemini_client.generate_content.return_value = {
         "text": mock_response_text,
@@ -72,7 +72,7 @@ def test_batch_processor_basic_behavior(golden, mock_gemini_client):
 
 
 @pytest.mark.golden_test("golden_files/test_batch_processor_structured.yml")
-def test_batch_processor_structured_output(golden, mock_gemini_client):
+def test_batch_processor_structured_output(golden, mock_gemini_client):  # noqa: ANN001, ANN201
     """
     Characterizes the output of BatchProcessor when using a response_schema
     to get structured data.
@@ -105,7 +105,7 @@ def test_batch_processor_structured_output(golden, mock_gemini_client):
     )
 
     # Convert 'structured_data' from Pydantic model to dict for global files YAML.
-    if "structured_data" in actual_output and actual_output["structured_data"]:
+    if "structured_data" in actual_output and actual_output["structured_data"]:  # noqa: RUF019
         actual_output["structured_data"] = actual_output["structured_data"].model_dump()
 
     # Clean the output for deterministic comparison

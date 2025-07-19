@@ -1,12 +1,12 @@
 """
 Batch processor for multimodal content analysis
-"""
+"""  # noqa: D200, D212, D415
 
 from contextlib import contextmanager
 import logging
 from pathlib import Path
 import time
-from typing import Any, Dict, List, Optional, Tuple, Union, Unpack
+from typing import Any, Dict, List, Optional, Tuple, Union, Unpack  # noqa: UP035
 
 from .analysis.schema_analyzer import SchemaAnalyzer
 from .config import ClientProtocol, GeminiConfig, get_config
@@ -25,10 +25,10 @@ log = logging.getLogger(__name__)
 class BatchProcessor:
     """A simple batch processor for processing questions against content."""
 
-    def __init__(
+    def __init__(  # noqa: ANN204
         self,
-        _client: Optional[ClientProtocol] = None,
-        telemetry_context: Optional[TelemetryContextProtocol] = None,
+        _client: Optional[ClientProtocol] = None,  # noqa: UP045
+        telemetry_context: Optional[TelemetryContextProtocol] = None,  # noqa: UP045
         **config: Unpack[GeminiConfig],
     ):
         """
@@ -38,10 +38,10 @@ class BatchProcessor:
             processor = BatchProcessor()  # Zero config (uses env vars)
             processor = BatchProcessor(model="gemini-2.5-pro") # Override a setting
             processor = BatchProcessor(_client=my_mock_client) # Advanced: custom client
-        """
+        """  # noqa: D212
         if _client and config:
-            raise ValueError(
-                "Cannot specify both `_client` and config keyword arguments."
+            raise ValueError(  # noqa: TRY003
+                "Cannot specify both `_client` and config keyword arguments."  # noqa: COM812, EM101
             )
 
         self.tele = telemetry_context or TelemetryContext()
@@ -58,8 +58,8 @@ class BatchProcessor:
         self.schema_analyzer = SchemaAnalyzer()
 
     @contextmanager
-    def _metrics_tracker(self, call_count: int = 1):
-        """Context manager for tracking processing metrics"""
+    def _metrics_tracker(self, call_count: int = 1):  # noqa: ANN202
+        """Context manager for tracking processing metrics"""  # noqa: D415
         metrics = ProcessingMetrics(calls=call_count)
         start_time = time.time()
         try:
@@ -67,10 +67,10 @@ class BatchProcessor:
         finally:
             metrics.time = time.time() - start_time
 
-    def _extract_and_track_response(self, response, question_count, metrics, config):
-        """Extract answers from response and track usage metrics"""
+    def _extract_and_track_response(self, response, question_count, metrics, config):  # noqa: ANN001, ANN202
+        """Extract answers from response and track usage metrics"""  # noqa: D415
         extraction_result = self.response_processor.extract_answers_from_response(
-            response, question_count, config.response_schema
+            response, question_count, config.response_schema  # noqa: COM812
         )
 
         usage_metrics = extraction_result.usage
@@ -82,13 +82,13 @@ class BatchProcessor:
 
     def process_questions(
         self,
-        content: Union[str, Path, List[Union[str, Path]]],
-        questions: List[str],
-        compare_methods: bool = False,
-        response_schema: Optional[Any] = None,
-        client: Optional[GeminiClient] = None,
-        **kwargs,  # Accept additional parameters for flexibility
-    ) -> Dict[str, Any]:
+        content: Union[str, Path, List[Union[str, Path]]],  # noqa: UP006, UP007
+        questions: List[str],  # noqa: UP006
+        compare_methods: bool = False,  # noqa: FBT001, FBT002
+        response_schema: Optional[Any] = None,  # noqa: ANN401, UP045
+        client: Optional[GeminiClient] = None,  # noqa: UP045
+        **kwargs,  # Accept additional parameters for flexibility  # noqa: ANN003
+    ) -> Dict[str, Any]:  # noqa: UP006
         """
         Process a list of questions against content.
 
@@ -99,7 +99,7 @@ class BatchProcessor:
             response_schema: Optional schema for structured output
             client: Optional client override
             **kwargs: Additional parameters passed to underlying processors
-        """
+        """  # noqa: D212
         log.info("Starting question processing for %d questions.", len(questions))
         if client:
             self.client = client
@@ -115,16 +115,16 @@ class BatchProcessor:
 
     def process_questions_multi_source(
         self,
-        sources: List[Union[str, Path, List[Union[str, Path]]]],
-        questions: List[str],
-        response_schema: Optional[Any] = None,
-        **kwargs,
-    ) -> Dict[str, Any]:
-        """Process multiple sources in a single batch for maximum efficiency"""
+        sources: List[Union[str, Path, List[Union[str, Path]]]],  # noqa: UP006, UP007
+        questions: List[str],  # noqa: UP006
+        response_schema: Optional[Any] = None,  # noqa: ANN401, UP045
+        **kwargs,  # noqa: ANN003
+    ) -> Dict[str, Any]:  # noqa: UP006
+        """Process multiple sources in a single batch for maximum efficiency"""  # noqa: D415
         if not sources:
-            raise ValueError("At least one source is required")
+            raise ValueError("At least one source is required")  # noqa: EM101, TRY003
         if not questions:
-            raise ValueError("Questions are required")
+            raise ValueError("Questions are required")  # noqa: EM101, TRY003
 
         result = self.process_questions(
             sources,
@@ -138,17 +138,17 @@ class BatchProcessor:
             {
                 "source_count": len(sources),
                 "processing_mode": "multi_source_batch",
-            }
+            }  # noqa: COM812
         )
 
         return result
 
     def _process_standard(
         self,
-        content: Union[str, Path, List[Union[str, Path]]],
-        questions: List[str],
+        content: Union[str, Path, List[Union[str, Path]]],  # noqa: UP006, UP007
+        questions: List[str],  # noqa: UP006
         config: ProcessingOptions,
-    ) -> Dict[str, Any]:
+    ) -> Dict[str, Any]:  # noqa: UP006
         """
         Standard processing path with explicit fallback and comparison logic.
 
@@ -157,7 +157,7 @@ class BatchProcessor:
         2. If batch fails, explicitly fall back to individual processing
         3. If comparison requested and batch succeeded, run individual for comparison
         4. Build and return results
-        """
+        """  # noqa: D212
         with self.tele(
             "batch.total_processing",
             question_count=len(questions),
@@ -170,27 +170,27 @@ class BatchProcessor:
 
             # Primary execution path
             try:
-                with self.tele("batch.attempt") as ctx:
+                with self.tele("batch.attempt") as ctx:  # noqa: F841
                     log.info("Attempting batch processing.")
                     batch_answers, batch_metrics = self._process_batch(
-                        content, questions, config
+                        content, questions, config  # noqa: COM812
                     )
                     # Contextual metrics - track token efficiency
                     if batch_metrics.total_tokens > 0:
                         self.tele.metric(
-                            "token_efficiency", batch_metrics.total_tokens / 1000
+                            "token_efficiency", batch_metrics.total_tokens / 1000  # noqa: COM812
                         )
                     batch_succeeded = True
 
             except BatchProcessingError as e:
-                with self.tele("batch.individual_fallback", error_type=type(e).__name__):
-                    # Batch processing failed - explicitly fall back to individual processing
+                with self.tele("batch.individual_fallback", error_type=type(e).__name__):  # noqa: E501
+                    # Batch processing failed - explicitly fall back to individual processing  # noqa: E501
                     log.warning(
-                        "Batch processing failed, falling back to individual calls. Reason: %s",
+                        "Batch processing failed, falling back to individual calls. Reason: %s",  # noqa: E501
                         e,
                     )
                     individual_answers, individual_metrics = self._process_individual(
-                        content, questions, config
+                        content, questions, config  # noqa: COM812
                     )
 
                     # Use individual results as the primary result
@@ -206,11 +206,11 @@ class BatchProcessor:
             if config.compare_methods and batch_succeeded:
                 with self.tele("batch.comparison_run"):
                     log.debug(
-                        "Comparison mode enabled, running individual processing for metrics."
+                        "Comparison mode enabled, running individual processing for metrics."  # noqa: COM812, E501
                     )
                     # Only run comparison if batch processing actually succeeded
                     individual_answers, individual_metrics = self._process_individual(
-                        content, questions, config
+                        content, questions, config  # noqa: COM812
                     )
 
             # Result building
@@ -226,10 +226,10 @@ class BatchProcessor:
 
     def _process_batch(
         self,
-        content: Union[str, Path, List[Union[str, Path]]],
-        questions: List[str],
+        content: Union[str, Path, List[Union[str, Path]]],  # noqa: UP006, UP007
+        questions: List[str],  # noqa: UP006
         config: ProcessingOptions,
-    ) -> Tuple[List[str], ProcessingMetrics]:
+    ) -> Tuple[List[str], ProcessingMetrics]:  # noqa: UP006
         """Process all questions in a single batch call."""
         with self.tele(
             "batch.processing",
@@ -251,16 +251,16 @@ class BatchProcessor:
                 batch_prompt = prompt_builder.create_prompt(questions)
 
             try:
-                # 3. Make the API call - use generate_content since we have a single combined prompt
-                with self.tele("batch.api_call") as api_ctx:
-                    # Always request usage internally, but filter user's return_usage to avoid conflicts
+                # 3. Make the API call - use generate_content since we have a single combined prompt  # noqa: E501
+                with self.tele("batch.api_call") as api_ctx:  # noqa: F841
+                    # Always request usage internally, but filter user's return_usage to avoid conflicts  # noqa: E501
                     api_options = {
                         k: v for k, v in config.options.items() if k != "return_usage"
                     }
                     response = self.client.generate_content(
                         content=content,
-                        prompt=batch_prompt,  # Single combined prompt, not multiple questions
-                        return_usage=True,  # Need full response object for ResponseProcessor
+                        prompt=batch_prompt,  # Single combined prompt, not multiple questions  # noqa: E501
+                        return_usage=True,  # Need full response object for ResponseProcessor  # noqa: E501
                         response_schema=config.response_schema,
                         **api_options,
                     )
@@ -270,7 +270,7 @@ class BatchProcessor:
                 # 4. Process the successful response
                 with self.tele("batch.response_processing"):
                     extraction_result = self._extract_and_track_response(
-                        response, len(questions), metrics, config
+                        response, len(questions), metrics, config  # noqa: COM812
                     )
 
                 if extraction_result.structured_quality:
@@ -285,27 +285,27 @@ class BatchProcessor:
 
                 # Track successful batch processing
                 self.tele.metric("batch_success", 1)
-                return answers, metrics
+                return answers, metrics  # noqa: TRY300
 
             except Exception as e:
                 # Track failed API calls
                 self.tele.metric("batch_failures", 1)
-                # Any failure in batch processing should be re-raised as BatchProcessingError
-                # This makes the failure explicit and allows the caller to handle it appropriately
-                raise BatchProcessingError(f"Batch API call failed: {str(e)}") from e
+                # Any failure in batch processing should be re-raised as BatchProcessingError  # noqa: E501
+                # This makes the failure explicit and allows the caller to handle it appropriately  # noqa: E501
+                raise BatchProcessingError(f"Batch API call failed: {str(e)}") from e  # noqa: EM102, RUF010, TRY003
 
     def _process_individual(
         self,
-        content: Union[str, Path, List[Union[str, Path]]],
-        questions: List[str],
+        content: Union[str, Path, List[Union[str, Path]]],  # noqa: UP006, UP007
+        questions: List[str],  # noqa: UP006
         config: ProcessingOptions,
-    ) -> Tuple[List[str], ProcessingMetrics]:
+    ) -> Tuple[List[str], ProcessingMetrics]:  # noqa: UP006
         """
         Process questions individually.
 
         This method is used either as a fallback when batch processing fails,
         or for comparison when compare_methods=True.
-        """
+        """  # noqa: D212
         with self.tele(
             "individual.processing",
             method="individual",
@@ -316,7 +316,7 @@ class BatchProcessor:
             for i, question in enumerate(questions):
                 with self.tele(f"individual.question_{i + 1}"):
                     try:
-                        # Always request usage internally, but filter user's return_usage to avoid conflicts
+                        # Always request usage internally, but filter user's return_usage to avoid conflicts  # noqa: E501
                         api_options = {
                             k: v
                             for k, v in config.options.items()
@@ -325,13 +325,13 @@ class BatchProcessor:
                         response = self.client.generate_content(
                             content=content,
                             prompt=question,
-                            return_usage=True,  # Need full response object for ResponseProcessor
+                            return_usage=True,  # Need full response object for ResponseProcessor  # noqa: E501
                             response_schema=config.response_schema,
                             **api_options,
                         )
 
                         extraction_result = self._extract_and_track_response(
-                            response, 1, metrics, config
+                            response, 1, metrics, config  # noqa: COM812
                         )
 
                         # For individual processing, we always get a single answer (str)
@@ -345,18 +345,18 @@ class BatchProcessor:
                         # Track successful individual calls
                         self.tele.metric("individual_success", 1)
 
-                    except Exception as e:
-                        # For individual processing, we can continue with other questions
+                    except Exception as e:  # noqa: BLE001
+                        # For individual processing, we can continue with other questions  # noqa: E501
                         # even if one fails
-                        answers.append(f"Error: {str(e)}")
+                        answers.append(f"Error: {str(e)}")  # noqa: RUF010
                         self.tele.metric("individual_failures", 1)
 
             return answers, metrics
 
     def _calculate_efficiency(
-        self, individual_metrics: ProcessingMetrics, batch_metrics: ProcessingMetrics
-    ) -> Dict[str, Any]:
-        """Calculate efficiency metrics between individual and batch processing"""
+        self, individual_metrics: ProcessingMetrics, batch_metrics: ProcessingMetrics  # noqa: COM812
+    ) -> Dict[str, Any]:  # noqa: UP006
+        """Calculate efficiency metrics between individual and batch processing"""  # noqa: D415
         return track_efficiency(
             individual_calls=individual_metrics.calls,
             batch_calls=batch_metrics.calls,
@@ -372,25 +372,25 @@ class BatchProcessor:
         )
 
     # Cache management methods
-    def get_cache_efficiency_summary(self) -> Optional[Dict[str, Any]]:
-        """Get cache efficiency summary from the underlying client"""
+    def get_cache_efficiency_summary(self) -> Optional[Dict[str, Any]]:  # noqa: UP006, UP045
+        """Get cache efficiency summary from the underlying client"""  # noqa: D415
         if hasattr(self.client, "get_cache_metrics"):
             return self.client.get_cache_metrics()
         return None
 
     def cleanup_caches(self) -> int:
-        """Clean up expired caches"""
+        """Clean up expired caches"""  # noqa: D415
         if hasattr(self.client, "cleanup_expired_caches"):
             return self.client.cleanup_expired_caches()
         return 0
 
-    def get_config_summary(self) -> Dict[str, Any]:
-        """Get configuration summary for debugging"""
+    def get_config_summary(self) -> Dict[str, Any]:  # noqa: UP006
+        """Get configuration summary for debugging"""  # noqa: D415
         summary = {
             "config": get_config(),
             "client_model": getattr(self.client.config_manager, "model", "unknown"),
             "client_caching": getattr(self.client, "config", {}).get(
-                "enable_caching", False
+                "enable_caching", False  # noqa: COM812
             ),
         }
 
