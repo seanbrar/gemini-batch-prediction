@@ -33,6 +33,7 @@ dev = [
     "vulture",
     "pytest-golden",
     "mypy>=1.0.0",
+    "pre-commit>=4.0.0",
 ]
 viz = [
     "matplotlib>=3.10.3",
