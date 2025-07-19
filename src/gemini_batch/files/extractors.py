@@ -1,12 +1,10 @@
-"""
-Content extraction from various file types with multimodal support
-"""
+"""Content extraction from various file types with multimodal support"""
 
 from abc import ABC, abstractmethod
 from dataclasses import dataclass
 import logging
 from pathlib import Path
-from typing import Any, Dict, List, Optional, Union
+from typing import Any
 
 import httpx
 
@@ -22,10 +20,10 @@ class ExtractedContent:
     """Container for extracted content and metadata"""
 
     content: str  # For text files: actual content. For multimodal: empty string
-    metadata: Dict[str, Any]
+    metadata: dict[str, Any]
     file_info: FileInfo
     extraction_method: str
-    file_path: Optional[Path] = None  # For API upload files: actual file path
+    file_path: Path | None = None  # For API upload files: actual file path
 
     @property
     def size(self) -> int:
@@ -43,7 +41,7 @@ class ExtractedContent:
         return self.metadata.get("requires_api_upload", False)
 
     @property
-    def media_type(self) -> Optional[str]:
+    def media_type(self) -> str | None:
         """Get the media type for multimodal files"""
         return self.metadata.get("media_type")
 
@@ -52,14 +50,13 @@ class ExtractedContent:
         """How this content should be processed - 'upload', 'inline', 'text_only', 'url'"""
         if self.extraction_method in ["youtube_api", "pdf_url_api"]:
             return "url"  # Direct API (YouTube)
-        elif self.extraction_method == "arxiv_pdf_download":
+        if self.extraction_method == "arxiv_pdf_download":
             return "upload"  # Download + Upload (arXiv PDFs)
-        elif self.requires_api_upload:
+        if self.requires_api_upload:
             return "upload"
-        elif self.content:
+        if self.content:
             return "text_only"
-        else:
-            return "inline"
+        return "inline"
 
 
 class BaseExtractor(ABC):
@@ -71,22 +68,20 @@ class BaseExtractor(ABC):
     @abstractmethod
     def can_extract(self, file_info: FileInfo) -> bool:
         """Check if this extractor can handle the file type"""
-        pass
 
     @abstractmethod
     def extract(self, file_info: FileInfo) -> ExtractedContent:
         """Extract content from the file"""
-        pass
 
     def _validate_file_size(self, file_info: FileInfo) -> None:
         """Validate file size against limits"""
         if file_info.size > self.max_size:
             raise GeminiBatchError(
                 f"File too large: {file_info.size / (1024**2):.1f}MB "
-                f"(max: {self.max_size / (1024**2):.1f}MB)"
+                f"(max: {self.max_size / (1024**2):.1f}MB)",
             )
 
-    def _get_base_metadata(self, file_info: FileInfo) -> Dict[str, Any]:
+    def _get_base_metadata(self, file_info: FileInfo) -> dict[str, Any]:
         """Get essential metadata for API submission"""
         return {
             "file_size": file_info.size,
@@ -155,7 +150,7 @@ class MediaExtractor(BaseExtractor):
         metadata.update(
             {
                 "media_type": self.MEDIA_TYPE_MAP.get(file_info.file_type, "document"),
-            }
+            },
         )
 
         extracted = ExtractedContent(
@@ -189,7 +184,7 @@ class URLExtractor(BaseExtractor):
         # Only support arXiv PDF URLs
         return self._is_arxiv_pdf_url(source)
 
-    def can_extract_source(self, source: Union[str, Path]) -> bool:
+    def can_extract_source(self, source: str | Path) -> bool:
         """Check if source is a supported URL (arXiv PDFs only)"""
         return self.can_extract(str(source))
 
@@ -210,7 +205,7 @@ class URLExtractor(BaseExtractor):
         """Cache content for a URL - centralized caching logic"""
         self._content_cache[url] = content
 
-    def _get_cached_content(self, url: str) -> Optional[bytes]:
+    def _get_cached_content(self, url: str) -> bytes | None:
         """Get cached content if available"""
         return self._content_cache.get(url)
 
@@ -233,7 +228,8 @@ class URLExtractor(BaseExtractor):
             raise GeminiBatchError(f"Failed to fetch URL {url}: {e}") from e
 
     def _extract_mime_and_size_from_response(
-        self, response: httpx.Response
+        self,
+        response: httpx.Response,
     ) -> tuple[str, int]:
         """Extract MIME type and content size from HTTP response"""
         mime_type = response.headers.get("content-type", "").split(";")[0]
@@ -243,12 +239,11 @@ class URLExtractor(BaseExtractor):
             # GET response - we have content
             content_size = len(response.content)
             return mime_type, content_size
-        elif content_length:
+        if content_length:
             # HEAD response with content-length
             return mime_type, int(content_length)
-        else:
-            # HEAD response without content-length - need to do GET
-            return None, None
+        # HEAD response without content-length - need to do GET
+        return None, None
 
     def _get_content_metadata(self, url: str) -> tuple[str, int]:
         """Get content metadata efficiently using HEAD request first, with GET fallback"""
@@ -262,12 +257,12 @@ class URLExtractor(BaseExtractor):
         try:
             head_response = self._make_http_request(url, "HEAD")
             mime_type, content_size = self._extract_mime_and_size_from_response(
-                head_response
+                head_response,
             )
 
             if mime_type and content_size is not None:
                 return mime_type or self._determine_mime_type_from_url(
-                    url
+                    url,
                 ), content_size
         except GeminiBatchError as e:
             # If HEAD fails with 405/501, fall back to GET
@@ -279,7 +274,7 @@ class URLExtractor(BaseExtractor):
         # Fallback to GET request
         get_response = self._make_http_request(url, "GET")
         mime_type, content_size = self._extract_mime_and_size_from_response(
-            get_response
+            get_response,
         )
 
         # Cache the content since we downloaded it
@@ -330,18 +325,17 @@ class URLExtractor(BaseExtractor):
         ):
             raise GeminiBatchError(
                 f"Only YouTube videos are supported directly. "
-                f"For other platforms, please download: {url}"
+                f"For other platforms, please download: {url}",
             )
 
     def extract_from_url(self, url: str) -> ExtractedContent:
         """Extract arXiv PDF URLs for processing"""
-
         # Validate that this is a supported URL
         if not self._is_arxiv_pdf_url(url):
             raise GeminiBatchError(
                 f"Unsupported URL: {url}. "
                 f"Only arXiv PDF URLs (arxiv.org/pdf/) are supported. "
-                f"For YouTube videos, use the direct URL."
+                f"For YouTube videos, use the direct URL.",
             )
 
         # Get content metadata
@@ -351,7 +345,7 @@ class URLExtractor(BaseExtractor):
         if content_size > self.max_size:
             raise GeminiBatchError(
                 f"PDF too large: {content_size / (1024**2):.1f}MB "
-                f"(max: {self.max_size / (1024**2):.1f}MB)"
+                f"(max: {self.max_size / (1024**2):.1f}MB)",
             )
 
         # Create FileInfo for arXiv PDF
@@ -412,11 +406,11 @@ class URLExtractor(BaseExtractor):
             extraction_method="pdf_url_api",
         )
 
-    def extract_source(self, source: Union[str, Path]) -> ExtractedContent:
+    def extract_source(self, source: str | Path) -> ExtractedContent:
         """Extract content from URL source"""
         return self.extract_from_url(str(source))
 
-    def get_cached_content(self, url: str) -> Optional[bytes]:
+    def get_cached_content(self, url: str) -> bytes | None:
         """Get cached content for a URL to avoid re-downloading"""
         return self._get_cached_content(url)
 
@@ -449,7 +443,7 @@ class URLExtractor(BaseExtractor):
 class ContentExtractorManager:
     """Content extractor manager with automatic extractor selection"""
 
-    def __init__(self, custom_extractors: Optional[List[BaseExtractor]] = None):
+    def __init__(self, custom_extractors: list[BaseExtractor] | None = None):
         """Initialize with default extractors and optional custom ones"""
         self.extractors = [
             TextContentExtractor(),
@@ -462,12 +456,13 @@ class ContentExtractorManager:
         if custom_extractors:
             self.extractors.extend(custom_extractors)
 
-    def process_source(self, source: Union[str, Path]) -> ExtractedContent:
+    def process_source(self, source: str | Path) -> ExtractedContent:
         """Process any source type using the appropriate extractor"""
         # Try extractors that can handle source directly (string/Path)
         for extractor in self.extractors:
             if hasattr(
-                extractor, "can_extract_source"
+                extractor,
+                "can_extract_source",
             ) and extractor.can_extract_source(source):
                 try:
                     return extractor.extract_source(source)
@@ -479,7 +474,7 @@ class ContentExtractorManager:
             path = Path(source)
             if path.exists() and path.is_file():
                 return self.extract_content_from_path(path)
-            elif path.exists() and path.is_dir():
+            if path.exists() and path.is_dir():
                 # Return special marker for directory processing
                 from .scanner import FileInfo, FileType
 
@@ -521,7 +516,7 @@ class ContentExtractorManager:
         # No extractor could handle the file
         raise GeminiBatchError(
             f"No extractor available for file: {file_info.path} "
-            f"(type: {file_info.file_type}, mime: {file_info.mime_type})"
+            f"(type: {file_info.file_type}, mime: {file_info.mime_type})",
         )
 
     def extract_from_url(self, url: str) -> ExtractedContent:
@@ -529,8 +524,7 @@ class ContentExtractorManager:
         url_extractor = URLExtractor()
         if url_extractor.can_extract(url):
             return url_extractor.extract_from_url(url)
-        else:
-            raise GeminiBatchError(f"URL not supported: {url}")
+        raise GeminiBatchError(f"URL not supported: {url}")
 
     def register_extractor(self, extractor: BaseExtractor, priority: int = -1) -> None:
         """Add a custom extractor to the manager with optional priority"""
@@ -558,11 +552,11 @@ class TextContentExtractor(BaseExtractor):
         """This extractor doesn't work with FileInfo"""
         return False
 
-    def can_extract_source(self, source: Union[str, Path]) -> bool:
+    def can_extract_source(self, source: str | Path) -> bool:
         """Check if source is direct text content"""
         return utils.is_text_content(str(source), source)
 
-    def extract_source(self, source: Union[str, Path]) -> ExtractedContent:
+    def extract_source(self, source: str | Path) -> ExtractedContent:
         """Extract text content directly"""
         text = str(source)
         from .scanner import FileInfo, FileType
@@ -594,11 +588,11 @@ class YouTubeExtractor(BaseExtractor):
         """This extractor doesn't work with FileInfo"""
         return False
 
-    def can_extract_source(self, source: Union[str, Path]) -> bool:
+    def can_extract_source(self, source: str | Path) -> bool:
         """Check if source is a YouTube URL"""
         return utils.is_youtube_url(str(source))
 
-    def extract_source(self, source: Union[str, Path]) -> ExtractedContent:
+    def extract_source(self, source: str | Path) -> ExtractedContent:
         """Extract YouTube URL for API processing"""
         url = str(source)
         from .scanner import FileInfo, FileType

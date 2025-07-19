@@ -1,12 +1,11 @@
-"""
-Content processing orchestration - converts multiple mixed sources
+"""Content processing orchestration - converts multiple mixed sources
 into processed ExtractedContent objects for API consumption
 """
 
 import io
 import logging
 from pathlib import Path
-from typing import Any, List, Optional, Union
+from typing import Any
 
 from google.genai import types
 import httpx
@@ -19,7 +18,7 @@ from ..files.extractors import ExtractedContent
 from .file_upload_manager import FileUploadManager
 
 
-def _flatten_sources(sources: Union[str, Path, List]) -> List[Union[str, Path]]:
+def _flatten_sources(sources: str | Path | list) -> list[str | Path]:
     """Flatten nested source lists to avoid deep recursion in processing"""
     if not isinstance(sources, list):
         return [sources]
@@ -39,8 +38,7 @@ log = logging.getLogger(__name__)
 
 
 class ContentProcessor:
-    """
-    Content orchestration layer - handles multiple mixed sources and batch processing.
+    """Content orchestration layer - handles multiple mixed sources and batch processing.
 
     Responsibilities:
     - Convert multiple sources (files, directories, URLs) into ExtractedContent objects
@@ -57,7 +55,7 @@ class ContentProcessor:
     def __init__(self):
         self.file_ops = FileOperations()
         # Lazy initialization of file upload manager
-        self._file_upload_manager: Optional[FileUploadManager] = None
+        self._file_upload_manager: FileUploadManager | None = None
 
     def _get_file_upload_manager(self, client: Any) -> FileUploadManager:
         """Lazy initialization of file upload manager"""
@@ -67,23 +65,25 @@ class ContentProcessor:
 
     def process(
         self,
-        content: Union[str, Path, List[Union[str, Path]]],
-        client: Optional[Any] = None,
-    ) -> List[types.Part]:
-        """
-        Convert content to API parts - unified interface for GeminiClient.
+        content: str | Path | list[str | Path],
+        client: Any | None = None,
+    ) -> list[types.Part]:
+        """Convert content to API parts - unified interface for GeminiClient.
 
         This method combines process_content() and create_api_parts() to provide
         a simple interface for converting any content source into API-ready parts.
         """
         extracted_contents = self.process_content(content)
         return self.create_api_parts(
-            extracted_contents, cache_enabled=False, client=client
+            extracted_contents,
+            cache_enabled=False,
+            client=client,
         )
 
     def process_content(
-        self, source: Union[str, Path, List[Union[str, Path]]]
-    ) -> List[ExtractedContent]:
+        self,
+        source: str | Path | list[str | Path],
+    ) -> list[ExtractedContent]:
         """Convert any content source into list of ExtractedContent for API consumption"""
         # Flatten nested lists first to avoid deep recursion
         flattened_sources = _flatten_sources(source)
@@ -106,8 +106,9 @@ class ContentProcessor:
         return self.file_ops.is_multimodal_content(extracted_content)
 
     def _process_single_source(
-        self, source: Union[str, Path]
-    ) -> List[ExtractedContent]:
+        self,
+        source: str | Path,
+    ) -> list[ExtractedContent]:
         """Process a single content source to list of ExtractedContent (directories expand to multiple)"""
         try:
             # Get initial extraction from file operations
@@ -116,8 +117,7 @@ class ContentProcessor:
             # Check if this is a directory marker that needs expansion
             if extracted_content.extraction_method == "directory_scan":
                 return self._expand_directory(extracted_content)
-            else:
-                return [extracted_content]
+            return [extracted_content]
 
         except Exception as e:
             log.error("Error processing source '%s': %s", source, e, exc_info=True)
@@ -126,8 +126,9 @@ class ContentProcessor:
             raise RuntimeError(f"Error processing {source}: {e}") from e
 
     def _expand_directory(
-        self, directory_extract: ExtractedContent
-    ) -> List[ExtractedContent]:
+        self,
+        directory_extract: ExtractedContent,
+    ) -> list[ExtractedContent]:
         """Expand a directory marker into individual file extractions"""
         directory_path = Path(directory_extract.metadata["directory_path"])
         log.debug("Expanding directory: %s", directory_path)
@@ -153,7 +154,7 @@ class ContentProcessor:
                             "requires_api_upload": False,
                         },
                         file_info=directory_extract.file_info,
-                    )
+                    ),
                 ]
 
             # Process each file individually
@@ -190,17 +191,16 @@ class ContentProcessor:
                         "requires_api_upload": False,
                     },
                     file_info=directory_extract.file_info,
-                )
+                ),
             ]
 
     def create_api_parts(
         self,
-        extracted_contents: List[ExtractedContent],
+        extracted_contents: list[ExtractedContent],
         cache_enabled: bool = False,
-        client: Optional[Any] = None,
-    ) -> List[types.Part]:
-        """
-        Coordinate conversion of extracted content to API parts.
+        client: Any | None = None,
+    ) -> list[types.Part]:
+        """Coordinate conversion of extracted content to API parts.
 
         Args:
             extracted_contents: List of processed content
@@ -224,7 +224,9 @@ class ContentProcessor:
         for i, extracted in enumerate(extracted_contents):
             # Make upload decision based on strategy and caching
             strategy = self._determine_processing_strategy(
-                extracted, cache_enabled, is_multimodal
+                extracted,
+                cache_enabled,
+                is_multimodal,
             )
 
             # Create appropriate API part
@@ -243,7 +245,10 @@ class ContentProcessor:
         return api_parts
 
     def _determine_processing_strategy(
-        self, extracted: ExtractedContent, cache_enabled: bool, is_multimodal: bool
+        self,
+        extracted: ExtractedContent,
+        cache_enabled: bool,
+        is_multimodal: bool,
     ) -> str:
         """Determine processing strategy, forcing upload for multimodal if caching."""
         strategy = extracted.processing_strategy
@@ -260,10 +265,11 @@ class ContentProcessor:
         return strategy
 
     def _create_upload_part(
-        self, extracted: ExtractedContent, client: Optional[Any]
+        self,
+        extracted: ExtractedContent,
+        client: Any | None,
     ) -> types.Part:
         """Coordinate file upload through low-level utility"""
-
         # Handle arXiv PDFs that need download-first-then-upload
         if extracted.extraction_method == "arxiv_pdf_download":
             log.debug("Handling arXiv PDF upload for: %s", extracted.file_info.path)
@@ -289,17 +295,20 @@ class ContentProcessor:
         uploaded_file = upload_manager.upload_and_wait(extracted.file_path)
 
         mime_type = extracted.metadata.get("mime_type") or getattr(
-            uploaded_file, "mime_type", None
+            uploaded_file,
+            "mime_type",
+            None,
         )
         return types.Part(
-            file_data=types.FileData(file_uri=uploaded_file.uri, mime_type=mime_type)
+            file_data=types.FileData(file_uri=uploaded_file.uri, mime_type=mime_type),
         )
 
     def _handle_arxiv_pdf_upload(
-        self, extracted: ExtractedContent, client: Optional[Any]
+        self,
+        extracted: ExtractedContent,
+        client: Any | None,
     ) -> types.Part:
         """Handle arXiv PDF upload using Files API (for large PDFs)"""
-
         if client is None:
             raise APIError("Client required for arXiv PDF upload but not provided")
 
@@ -314,14 +323,16 @@ class ContentProcessor:
         doc_io = io.BytesIO(content_bytes)
 
         uploaded_file = client.files.upload(
-            file=doc_io, config={"mime_type": "application/pdf"}
+            file=doc_io,
+            config={"mime_type": "application/pdf"},
         )
 
         # Return proper Part with file data (fixed: was returning raw uploaded_file)
         return types.Part(
             file_data=types.FileData(
-                file_uri=uploaded_file.uri, mime_type="application/pdf"
-            )
+                file_uri=uploaded_file.uri,
+                mime_type="application/pdf",
+            ),
         )
 
     def _create_url_part(self, extracted: ExtractedContent) -> types.Part:
@@ -329,19 +340,19 @@ class ContentProcessor:
         url = extracted.metadata.get("url")
         if url:
             return types.Part(file_data=types.FileData(file_uri=url))
-        else:
-            # Fallback to text if URL is missing
-            return types.Part(text=extracted.content)
+        # Fallback to text if URL is missing
+        return types.Part(text=extracted.content)
 
     def _create_inline_part(self, extracted: ExtractedContent) -> types.Part:
         """Create inline part from extracted content - handles URLs and files"""
-
         if extracted.file_path:
             # File path - read file data
             content_bytes = extracted.file_path.read_bytes()
             mime_type = extracted.metadata.get("mime_type", "application/octet-stream")
             log.debug(
-                "Read %d bytes from file: %s", len(content_bytes), extracted.file_path
+                "Read %d bytes from file: %s",
+                len(content_bytes),
+                extracted.file_path,
             )
         else:
             # Check if this is URL content that needs to be downloaded
@@ -350,10 +361,13 @@ class ContentProcessor:
                 # URL content - download it (restore the missing logic)
                 content_bytes = self._download_url_content(extracted, source_url)
                 mime_type = extracted.metadata.get(
-                    "mime_type", "application/octet-stream"
+                    "mime_type",
+                    "application/octet-stream",
                 )
                 log.debug(
-                    "Downloaded %d bytes from URL: %s", len(content_bytes), source_url
+                    "Downloaded %d bytes from URL: %s",
+                    len(content_bytes),
+                    source_url,
                 )
             else:
                 # Text content - encode to bytes
@@ -367,10 +381,11 @@ class ContentProcessor:
         )
 
     def _download_url_content(
-        self, extracted: ExtractedContent, source_url: str
+        self,
+        extracted: ExtractedContent,
+        source_url: str,
     ) -> bytes:
         """Download URL content"""
-
         # Check if content is cached to avoid double download
         if extracted.metadata.get("content_cached", False):
             # Get cached content from URLExtractor
@@ -401,8 +416,9 @@ class ContentProcessor:
         return file_data
 
     def separate_cacheable_content(
-        self, parts: List[types.Part]
-    ) -> tuple[List[types.Part], List[types.Part]]:
+        self,
+        parts: list[types.Part],
+    ) -> tuple[list[types.Part], list[types.Part]]:
         """Separate content parts from prompt parts for explicit caching"""
         # Heuristic: cache large text and all file parts. Keep small text as prompt.
         content_parts = []
@@ -414,7 +430,7 @@ class ContentProcessor:
                 prompt_parts.append(part)
         return content_parts, prompt_parts
 
-    def optimize_for_implicit_cache(self, parts: List[types.Part]) -> List[types.Part]:
+    def optimize_for_implicit_cache(self, parts: list[types.Part]) -> list[types.Part]:
         """Prepares parts for implicit caching by merging text parts"""
         if not parts:
             return []

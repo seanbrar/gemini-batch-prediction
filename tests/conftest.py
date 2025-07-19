@@ -30,7 +30,7 @@ def pytest_collection_modifyitems(config, items):
     """Automatically skip API tests when API key is unavailable."""
     if not (os.getenv("GEMINI_API_KEY") and os.getenv("ENABLE_API_TESTS")):
         skip_api = pytest.mark.skip(
-            reason="API tests require GEMINI_API_KEY and ENABLE_API_TESTS=1"
+            reason="API tests require GEMINI_API_KEY and ENABLE_API_TESTS=1",
         )
         for item in items:
             if "api" in item.keywords:
@@ -112,10 +112,10 @@ def mocked_internal_genai_client():
 
         # Mock the nested structure for creating and using caches
         mock_instance.caches.create.return_value = MagicMock(
-            name="caches.create_return"
+            name="caches.create_return",
         )
         type(mock_instance.caches.create.return_value).name = PropertyMock(
-            return_value="cachedContents/mock-cache-123"
+            return_value="cachedContents/mock-cache-123",
         )
 
         # Mock the token counter to avoid real API calls during planning

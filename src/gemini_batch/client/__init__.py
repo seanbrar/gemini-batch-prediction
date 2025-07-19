@@ -1,5 +1,4 @@
-"""
-Supporting components for Gemini API client
+"""Supporting components for Gemini API client
 
 Note: The main GeminiClient is now at gemini_batch.GeminiClient (root level)
 for better hierarchical architecture. This package contains supporting components.

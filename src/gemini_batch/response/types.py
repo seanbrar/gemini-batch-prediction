@@ -1,5 +1,4 @@
-"""
-Response processing types and result containers
+"""Response processing types and result containers
 
 This module defines the core data structures used throughout the response
 processing system, including extraction results, processed responses,
@@ -7,18 +6,16 @@ and validation outcomes.
 """
 
 from dataclasses import dataclass, field
-from typing import Any, Dict, List, Optional, Union
+from typing import Any
 
 
 @dataclass
 class ExtractionResult:
     """Result from response extraction with usage metrics and quality data"""
 
-    answers: Union[
-        List[str], str
-    ]  # List for batch (multiple questions), str for individual
-    usage: Dict[str, int]
-    structured_quality: Optional[Dict[str, Any]] = None
+    answers: list[str] | str  # List for batch (multiple questions), str for individual
+    usage: dict[str, int]
+    structured_quality: dict[str, Any] | None = None
 
     @property
     def is_batch_result(self) -> bool:
@@ -31,24 +28,24 @@ class ProcessedResponse:
     """Complete processed response with metadata and quality metrics"""
 
     # Core results
-    answers: List[str]
+    answers: list[str]
     success: bool
 
     # Metadata
-    confidence: Optional[float] = None
+    confidence: float | None = None
     processing_method: str = "text_extraction"
     question_count: int = 0
 
     # Structured data (if applicable)
-    structured_data: Optional[Any] = None
+    structured_data: Any | None = None
     schema_validation_success: bool = False
 
     # Quality metrics (if comparison available)
-    quality_score: Optional[float] = None
+    quality_score: float | None = None
 
     # Detailed metadata
-    metadata: Dict[str, Any] = None
-    errors: List[str] = None
+    metadata: dict[str, Any] = None
+    errors: list[str] = None
 
     def __post_init__(self):
         if self.metadata is None:
@@ -77,8 +74,8 @@ class ValidationResult:
     """Result of structured response validation"""
 
     is_valid: bool
-    corrected_data: Optional[Any] = None
-    errors: Optional[str] = None
+    corrected_data: Any | None = None
+    errors: str | None = None
     quality_score: float = 0.0
 
 
@@ -91,7 +88,7 @@ class ProcessingMetrics:
     output_tokens: int = 0
     cached_tokens: int = 0
     time: float = 0.0
-    structured_output: Optional[Dict[str, Any]] = None
+    structured_output: dict[str, Any] | None = None
 
     @classmethod
     def empty(cls):
@@ -113,7 +110,7 @@ class ProcessingMetrics:
             return 0.0
         return min(1.0, self.cached_tokens / self.prompt_tokens)  # Cap at 100%
 
-    def to_dict(self) -> Dict[str, Any]:
+    def to_dict(self) -> dict[str, Any]:
         return {
             "calls": self.calls,
             "prompt_tokens": self.prompt_tokens,
@@ -132,8 +129,8 @@ class ProcessingOptions:
 
     compare_methods: bool = False
     return_usage: bool = False
-    response_schema: Optional[Any] = None
-    options: Dict[str, Any] = field(default_factory=dict)
+    response_schema: Any | None = None
+    options: dict[str, Any] = field(default_factory=dict)
 
 
 @dataclass
@@ -144,4 +141,4 @@ class ParsingResult:
     parsed_data: Any
     confidence: float
     method: str
-    errors: List[str]
+    errors: list[str]

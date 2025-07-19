@@ -1,12 +1,9 @@
-"""
-File discovery and categorization for batch processing
-"""
+"""File discovery and categorization for batch processing"""
 
 from dataclasses import dataclass
 from enum import Enum
 import fnmatch
 from pathlib import Path
-from typing import Dict, List, Optional, Set, Union
 
 from ..constants import SCANNER_MAX_SIZE
 from ..exceptions import GeminiBatchError
@@ -34,7 +31,7 @@ class FileInfo:
     extension: str
     name: str
     relative_path: Path
-    mime_type: Optional[str] = None
+    mime_type: str | None = None
 
 
 class DirectoryScanner:
@@ -70,16 +67,15 @@ class DirectoryScanner:
     def __init__(
         self,
         max_file_size: int = SCANNER_MAX_SIZE,
-        include_types: Optional[Set[FileType]] = None,
-        exclude_types: Optional[Set[FileType]] = None,
-        exclude_dirs: Optional[Set[str]] = None,
-        exclude_files: Optional[Set[str]] = None,
-        include_patterns: Optional[List[str]] = None,
-        exclude_patterns: Optional[List[str]] = None,
+        include_types: set[FileType] | None = None,
+        exclude_types: set[FileType] | None = None,
+        exclude_dirs: set[str] | None = None,
+        exclude_files: set[str] | None = None,
+        include_patterns: list[str] | None = None,
+        exclude_patterns: list[str] | None = None,
         use_magic: bool = True,
     ):
-        """
-        Initialize directory scanner with filtering options
+        """Initialize directory scanner with filtering options
 
         Args:
             max_file_size: Maximum file size in bytes
@@ -103,7 +99,7 @@ class DirectoryScanner:
         self.include_patterns = include_patterns or []
         self.exclude_patterns = exclude_patterns or []
 
-    def _get_file_type(self, file_path: Path) -> tuple[FileType, Optional[str]]:
+    def _get_file_type(self, file_path: Path) -> tuple[FileType, str | None]:
         """Determine file type using centralized utilities"""
         mime_type = utils.get_mime_type(file_path, self.use_magic)
         file_type, detected_mime = utils.determine_file_type(file_path, mime_type)
@@ -142,7 +138,8 @@ class DirectoryScanner:
         """Check if file passes include/exclude pattern filters"""
         # If include patterns exist, file must match at least one
         if self.include_patterns and not self._matches_patterns(
-            file_path, self.include_patterns
+            file_path,
+            self.include_patterns,
         ):
             return False
 
@@ -152,7 +149,7 @@ class DirectoryScanner:
             and self._matches_patterns(file_path, self.exclude_patterns)
         )
 
-    def _matches_patterns(self, file_path: Path, patterns: List[str]) -> bool:
+    def _matches_patterns(self, file_path: Path, patterns: list[str]) -> bool:
         """Check if file matches any of the given patterns"""
         if not patterns:
             return False
@@ -166,8 +163,10 @@ class DirectoryScanner:
         )
 
     def scan_directory(
-        self, directory: Union[str, Path], recursive: bool = True
-    ) -> Dict[FileType, List[FileInfo]]:
+        self,
+        directory: str | Path,
+        recursive: bool = True,
+    ) -> dict[FileType, list[FileInfo]]:
         """Scan directory and return categorized files"""
         directory = Path(directory)
 
@@ -196,7 +195,7 @@ class DirectoryScanner:
         self,
         current_dir: Path,
         root_dir: Path,
-        categorized_files: Dict[FileType, List[FileInfo]],
+        categorized_files: dict[FileType, list[FileInfo]],
     ):
         """Recursively scan directories"""
         try:
@@ -214,7 +213,7 @@ class DirectoryScanner:
         self,
         directory: Path,
         root_dir: Path,
-        categorized_files: Dict[FileType, List[FileInfo]],
+        categorized_files: dict[FileType, list[FileInfo]],
     ):
         """Scan single directory level"""
         for item in directory.iterdir():
@@ -225,7 +224,7 @@ class DirectoryScanner:
         self,
         file_path: Path,
         root_dir: Path,
-        categorized_files: Dict[FileType, List[FileInfo]],
+        categorized_files: dict[FileType, list[FileInfo]],
     ):
         """Process a single file if it passes filters"""
         if not self._should_exclude_file(file_path):
@@ -248,8 +247,9 @@ class DirectoryScanner:
         )
 
     def get_summary(
-        self, scan_results: Dict[FileType, List[FileInfo]]
-    ) -> Dict[str, int]:
+        self,
+        scan_results: dict[FileType, list[FileInfo]],
+    ) -> dict[str, int]:
         """Generate summary statistics from scan results"""
         summary = {"total_files": 0, "total_size": 0}
 

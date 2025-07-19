@@ -1,5 +1,5 @@
 import logging
-from typing import Any, Dict, Optional
+from typing import Any
 
 from ..config import ConfigManager
 
@@ -7,8 +7,7 @@ log = logging.getLogger(__name__)
 
 
 class TokenCounter:
-    """
-    Conservative token estimation and caching decision support for Gemini API.
+    """Conservative token estimation and caching decision support for Gemini API.
 
     This class addresses observed inaccuracies in Gemini's count_tokens() API by applying
     content-type-specific adjustments based on empirical testing. Preliminary analysis indicates:
@@ -27,10 +26,12 @@ class TokenCounter:
         self.config_manager = config_manager
 
     def estimate_for_caching(
-        self, model: str, content: Any, prefer_implicit: bool = True
-    ) -> Dict[str, Any]:
-        """
-        Get comprehensive token estimate optimized for caching decisions.
+        self,
+        model: str,
+        content: Any,
+        prefer_implicit: bool = True,
+    ) -> dict[str, Any]:
+        """Get comprehensive token estimate optimized for caching decisions.
 
         Applies content-type-specific adjustments to raw count_tokens() results
         to provide more accurate estimates, especially near caching thresholds.
@@ -60,12 +61,17 @@ class TokenCounter:
 
             # Handle critical edge cases near thresholds
             adjusted_tokens = self._handle_threshold_edge_cases(
-                adjusted_tokens, base_tokens, model, content
+                adjusted_tokens,
+                base_tokens,
+                model,
+                content,
             )
 
             # Get caching analysis from config system
             caching_analysis = self.config_manager.can_use_caching(
-                model, adjusted_tokens, prefer_implicit
+                model,
+                adjusted_tokens,
+                prefer_implicit,
             )
 
             return {
@@ -83,7 +89,9 @@ class TokenCounter:
             # Fallback to rough estimation if API call fails
             estimated = self._rough_estimate(content)
             caching_analysis = self.config_manager.can_use_caching(
-                model, estimated, prefer_implicit
+                model,
+                estimated,
+                prefer_implicit,
             )
 
             return {
@@ -99,8 +107,7 @@ class TokenCounter:
             }
 
     def _apply_smart_safety_margin(self, base_tokens: int, content: Any) -> int:
-        """
-        Apply content-type-specific safety margins to address observed API discrepancies.
+        """Apply content-type-specific safety margins to address observed API discrepancies.
 
         Empirical testing indicates different content types exhibit distinct patterns:
         - Text/PDF: Minor consistent undercount (typically ~4 tokens)
@@ -124,26 +131,23 @@ class TokenCounter:
             if has_video and not has_image:
                 # Video-dominated: compensate for observed overcount pattern
                 return int(base_tokens * 0.85)  # 15% reduction
-            elif has_image:
+            if has_image:
                 # Image-dominated: apply correction for observed undercount pattern
                 return int(base_tokens * 4.0)  # Conservative 4x multiplier
-            else:
-                # Fallback for unexpected mixed content
-                return base_tokens + 10
-
-        elif "video" in content_type:
-            # Pure video: reduce to compensate for observed overcount pattern
-            return int(base_tokens * 0.85)
-        elif "image" in content_type:
-            # Images require larger multiplier due to observed undercount pattern
-            return int(base_tokens * 6.0)  # Conservative approach beyond observed ratio
-        else:
-            # Text-only: add buffer for observed minor undercount pattern
+            # Fallback for unexpected mixed content
             return base_tokens + 10
 
+        if "video" in content_type:
+            # Pure video: reduce to compensate for observed overcount pattern
+            return int(base_tokens * 0.85)
+        if "image" in content_type:
+            # Images require larger multiplier due to observed undercount pattern
+            return int(base_tokens * 6.0)  # Conservative approach beyond observed ratio
+        # Text-only: add buffer for observed minor undercount pattern
+        return base_tokens + 10
+
     def _analyze_mixed_content(self, content: Any) -> tuple[bool, bool]:
-        """
-        Analyze mixed content to identify media types present.
+        """Analyze mixed content to identify media types present.
 
         Returns:
             Tuple of (has_video, has_image) booleans
@@ -170,8 +174,7 @@ class TokenCounter:
         return has_video, has_image
 
     def _detect_content_type(self, content: Any) -> str:
-        """
-        Detect the primary content type to inform safety margin selection.
+        """Detect the primary content type to inform safety margin selection.
 
         For mixed content, prioritizes the most challenging type for accurate counting:
         images > video > text (based on observed counting accuracy patterns)
@@ -181,7 +184,7 @@ class TokenCounter:
         """
         if isinstance(content, str):
             return "text"
-        elif isinstance(content, list):
+        if isinstance(content, list):
             has_video = False
             has_image = False
             has_text = False
@@ -207,23 +210,20 @@ class TokenCounter:
             # Priority order based on observed counting challenges: images > video > text
             if has_image:
                 return "image" if not (has_video or has_text) else "mixed"
-            elif has_video:
+            if has_video:
                 return "video" if not has_text else "mixed"
-            else:
-                return "text"
-        else:
-            return "unknown"
+            return "text"
+        return "unknown"
 
     def _rough_estimate(self, content: Any) -> int:
-        """
-        Fallback estimation when count_tokens() API is unavailable.
+        """Fallback estimation when count_tokens() API is unavailable.
 
         Uses conservative estimates based on content type and observed patterns.
         """
         if isinstance(content, str):
             # Text estimation: approximately 4 characters per token with buffer for undercount
             return max(len(content) // 4 + 10, 50)
-        elif isinstance(content, list):
+        if isinstance(content, list):
             total = 0
             for item in content:
                 if isinstance(item, str):
@@ -249,18 +249,20 @@ class TokenCounter:
                 else:
                     total += 500
             return max(total, 100)
-        else:
-            return 1000  # Conservative default
+        return 1000  # Conservative default
 
-    def get_caching_thresholds(self, model: str) -> Dict[str, Optional[int]]:
+    def get_caching_thresholds(self, model: str) -> dict[str, int | None]:
         """Get caching thresholds for a model - delegates to config system."""
         return self.config_manager.get_caching_thresholds(model)
 
     def _handle_threshold_edge_cases(
-        self, adjusted_tokens: int, base_tokens: int, model: str, content: Any
+        self,
+        adjusted_tokens: int,
+        base_tokens: int,
+        model: str,
+        content: Any,
     ) -> int:
-        """
-        Apply additional safety buffer for content near caching thresholds.
+        """Apply additional safety buffer for content near caching thresholds.
 
         Addresses cases where count_tokens() may predict content as non-cacheable
         but actual usage crosses the threshold. This is particularly important for text

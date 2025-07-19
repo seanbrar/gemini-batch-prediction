@@ -1,7 +1,5 @@
 #!/usr/bin/env python3
-"""
-Demonstration of batch processing with text content.
-"""
+"""Demonstration of batch processing with text content."""
 
 import time
 
@@ -159,7 +157,7 @@ def get_public_domain_content():
                 # Extract first few chapters (≈ 3,000-4,000 words)
                 content = full_text[start_pos : start_pos + 15000]
                 print(
-                    f"✅ Extracted {len(content):,} characters starting from Chapter I"
+                    f"✅ Extracted {len(content):,} characters starting from Chapter I",
                 )
 
                 questions = [
@@ -172,8 +170,7 @@ def get_public_domain_content():
                 ]
 
                 return content.strip(), questions
-            else:
-                print("Could not find Chapter I in downloaded content")
+            print("Could not find Chapter I in downloaded content")
         else:
             print(f"HTTP {response.status_code} error fetching content")
     except (requests.RequestException, ValueError) as e:
@@ -194,7 +191,9 @@ def run_demo_with_content(name, content, questions, processor, compare_methods=T
 
     # Process the questions
     results = processor.process_questions(
-        content, questions, compare_methods=compare_methods
+        content,
+        questions,
+        compare_methods=compare_methods,
     )
 
     # Display truncated answers
@@ -225,12 +224,13 @@ def run_demo_with_content(name, content, questions, processor, compare_methods=T
         print(f"⚡ Efficiency improvement: {efficiency['token_efficiency_ratio']:.1f}x")
         print(f"🚀 Time improvement: {efficiency['time_efficiency']:.1f}x")
         print(
-            f"🎯 Meets 3x target: {'✅ Yes' if efficiency['meets_target'] else '❌ No'}"
+            f"🎯 Meets 3x target: {'✅ Yes' if efficiency['meets_target'] else '❌ No'}",
         )
 
         # Calculate and display quality score
         quality_score = calculate_quality_score(
-            results.get("individual_answers", []), results["answers"]
+            results.get("individual_answers", []),
+            results["answers"],
         )
         if quality_score is not None:
             print(f"✨ Quality score: {quality_score * 100:.1f}/100")
@@ -266,7 +266,11 @@ def main():
                 time.sleep(5)
 
             results = run_demo_with_content(
-                name, content, questions, processor, compare_methods=not batch_only
+                name,
+                content,
+                questions,
+                processor,
+                compare_methods=not batch_only,
             )
             efficiency = results["efficiency"]
 
@@ -282,7 +286,7 @@ def main():
                             results["metrics"]["individual"]["total_tokens"]
                             - results["metrics"]["batch"]["total_tokens"]
                         ),
-                    }
+                    },
                 )
         except Exception as e:
             print(f"Error testing {name}: {e}")
@@ -300,16 +304,16 @@ def main():
                 f"{result['name']:<25} "
                 f"{result['content_length']:,<10} "
                 f"{result['efficiency_ratio']:.1f}x{'':<8} "
-                f"{'✅ Yes' if result['meets_target'] else '❌ No':<12}"
+                f"{'✅ Yes' if result['meets_target'] else '❌ No':<12}",
             )
 
     print(
         "\n💡 KEY INSIGHT: Longer content demonstrates "
-        "greater batch processing benefits"
+        "greater batch processing benefits",
     )
     print(
         "   because the same content is reused across "
-        "multiple questions, reducing redundancy."
+        "multiple questions, reducing redundancy.",
     )
 
 

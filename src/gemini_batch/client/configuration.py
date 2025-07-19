@@ -1,6 +1,4 @@
-"""
-Client configuration handling for Gemini API integration
-"""
+"""Client configuration handling for Gemini API integration"""
 
 from dataclasses import dataclass
 

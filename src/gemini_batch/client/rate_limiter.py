@@ -1,6 +1,4 @@
-"""
-Rate limiting for Gemini API requests
-"""
+"""Rate limiting for Gemini API requests"""
 
 from collections import deque
 from contextlib import contextmanager

@@ -1,5 +1,5 @@
 import logging
-from typing import Any, Dict, List, Optional
+from typing import Any
 
 from .types import ProcessingMetrics, ProcessingOptions
 
@@ -14,13 +14,13 @@ class ResultBuilder:
 
     def build_standard_result(
         self,
-        questions: List[str],
-        batch_answers: List[str],
+        questions: list[str],
+        batch_answers: list[str],
         batch_metrics: "ProcessingMetrics",
         individual_metrics: "ProcessingMetrics",
-        individual_answers: Optional[List[str]],
+        individual_answers: list[str] | None,
         config: "ProcessingOptions",
-    ) -> Dict[str, Any]:
+    ) -> dict[str, Any]:
         """Build result for standard processing mode"""
         # Check if batch processing failed (0 calls) and we have individual metrics
         if batch_metrics.calls == 0 and individual_metrics.calls > 0:
@@ -62,7 +62,8 @@ class ResultBuilder:
                 "tokens_saved": individual_metrics.total_tokens
                 - batch_metrics.total_tokens,
                 "cache_cost_benefit": efficiency.get("cache_efficiency", {}).get(
-                    "cache_improvement_factor", 1.0
+                    "cache_improvement_factor",
+                    1.0,
                 ),
             }
         else:
@@ -81,10 +82,10 @@ class ResultBuilder:
 
     def enhance_response_processor_result(
         self,
-        result: Dict[str, Any],
+        result: dict[str, Any],
         batch_metrics: "ProcessingMetrics",
         individual_metrics: "ProcessingMetrics",
-        individual_answers: List[str],
+        individual_answers: list[str],
     ) -> None:
         """Add efficiency comparison metrics to ResponseProcessor result"""
         efficiency = self.efficiency_calculator(individual_metrics, batch_metrics)
@@ -97,20 +98,20 @@ class ResultBuilder:
                     "individual": individual_metrics.to_dict(),
                 },
                 "individual_answers": individual_answers,
-            }
+            },
         )
 
     def _add_optional_data(
         self,
-        result: Dict[str, Any],
+        result: dict[str, Any],
         batch_metrics: "ProcessingMetrics",
-        individual_answers: Optional[List[str]],
+        individual_answers: list[str] | None,
         config: "ProcessingOptions",
     ) -> None:
         """Add optional data to result dictionary"""
         # Add structured data if available
         if batch_metrics.structured_output and batch_metrics.structured_output.get(
-            "structured_data"
+            "structured_data",
         ):
             result["structured_data"] = batch_metrics.structured_output[
                 "structured_data"

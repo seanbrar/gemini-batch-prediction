@@ -38,6 +38,7 @@ def _remove_timing_fields(output_dict):
 
     return output_dict
 
+
 @pytest.mark.golden_test("golden_files/test_batch_processor_basic.yml")
 def test_batch_processor_basic_behavior(golden, mock_gemini_client):
     """
@@ -49,7 +50,7 @@ def test_batch_processor_basic_behavior(golden, mock_gemini_client):
     questions = golden["input"]["questions"]
 
     mock_response_text = json.dumps(
-        ["Mocked answer for question 1", "Mocked answer for question 2"]
+        ["Mocked answer for question 1", "Mocked answer for question 2"],
     )
     mock_gemini_client.generate_content.return_value = {
         "text": mock_response_text,
@@ -105,7 +106,7 @@ def test_batch_processor_structured_output(golden, mock_gemini_client):
     )
 
     # Convert 'structured_data' from Pydantic model to dict for global files YAML.
-    if "structured_data" in actual_output and actual_output["structured_data"]:
+    if actual_output.get("structured_data"):
         actual_output["structured_data"] = actual_output["structured_data"].model_dump()
 
     # Clean the output for deterministic comparison

@@ -1,9 +1,7 @@
-"""
-Core utilities for the Gemini Batch Framework
-"""
+"""Core utilities for the Gemini Batch Framework"""
 
 import os
-from typing import Any, Dict, List, Optional, Union
+from typing import Any
 
 from .exceptions import MissingKeyError
 
@@ -14,7 +12,7 @@ def parse_env_bool(key: str, default: bool = False) -> bool:
     return value in ("true", "1", "yes", "on") if value else default
 
 
-def get_env_with_fallback(primary_key: str, fallback_key: str) -> Optional[str]:
+def get_env_with_fallback(primary_key: str, fallback_key: str) -> str | None:
     """Get environment variable with fallback"""
     return os.getenv(primary_key) or os.getenv(fallback_key)
 
@@ -32,7 +30,7 @@ def validate_api_key_format(api_key: str) -> bool:
     return True
 
 
-def validate_inputs(inputs: List[Union[str, Dict[str, Any]]]) -> None:
+def validate_inputs(inputs: list[str | dict[str, Any]]) -> None:
     """Validate batch processing inputs"""
     if not inputs:
         raise ValueError("Inputs list cannot be empty")
@@ -43,7 +41,7 @@ def validate_inputs(inputs: List[Union[str, Dict[str, Any]]]) -> None:
     for i, input_item in enumerate(inputs):
         if not isinstance(input_item, (str, dict)):
             raise ValueError(
-                f"Input {i} must be a string or dictionary, got {type(input_item)}"
+                f"Input {i} must be a string or dictionary, got {type(input_item)}",
             )
 
         if isinstance(input_item, str) and not input_item.strip():

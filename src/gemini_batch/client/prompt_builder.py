@@ -1,15 +1,15 @@
-"""
-Prompt construction for single and batch content generation
-"""
+"""Prompt construction for single and batch content generation"""
 
-from typing import Any, List, Optional
+from typing import Any
 
 
 class PromptBuilder:
     """Builds prompts for single and batch content generation"""
 
     def create_batch_prompt(
-        self, questions: List[str], response_schema: Optional[Any] = None
+        self,
+        questions: list[str],
+        response_schema: Any | None = None,
     ) -> str:
         """Create batch prompt for multiple questions with optional structured output"""
         if response_schema:

@@ -1,13 +1,10 @@
-"""
-Centralized file type detection, MIME type handling, and validation utilities
-"""
+"""Centralized file type detection, MIME type handling, and validation utilities"""
 
 from dataclasses import dataclass
 from functools import lru_cache
 import mimetypes
 from pathlib import Path
 import sys
-from typing import Optional, Set, Tuple, Union
 
 from ..constants import (
     FILES_API_THRESHOLD,
@@ -26,12 +23,10 @@ mimetypes.init()
 class FileTypeInfo:
     """Consolidated file type information"""
 
-    mime_types: Set[str]
-    extensions: Set[str]
+    mime_types: set[str]
+    extensions: set[str]
     gemini_native: bool = True  # Whether natively supported by Gemini API
-    preferred_mime_map: Optional[dict] = (
-        None  # Extension -> preferred MIME type mapping
-    )
+    preferred_mime_map: dict | None = None  # Extension -> preferred MIME type mapping
 
 
 # Centralized file type definitions with preferred MIME mappings
@@ -255,7 +250,7 @@ OTHER_TEXT_EXTENSIONS = (
 )
 
 
-def get_mime_type(file_path: Path, use_magic: bool = True) -> Optional[str]:
+def get_mime_type(file_path: Path, use_magic: bool = True) -> str | None:
     """Get MIME type using content-based detection or extension fallback"""
     if use_magic:
         try:
@@ -275,8 +270,9 @@ def get_mime_type(file_path: Path, use_magic: bool = True) -> Optional[str]:
 
 
 def determine_file_type(
-    file_path: Path, mime_type: Optional[str] = None
-) -> Tuple[FileType, Optional[str]]:
+    file_path: Path,
+    mime_type: str | None = None,
+) -> tuple[FileType, str | None]:
     """Determine file type using MIME type with extension fallback"""
     mime_type = mime_type or get_mime_type(file_path)
 
@@ -305,8 +301,8 @@ def determine_file_type(
 
 def _check_gemini_native(
     file_type: FileType,
-    mime_type: Optional[str] = None,
-    extension: Optional[str] = None,
+    mime_type: str | None = None,
+    extension: str | None = None,
     text_only: bool = False,
 ) -> bool:
     """Helper for Gemini-native checks"""
@@ -340,8 +336,8 @@ def _check_gemini_native(
 
 def is_gemini_native_text(
     file_type: FileType,
-    mime_type: Optional[str] = None,
-    extension: Optional[str] = None,
+    mime_type: str | None = None,
+    extension: str | None = None,
 ) -> bool:
     """Check if a text file is natively supported by Gemini API"""
     return _check_gemini_native(file_type, mime_type, extension, text_only=True)
@@ -349,14 +345,14 @@ def is_gemini_native_text(
 
 def is_gemini_native_file(
     file_type: FileType,
-    mime_type: Optional[str] = None,
-    extension: Optional[str] = None,
+    mime_type: str | None = None,
+    extension: str | None = None,
 ) -> bool:
     """Check if file is natively supported by Gemini API"""
     return _check_gemini_native(file_type, mime_type, extension, text_only=False)
 
 
-def is_text_file(file_type: FileType, mime_type: Optional[str] = None) -> bool:
+def is_text_file(file_type: FileType, mime_type: str | None = None) -> bool:
     """Check if file is text-based"""
     if file_type == FileType.TEXT:
         return True
@@ -372,10 +368,10 @@ def requires_files_api(file_size: int) -> bool:
 
 
 def is_supported_file(
-    file_path: Optional[Path] = None,
-    mime_type: Optional[str] = None,
-    extension: Optional[str] = None,
-    file_type: Optional[FileType] = None,
+    file_path: Path | None = None,
+    mime_type: str | None = None,
+    extension: str | None = None,
+    file_type: FileType | None = None,
 ) -> bool:
     """Check if a file is supported by the framework"""
     # Determine properties from file_path if needed
@@ -405,8 +401,10 @@ def is_supported_file(
 
 
 def validate_file_size(
-    file_path: Path, file_type: FileType, for_gemini_api: bool = False
-) -> Tuple[bool, Optional[str]]:
+    file_path: Path,
+    file_type: FileType,
+    for_gemini_api: bool = False,
+) -> tuple[bool, str | None]:
     """Validate file size against appropriate limits"""
     try:
         size = file_path.stat().st_size
@@ -460,7 +458,7 @@ def is_url(text: str) -> bool:
     return text.startswith(("http://", "https://"))
 
 
-def is_text_content(text: str, original_source: Union[str, Path]) -> bool:
+def is_text_content(text: str, original_source: str | Path) -> bool:
     """Determine if string is text content vs URL/path"""
     # If it's a Path object, it's definitely a file path
     if isinstance(original_source, Path):

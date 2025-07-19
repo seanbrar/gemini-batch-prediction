@@ -1,8 +1,4 @@
-"""
-Efficiency tracking and metrics calculation for batch processing
-"""
-
-from typing import Dict
+"""Efficiency tracking and metrics calculation for batch processing"""
 
 from ..constants import TARGET_EFFICIENCY_RATIO
 
@@ -22,23 +18,23 @@ def calculate_cache_aware_efficiency_metrics(
     batch_cached_tokens: int,
     individual_time: float,
     batch_time: float,
-) -> Dict[str, float]:
-    """
-    Calculate efficiency metrics.
+) -> dict[str, float]:
+    """Calculate efficiency metrics.
 
     Accounts for cached tokens in efficiency calculations to provide
     more accurate cost and performance comparisons.
     """
-
     # Calculate effective tokens (excluding cached portions for cost estimation)
     individual_effective_prompt = individual_prompt_tokens - individual_cached_tokens
     batch_effective_prompt = batch_prompt_tokens - batch_cached_tokens
 
     individual_token_efficiency = calculate_token_efficiency(
-        individual_prompt_tokens, individual_output_tokens
+        individual_prompt_tokens,
+        individual_output_tokens,
     )
     batch_token_efficiency = calculate_token_efficiency(
-        batch_prompt_tokens, batch_output_tokens
+        batch_prompt_tokens,
+        batch_output_tokens,
     )
 
     # Cache-aware efficiency (based on effective tokens)
@@ -94,9 +90,8 @@ def _calculate_cache_efficiency_metrics(
     batch_cached_tokens: int,
     individual_prompt_tokens: int,
     batch_prompt_tokens: int,
-) -> Dict[str, float]:
+) -> dict[str, float]:
     """Calculate cache-specific efficiency metrics"""
-
     individual_cache_ratio = individual_cached_tokens / max(individual_prompt_tokens, 1)
     batch_cache_ratio = batch_cached_tokens / max(batch_prompt_tokens, 1)
 
@@ -105,7 +100,8 @@ def _calculate_cache_efficiency_metrics(
 
     # Cache utilization score
     cache_utilization = (individual_cached_tokens + batch_cached_tokens) / max(
-        individual_prompt_tokens + batch_prompt_tokens, 1
+        individual_prompt_tokens + batch_prompt_tokens,
+        1,
     )
 
     return {
@@ -130,9 +126,8 @@ def track_efficiency(
     individual_cached_tokens: int = 0,
     batch_cached_tokens: int = 0,
     include_cache_metrics: bool = True,
-) -> Dict[str, float]:
+) -> dict[str, float]:
     """Calculate efficiency metrics for batch processing with optional cache awareness"""
-
     # Determine if comparison data is available
     comparison_available = individual_calls > 0 and batch_calls > 0
 
@@ -162,10 +157,12 @@ def track_efficiency(
             # Traditional efficiency calculation (without cache awareness)
             # Calculate token efficiency for each approach
             individual_token_efficiency = calculate_token_efficiency(
-                individual_prompt_tokens, individual_output_tokens
+                individual_prompt_tokens,
+                individual_output_tokens,
             )
             batch_token_efficiency = calculate_token_efficiency(
-                batch_prompt_tokens, batch_output_tokens
+                batch_prompt_tokens,
+                batch_output_tokens,
             )
 
             # Total tokens used by each approach
@@ -196,12 +193,14 @@ def track_efficiency(
 
         if batch_prompt_tokens > 0 and batch_output_tokens > 0:
             batch_efficiency = calculate_token_efficiency(
-                batch_prompt_tokens, batch_output_tokens
+                batch_prompt_tokens,
+                batch_output_tokens,
             )
 
         if individual_prompt_tokens > 0 and individual_output_tokens > 0:
             individual_efficiency = calculate_token_efficiency(
-                individual_prompt_tokens, individual_output_tokens
+                individual_prompt_tokens,
+                individual_output_tokens,
             )
 
         metrics = {
@@ -239,15 +238,14 @@ def track_efficiency(
 
 
 def analyze_cache_efficiency_impact(
-    traditional_metrics: Dict[str, float], cache_aware_metrics: Dict[str, float]
-) -> Dict[str, float]:
-    """
-    Analyze the impact of cache efficiency on overall performance.
+    traditional_metrics: dict[str, float],
+    cache_aware_metrics: dict[str, float],
+) -> dict[str, float]:
+    """Analyze the impact of cache efficiency on overall performance.
 
     Compares traditional efficiency calculations with cache-aware ones
     to quantify the benefit of caching.
     """
-
     traditional_efficiency = traditional_metrics.get("token_efficiency_ratio", 1.0)
     cache_aware_efficiency = cache_aware_metrics.get("cost_efficiency_ratio", 1.0)
 

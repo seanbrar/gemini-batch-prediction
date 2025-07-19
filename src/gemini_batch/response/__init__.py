@@ -1,5 +1,4 @@
-"""
-Response processing module for Gemini Batch Framework
+"""Response processing module for Gemini Batch Framework
 
 This module handles processing and validation of API responses from the Gemini API.
 It provides structured output validation, quality assessment, and result packaging

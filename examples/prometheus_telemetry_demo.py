@@ -1,6 +1,5 @@
 #!/usr/bin/env python3
-"""
-Production-Ready Prometheus Telemetry Example
+"""Production-Ready Prometheus Telemetry Example
 
 Demonstrates integrating gemini-batch telemetry with Prometheus for production monitoring.
 Uses live API calls to show real metrics collection.
@@ -16,6 +15,7 @@ To use with a real Prometheus server:
 2. Replace MockPrometheusClient with real client:
    ```python
    from prometheus_client import start_http_server
+
    start_http_server(8000)  # Exposes /metrics endpoint
    ```
 
@@ -26,7 +26,7 @@ import os
 
 os.environ["GEMINI_TELEMETRY"] = "1"
 
-from typing import Any, Dict, Tuple
+from typing import Any
 
 from gemini_batch import BatchProcessor
 from gemini_batch.telemetry import TelemetryContext, TelemetryReporter
@@ -38,15 +38,20 @@ class MockPrometheusClient:
     def __init__(self):
         self._metrics = {}
 
-    def _get_metric_key(self, name: str, labels: Dict[str, str]) -> str:
+    def _get_metric_key(self, name: str, labels: dict[str, str]) -> str:
         if not labels:
             return name
         label_str = ",".join(f'{k}="{v}"' for k, v in sorted(labels.items()))
         return f"{name}{{{label_str}}}"
 
-    def Counter(self, name: str, description: str = "", labelnames: Tuple[str, ...] = ()):
-        self._metrics.setdefault(name, {"type": "COUNTER", "desc": description, "values": {}})
+    def Counter(
+        self, name: str, description: str = "", labelnames: tuple[str, ...] = ()
+    ):
+        self._metrics.setdefault(
+            name, {"type": "COUNTER", "desc": description, "values": {}}
+        )
         client_instance = self
+
         class LabeledCounter:
             def labels(self, **labels):
                 class FinalCounter:
@@ -55,22 +60,33 @@ class MockPrometheusClient:
                         client_instance._metrics[name]["values"].setdefault(key, 0)
                         client_instance._metrics[name]["values"][key] += amount
                         print(f"[prometheus] COUNTER {key}: +{amount}")
+
                 return FinalCounter()
+
         return LabeledCounter()
 
-    def Histogram(self, name: str, description: str = "", labelnames: Tuple[str, ...] = ()):
-        self._metrics.setdefault(name, {"type": "HISTOGRAM", "desc": description, "values": {}})
+    def Histogram(
+        self, name: str, description: str = "", labelnames: tuple[str, ...] = ()
+    ):
+        self._metrics.setdefault(
+            name, {"type": "HISTOGRAM", "desc": description, "values": {}}
+        )
         client_instance = self
+
         class LabeledHistogram:
             def labels(self, **labels):
                 class FinalHistogram:
                     def observe(self, value: float):
                         key = client_instance._get_metric_key(name, labels)
-                        client_instance._metrics[name]["values"].setdefault(key, {"sum": 0.0, "count": 0})
+                        client_instance._metrics[name]["values"].setdefault(
+                            key, {"sum": 0.0, "count": 0}
+                        )
                         client_instance._metrics[name]["values"][key]["sum"] += value
                         client_instance._metrics[name]["values"][key]["count"] += 1
                         print(f"[prometheus] HISTOGRAM {key}: observed {value:.4f}s")
+
                 return FinalHistogram()
+
         return LabeledHistogram()
 
     def print_report(self):
@@ -87,10 +103,14 @@ class MockPrometheusClient:
                     print(f"{key} {value}")
                 elif data["type"] == "HISTOGRAM":
                     # Correctly format histogram output
-                    metric_name_without_labels = key.split('{')[0]
-                    labels_part = key.replace(metric_name_without_labels, '')
-                    print(f"{metric_name_without_labels}_sum{labels_part} {value['sum']:.4f}")
-                    print(f"{metric_name_without_labels}_count{labels_part} {value['count']}")
+                    metric_name_without_labels = key.split("{")[0]
+                    labels_part = key.replace(metric_name_without_labels, "")
+                    print(
+                        f"{metric_name_without_labels}_sum{labels_part} {value['sum']:.4f}"
+                    )
+                    print(
+                        f"{metric_name_without_labels}_count{labels_part} {value['count']}"
+                    )
         print("-----------------------------------")
 
 
@@ -144,7 +164,8 @@ def main():
 
     mock_prometheus_client = MockPrometheusClient()
     prometheus_reporter = PrometheusReporter(
-        client=mock_prometheus_client, model_name=model_name
+        client=mock_prometheus_client,
+        model_name=model_name,
     )
     tele_context = TelemetryContext(prometheus_reporter)
 
@@ -168,7 +189,9 @@ def main():
 
     except Exception as e:
         print(f"\nAn error occurred during processing: {e}")
-        print("Please ensure your API key is valid and has access to the configured model.")
+        print(
+            "Please ensure your API key is valid and has access to the configured model."
+        )
     finally:
         print("...processing finished.")
 

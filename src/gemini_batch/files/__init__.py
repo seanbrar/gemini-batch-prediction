@@ -1,6 +1,4 @@
-"""
-Files processing module for Gemini Batch Framework
-"""
+"""Files processing module for Gemini Batch Framework"""
 
 from . import utils
 from .extractors import (
@@ -20,16 +18,16 @@ from .scanner import (
 )
 
 __all__ = [
-    "DirectoryScanner",
-    "FileType",
-    "FileInfo",
     "ContentExtractorManager",
+    "DirectoryScanner",
     "ExtractedContent",
+    "FileInfo",
+    "FileOperations",
+    "FileType",
     "MediaExtractor",
-    "TextExtractor",
     "TextContentExtractor",
+    "TextExtractor",
     "URLExtractor",
     "YouTubeExtractor",
-    "FileOperations",
     "utils",
 ]

@@ -1,8 +1,6 @@
-"""
-Error handling for Gemini API generation requests
-"""
+"""Error handling for Gemini API generation requests"""
 
-from typing import Any, Optional
+from typing import Any
 
 from ..exceptions import APIError
 
@@ -13,7 +11,7 @@ class GenerationErrorHandler:
     def handle_generation_error(
         self,
         error: Exception,
-        response_schema: Optional[Any] = None,
+        response_schema: Any | None = None,
         content_type: str = "unknown",
         cache_enabled: bool = False,
     ) -> None:
@@ -27,17 +25,17 @@ class GenerationErrorHandler:
             if "not found" in error_str or "expired" in error_str:
                 raise APIError(
                     f"Cache expired or not found. Falling back to non-cached generation. "
-                    f"Original error: {error}"
+                    f"Original error: {error}",
                 ) from error
-            elif "ttl" in error_str:
+            if "ttl" in error_str:
                 raise APIError(
                     f"Cache TTL configuration error. Check cache duration settings. "
-                    f"Original error: {error}"
+                    f"Original error: {error}",
                 ) from error
-            elif "cached_content" in error_str:
+            if "cached_content" in error_str:
                 raise APIError(
                     f"Cache content validation failed. Content may be too large or malformed. "
-                    f"Original error: {error}"
+                    f"Original error: {error}",
                 ) from error
 
         # Structured output specific errors
@@ -45,7 +43,7 @@ class GenerationErrorHandler:
             cache_context = " (with caching enabled)" if cache_enabled else ""
             raise APIError(
                 f"Structured output generation failed for {content_type} content{cache_context}. "
-                f"Check your schema definition. Original error: {error}"
+                f"Check your schema definition. Original error: {error}",
             ) from error
 
         # Content-specific errors with cache context
@@ -56,20 +54,20 @@ class GenerationErrorHandler:
         if "quota" in error_str and "youtube" in error_str:
             raise APIError(
                 f"YouTube quota exceeded. Free tier allows 8 hours/day.{cache_context} "
-                f"Original error: {error}"
+                f"Original error: {error}",
             ) from error
-        elif "private" in error_str or "unlisted" in error_str:
+        if "private" in error_str or "unlisted" in error_str:
             raise APIError(
                 f"YouTube video must be public. Private/unlisted videos not supported.{cache_context} "
-                f"Original error: {error}"
+                f"Original error: {error}",
             ) from error
-        elif "not found" in error_str or "unavailable" in error_str:
+        if "not found" in error_str or "unavailable" in error_str:
             raise APIError(
                 f"Content not found or unavailable ({content_type}).{cache_context} "
-                f"Original error: {error}"
+                f"Original error: {error}",
             ) from error
 
         # Generic error with cache context
         raise APIError(
-            f"Content generation failed for {content_type}{cache_context}: {error}"
+            f"Content generation failed for {content_type}{cache_context}: {error}",
         ) from error

@@ -1,10 +1,8 @@
-"""
-File operations for the Gemini Batch Framework
-"""
+"""File operations for the Gemini Batch Framework"""
 
 import logging
 from pathlib import Path
-from typing import Any, Dict, Union
+from typing import Any
 
 from ..exceptions import FileError
 from . import utils
@@ -23,7 +21,9 @@ class FileOperations:
         self.extractor_manager = ContentExtractorManager()
 
     def _validate_path(
-        self, file_path: Union[str, Path], must_be_file: bool = True
+        self,
+        file_path: str | Path,
+        must_be_file: bool = True,
     ) -> Path:
         """Validate path exists and is of the correct type"""
         path = Path(file_path)
@@ -33,12 +33,12 @@ class FileOperations:
 
         if must_be_file and not path.is_file():
             raise FileError(f"Path is not a file: {path}")
-        elif not must_be_file and not path.is_dir():
+        if not must_be_file and not path.is_dir():
             raise FileError(f"Path is not a directory: {path}")
 
         return path
 
-    def extract_content(self, file_path: Union[str, Path]) -> ExtractedContent:
+    def extract_content(self, file_path: str | Path) -> ExtractedContent:
         """Extract content from a file for processing"""
         path = self._validate_path(file_path, must_be_file=True)
 
@@ -52,7 +52,7 @@ class FileOperations:
         """Extract content from URL using URLExtractor"""
         return self.extractor_manager.extract_from_url(url)
 
-    def validate_file(self, file_path: Union[str, Path]) -> Dict[str, Any]:
+    def validate_file(self, file_path: str | Path) -> dict[str, Any]:
         """Validate a file and return metadata"""
         path = self._validate_path(file_path, must_be_file=True)
 
@@ -66,7 +66,10 @@ class FileOperations:
 
         # Check if supported using centralized function
         supported = utils.is_supported_file(
-            file_path=path, mime_type=mime_type, extension=suffix, file_type=file_type
+            file_path=path,
+            mime_type=mime_type,
+            extension=suffix,
+            file_type=file_type,
         )
 
         return {
@@ -84,14 +87,18 @@ class FileOperations:
         }
 
     def scan_directory(
-        self, directory_path: Union[str, Path], **kwargs
-    ) -> Dict[FileType, list[FileInfo]]:
+        self,
+        directory_path: str | Path,
+        **kwargs,
+    ) -> dict[FileType, list[FileInfo]]:
         """Scan directory for supported files"""
         path = self._validate_path(directory_path, must_be_file=False)
         return self.scanner.scan_directory(path, **kwargs)
 
     def get_file_info(
-        self, file_path: Union[str, Path], root_dir: Union[str, Path] = None
+        self,
+        file_path: str | Path,
+        root_dir: str | Path = None,
     ) -> FileInfo:
         """Get FileInfo object for a single file"""
         path = self._validate_path(file_path, must_be_file=True)
@@ -100,13 +107,15 @@ class FileOperations:
         return self.scanner._create_file_info(path, root_dir)
 
     def get_directory_summary(
-        self, directory_path: Union[str, Path], **kwargs
-    ) -> Dict[str, Any]:
+        self,
+        directory_path: str | Path,
+        **kwargs,
+    ) -> dict[str, Any]:
         """Get a summary of files in a directory"""
         scan_results = self.scan_directory(directory_path, **kwargs)
         return self.scanner.get_summary(scan_results)
 
-    def process_source(self, source: Union[str, Path]) -> ExtractedContent:
+    def process_source(self, source: str | Path) -> ExtractedContent:
         """Process any source type (text, URLs, files, directories) using appropriate extractors"""
         result = self.extractor_manager.process_source(source)
         log.debug(

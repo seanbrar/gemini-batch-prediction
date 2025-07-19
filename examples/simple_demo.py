@@ -1,6 +1,5 @@
 #!/usr/bin/env python3
-"""
-Minimal demonstration of the Gemini Batch Processing Framework
+"""Minimal demonstration of the Gemini Batch Processing Framework
 
 Shows the core interface: ask multiple questions about content in a single call.
 This is the simplest possible example - see examples/ for advanced features,
@@ -29,10 +28,10 @@ def main():
     print("\n✨ Same interface works with files, URLs, videos, and more!")
     print("💡 For large content + multiple questions, try context caching:")
     print(
-        "   processor = BatchProcessor(client=GeminiClient.from_env(enable_caching=True))"
+        "   processor = BatchProcessor(client=GeminiClient.from_env(enable_caching=True))",
     )
     print(
-        "\nSee examples/ for caching demos, advanced features, and efficiency analysis."
+        "\nSee examples/ for caching demos, advanced features, and efficiency analysis.",
     )
 
 

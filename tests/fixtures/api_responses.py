@@ -28,7 +28,8 @@ SAMPLE_RESPONSES = {
     "simple_answer": MockResponse(
         text=json.dumps(["Artificial Intelligence is a transformative technology..."]),
         usage_metadata=MockUsageMetadata(
-            prompt_token_count=150, candidates_token_count=75
+            prompt_token_count=150,
+            candidates_token_count=75,
         ),
     ),
     "batch_answer": MockResponse(
@@ -37,10 +38,11 @@ SAMPLE_RESPONSES = {
                 "AI capabilities include natural language processing...",
                 "Machine learning drives modern AI through...",
                 "Neural networks form the backbone of modern AI.",
-            ]
+            ],
         ),
         usage_metadata=MockUsageMetadata(
-            prompt_token_count=800, candidates_token_count=200
+            prompt_token_count=800,
+            candidates_token_count=200,
         ),
     ),
     "error_response": Exception("Rate limit exceeded"),

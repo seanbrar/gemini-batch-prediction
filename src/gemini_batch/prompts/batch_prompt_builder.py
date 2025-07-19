@@ -1,12 +1,10 @@
-from typing import List
-
 from .base import BasePromptBuilder
 
 
 class BatchPromptBuilder(BasePromptBuilder):
     """Builds a prompt to get unstructured answers in a structured JSON list."""
 
-    def create_prompt(self, questions: List[str]) -> str:
+    def create_prompt(self, questions: list[str]) -> str:
         """Creates a prompt that instructs the model to return a JSON array of strings."""
         prompt_parts = ["Please answer each of the following questions."]
         prompt_parts.extend(f"Question {i}: {q}" for i, q in enumerate(questions, 1))

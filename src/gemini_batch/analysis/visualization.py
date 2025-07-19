@@ -1,8 +1,6 @@
-"""
-Visualization utilities for batch processing analysis
-"""
+"""Visualization utilities for batch processing analysis"""
 
-from typing import Any, Dict, List, Tuple
+from typing import Any
 
 import matplotlib.pyplot as plt
 import pandas as pd
@@ -49,14 +47,14 @@ def _format_efficiency_multiplier(x):
     return f"{x:.1f}×"
 
 
-def _add_bar_annotations(ax, bars, values: List, format_func=None):
+def _add_bar_annotations(ax, bars, values: list, format_func=None):
     """Add value annotations to bar charts"""
     if format_func is None:
         format_func = _format_integer
 
     max_val = max(values) if values else 1
 
-    for bar, value in zip(bars, values):
+    for bar, value in zip(bars, values, strict=False):
         height = bar.get_height()
         offset = max_val * 0.01
         ax.text(
@@ -70,7 +68,12 @@ def _add_bar_annotations(ax, bars, values: List, format_func=None):
 
 
 def _create_comparison_subplot(
-    ax, title: str, ylabel: str, methods: List[str], values: List, format_func=None
+    ax,
+    title: str,
+    ylabel: str,
+    methods: list[str],
+    values: list,
+    format_func=None,
 ) -> None:
     """Create a standardized comparison bar chart"""
     colors = [COLORS["individual"], COLORS["batch"]]
@@ -81,7 +84,7 @@ def _create_comparison_subplot(
     _add_bar_annotations(ax, bars, values, format_func)
 
 
-def _validate_results_data(results: Dict[str, Any]) -> bool:
+def _validate_results_data(results: dict[str, Any]) -> bool:
     """Validate that results contain required data structure"""
     required_keys = ["metrics", "efficiency"]
     if not all(key in results for key in required_keys):
@@ -91,9 +94,8 @@ def _validate_results_data(results: Dict[str, Any]) -> bool:
     return all(key in metrics for key in ["individual", "batch"])
 
 
-def create_efficiency_visualizations(results: Dict[str, Any]) -> None:
+def create_efficiency_visualizations(results: dict[str, Any]) -> None:
     """Create comprehensive visualizations of efficiency gains"""
-
     if not _validate_results_data(results):
         print("❌ Invalid results data structure")
         return
@@ -104,10 +106,14 @@ def create_efficiency_visualizations(results: Dict[str, Any]) -> None:
 
     # Create figure with subplots
     fig, ((ax1, ax2), (ax3, ax4)) = plt.subplots(
-        2, 2, figsize=PLOT_CONFIG["figure_size"]
+        2,
+        2,
+        figsize=PLOT_CONFIG["figure_size"],
     )
     fig.suptitle(
-        "Gemini Batch Processing Efficiency Analysis", fontsize=16, fontweight="bold"
+        "Gemini Batch Processing Efficiency Analysis",
+        fontsize=16,
+        fontweight="bold",
     )
 
     methods = ["Individual", "Batch"]
@@ -115,7 +121,11 @@ def create_efficiency_visualizations(results: Dict[str, Any]) -> None:
     # 1. API Calls Comparison
     calls = [individual_metrics["calls"], batch_metrics["calls"]]
     _create_comparison_subplot(
-        ax1, "API Calls Required", "Number of Calls", methods, calls
+        ax1,
+        "API Calls Required",
+        "Number of Calls",
+        methods,
+        calls,
     )
 
     # 2. Token Usage Comparison
@@ -179,14 +189,16 @@ def create_efficiency_visualizations(results: Dict[str, Any]) -> None:
 
 
 def _print_efficiency_summary(
-    individual_metrics: Dict, batch_metrics: Dict, efficiency: Dict
+    individual_metrics: dict,
+    batch_metrics: dict,
+    efficiency: dict,
 ) -> None:
     """Print formatted efficiency summary"""
     print("\n📊 EFFICIENCY SUMMARY:")
     print(
         f"🎯 Token efficiency improvement: "
         f"{efficiency['token_efficiency_ratio']:.1f}× "
-        f"(Target: {PLOT_CONFIG['target_efficiency']}×+)"
+        f"(Target: {PLOT_CONFIG['target_efficiency']}×+)",
     )
     print(f"⚡ Time efficiency improvement: {efficiency['time_efficiency']:.1f}×")
 
@@ -199,9 +211,8 @@ def _print_efficiency_summary(
         print(f"🔢 Tokens saved: {tokens_saved:,} ({reduction_pct:.1f}% reduction)")
 
 
-def visualize_scaling_results(scaling_data: List[Dict]) -> None:
+def visualize_scaling_results(scaling_data: list[dict]) -> None:
     """Visualize how efficiency scales with question count"""
-
     if not scaling_data:
         print("❌ No scaling data available for visualization")
         return
@@ -295,7 +306,7 @@ def _print_scaling_insights(df: pd.DataFrame) -> None:
     best_q_count = df.loc[df["efficiency"].idxmax(), "questions"]
 
     print(
-        f"📈 Maximum efficiency: {max_efficiency:.1f}× (with {best_q_count} questions)"
+        f"📈 Maximum efficiency: {max_efficiency:.1f}× (with {best_q_count} questions)",
     )
 
     if "meets_target" in df.columns:
@@ -307,11 +318,11 @@ def _print_scaling_insights(df: pd.DataFrame) -> None:
         trend_direction = "+" if efficiency_trend > 0 else ""
         print(
             f"📊 Efficiency trend: {trend_direction}{efficiency_trend:.1f}× "
-            f"from {df['questions'].min()} to {df['questions'].max()} questions"
+            f"from {df['questions'].min()} to {df['questions'].max()} questions",
         )
 
 
-def _format_metrics_table(metrics_data: List[Tuple[str, Any, Any, str]]) -> None:
+def _format_metrics_table(metrics_data: list[tuple[str, Any, Any, str]]) -> None:
     """Format and print metrics comparison table"""
     print("\n📊 EFFICIENCY RESULTS:")
     print(f"{'Metric':<25} {'Individual':<12} {'Batch':<12} {'Improvement':<12}")
@@ -322,10 +333,12 @@ def _format_metrics_table(metrics_data: List[Tuple[str, Any, Any, str]]) -> None
 
 
 def run_efficiency_experiment(
-    processor, content: str, questions: List[str], name: str = "Demo"
-) -> Dict[str, Any]:
+    processor,
+    content: str,
+    questions: list[str],
+    name: str = "Demo",
+) -> dict[str, Any]:
     """Run comprehensive efficiency experiment with visualizations"""
-
     print(f"🔬 Running Experiment: {name}")
     print("=" * 50)
 
@@ -381,10 +394,10 @@ def run_efficiency_experiment(
 
 
 def create_focused_efficiency_visualization(
-    results: Dict[str, Any], show_summary: bool = False
+    results: dict[str, Any],
+    show_summary: bool = False,
 ) -> None:
     """Create focused 2-chart visualization for notebook demonstrations"""
-
     if not _validate_results_data(results):
         print("❌ Invalid results data structure")
         return

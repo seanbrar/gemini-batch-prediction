@@ -1,11 +1,10 @@
-"""
-Main Gemini API client for content generation and batch processing
-"""
+"""Main Gemini API client for content generation and batch processing"""
 
+from collections.abc import Callable
 import logging
 from pathlib import Path
 import time
-from typing import Any, Callable, Dict, List, Optional, Union, Unpack
+from typing import Any, Unpack
 
 from google import genai
 from google.genai import types
@@ -37,18 +36,16 @@ log = logging.getLogger(__name__)
 
 
 class GeminiClient:
-    """
-    A unified, zero-ceremony Gemini client that uses ambient configuration but
+    """A unified, zero-ceremony Gemini client that uses ambient configuration but
     allows for local overrides, providing a simple and flexible interface.
     """
 
     def __init__(
         self,
-        telemetry_context: Optional[TelemetryContextProtocol] = None,
+        telemetry_context: TelemetryContextProtocol | None = None,
         **config_overrides: Unpack[GeminiConfig],
     ):
-        """
-        Creates a client using the ambient configuration, with optional overrides.
+        """Creates a client using the ambient configuration, with optional overrides.
 
         Examples:
             client = GeminiClient()  # Uses ambient/env config
@@ -85,8 +82,8 @@ class GeminiClient:
         self.content_processor = ContentProcessor()
 
         # Optional caching components
-        self.cache_manager: Optional[CacheManager] = None
-        self.token_counter: Optional[TokenCounter] = None
+        self.cache_manager: CacheManager | None = None
+        self.token_counter: TokenCounter | None = None
 
         if self.config_manager.enable_caching:
             self.token_counter = TokenCounter(self.client, self.config_manager)
@@ -102,7 +99,7 @@ class GeminiClient:
         """Get rate limiting configuration for the current model"""
         try:
             rate_config = self.config_manager.get_rate_limiter_config(
-                self.config_manager.model
+                self.config_manager.model,
             )
             return RateLimitConfig(
                 requests_per_minute=rate_config["requests_per_minute"],
@@ -114,7 +111,7 @@ class GeminiClient:
                 tokens_per_minute=FALLBACK_TOKENS_PER_MINUTE,
             )
 
-    def get_config_summary(self) -> Dict[str, Any]:
+    def get_config_summary(self) -> dict[str, Any]:
         """Get current configuration summary for debugging"""
         summary = self.config_manager.get_config_summary()
         summary.update(
@@ -126,13 +123,13 @@ class GeminiClient:
                 },
                 "caching_enabled": self.config_manager.enable_caching,
                 "caching_available": self.config_manager is not None,
-            }
+            },
         )
 
         # Add caching info if available
         if self.config_manager and self.cache_manager:
             summary["caching_thresholds"] = self.config_manager.get_caching_thresholds(
-                self.config_manager.model
+                self.config_manager.model,
             )
 
             # Add cache metrics
@@ -151,8 +148,7 @@ class GeminiClient:
         return summary
 
     def should_cache_content(self, content, prefer_implicit: bool = True) -> bool:
-        """
-        Simple caching decision - returns True if content should be cached.
+        """Simple caching decision - returns True if content should be cached.
 
         Returns False when caching is disabled - this is the expected behavior.
         """
@@ -161,16 +157,19 @@ class GeminiClient:
 
         # Use direct content for token estimation
         estimate = self.token_counter.estimate_for_caching(
-            self.config_manager.model, content, prefer_implicit
+            self.config_manager.model,
+            content,
+            prefer_implicit,
         )
 
         return estimate["cacheable"]
 
     def analyze_caching_strategy(
-        self, content, prefer_implicit: bool = True
-    ) -> Dict[str, Any]:
-        """
-        Detailed caching analysis with strategy recommendations.
+        self,
+        content,
+        prefer_implicit: bool = True,
+    ) -> dict[str, Any]:
+        """Detailed caching analysis with strategy recommendations.
 
         Provides useful information even when caching is disabled.
         """
@@ -184,7 +183,9 @@ class GeminiClient:
             }
 
         estimate = self.token_counter.estimate_for_caching(
-            self.config_manager.model, content, prefer_implicit
+            self.config_manager.model,
+            content,
+            prefer_implicit,
         )
 
         return {
@@ -195,9 +196,8 @@ class GeminiClient:
             "caching_enabled": True,
         }
 
-    def get_caching_thresholds(self) -> Optional[Dict[str, Optional[int]]]:
-        """
-        Get caching thresholds for the current model.
+    def get_caching_thresholds(self) -> dict[str, int | None] | None:
+        """Get caching thresholds for the current model.
 
         Returns None when caching is disabled.
         """
@@ -207,13 +207,13 @@ class GeminiClient:
 
     def generate_content(
         self,
-        content: Union[str, Path, List[Union[str, Path]]],
-        prompt: Optional[str] = None,
-        system_instruction: Optional[str] = None,
+        content: str | Path | list[str | Path],
+        prompt: str | None = None,
+        system_instruction: str | None = None,
         return_usage: bool = False,
-        response_schema: Optional[Any] = None,
+        response_schema: Any | None = None,
         **options,
-    ) -> Union[str, Dict[str, Any]]:
+    ) -> str | dict[str, Any]:
         """Generate content from text, files, URLs, or mixed sources"""
         with self.tele("client.generate_content"):
             return self._execute_generation(
@@ -228,13 +228,13 @@ class GeminiClient:
 
     def generate_batch(
         self,
-        content: Union[str, Path, List[Union[str, Path]]],
-        questions: List[str],
-        system_instruction: Optional[str] = None,
+        content: str | Path | list[str | Path],
+        questions: list[str],
+        system_instruction: str | None = None,
         return_usage: bool = False,
-        response_schema: Optional[Any] = None,
+        response_schema: Any | None = None,
         **options,
-    ) -> Union[str, Dict[str, Any]]:
+    ) -> str | dict[str, Any]:
         """Process multiple questions about the same content"""
         with self.tele("client.generate_batch"):
             if not questions:
@@ -252,14 +252,14 @@ class GeminiClient:
 
     def _execute_generation(
         self,
-        content: Union[str, Path, List[Union[str, Path]]],
-        prompts: List[str],
-        system_instruction: Optional[str] = None,
+        content: str | Path | list[str | Path],
+        prompts: list[str],
+        system_instruction: str | None = None,
         return_usage: bool = False,
-        response_schema: Optional[Any] = None,
+        response_schema: Any | None = None,
         is_batch: bool = False,
         **options,
-    ) -> Union[str, Dict[str, Any]]:
+    ) -> str | dict[str, Any]:
         """Main generation logic with retries and error handling"""
         with self.tele(
             "client.execute_generation",
@@ -275,7 +275,8 @@ class GeminiClient:
                 if is_batch:
                     # For batch processing, create a combined prompt
                     combined_prompt = self.prompt_builder.create_batch_prompt(
-                        prompts, response_schema
+                        prompts,
+                        response_schema,
                     )
                     # Add the combined prompt as text content
                     if isinstance(content, str):
@@ -307,7 +308,8 @@ class GeminiClient:
                 else:
                     # Fallback when caching is disabled
                     action = CacheAction(
-                        CacheStrategy.GENERATE_RAW, PartsPayload(parts=parts)
+                        CacheStrategy.GENERATE_RAW,
+                        PartsPayload(parts=parts),
                     )
 
                 # 2. Execute the plan based on the strategy
@@ -320,7 +322,7 @@ class GeminiClient:
                         **options,
                     )
 
-                elif action.strategy == CacheStrategy.GENERATE_WITH_OPTIMIZED_PARTS:
+                if action.strategy == CacheStrategy.GENERATE_WITH_OPTIMIZED_PARTS:
                     return self._generate_with_parts(
                         action.payload.parts,  # Optimized parts
                         system_instruction=system_instruction,
@@ -329,7 +331,7 @@ class GeminiClient:
                         **options,
                     )
 
-                elif action.strategy == CacheStrategy.GENERATE_FROM_EXPLICIT_CACHE:
+                if action.strategy == CacheStrategy.GENERATE_FROM_EXPLICIT_CACHE:
                     return self._generate_with_cache_reference(
                         cache_name=action.payload.cache_name,
                         prompt_parts=action.payload.parts,
@@ -338,32 +340,34 @@ class GeminiClient:
                         **options,
                     )
 
-                else:
-                    # Fallback for unknown strategies
-                    return self._generate_with_parts(
-                        parts,
-                        system_instruction=system_instruction,
-                        return_usage=return_usage,
-                        response_schema=response_schema,
-                        **options,
-                    )
+                # Fallback for unknown strategies
+                return self._generate_with_parts(
+                    parts,
+                    system_instruction=system_instruction,
+                    return_usage=return_usage,
+                    response_schema=response_schema,
+                    **options,
+                )
 
             except Exception as e:
                 # The client is responsible for top-level error handling.
                 content_type = self._get_content_type_description(content)
                 cache_enabled = self.cache_manager is not None
                 self.error_handler.handle_generation_error(
-                    e, response_schema, content_type, cache_enabled
+                    e,
+                    response_schema,
+                    content_type,
+                    cache_enabled,
                 )
 
     def _generate_with_parts(
         self,
-        parts: List[types.Part],
-        system_instruction: Optional[str] = None,
+        parts: list[types.Part],
+        system_instruction: str | None = None,
         return_usage: bool = False,
-        response_schema: Optional[Any] = None,
+        response_schema: Any | None = None,
         **options,
-    ) -> Union[str, Dict[str, Any]]:
+    ) -> str | dict[str, Any]:
         """Low-level generation from processed parts"""
 
         def api_call():
@@ -403,11 +407,11 @@ class GeminiClient:
     def _generate_with_cache_reference(
         self,
         cache_name: str,
-        prompt_parts: List[types.Part],
+        prompt_parts: list[types.Part],
         return_usage: bool = False,
-        response_schema: Optional[Any] = None,
+        response_schema: Any | None = None,
         **options,
-    ) -> Union[str, Dict[str, Any]]:
+    ) -> str | dict[str, Any]:
         """Generate content using explicit cache reference"""
 
         def api_call():
@@ -464,9 +468,9 @@ class GeminiClient:
         self,
         response,
         return_usage: bool = False,
-        response_schema: Optional[Any] = None,
-        extra_metadata: Optional[Dict[str, Any]] = None,
-    ) -> Union[str, Dict[str, Any]]:
+        response_schema: Any | None = None,
+        extra_metadata: dict[str, Any] | None = None,
+    ) -> str | dict[str, Any]:
         """Process GenAI response, extracting text or structured data"""
         log.debug("Entering telemetry scope: client.process_response")
         with self.tele(
@@ -484,8 +488,7 @@ class GeminiClient:
             ):
                 if return_usage:
                     return response
-                else:
-                    return response["text"]
+                return response["text"]
 
             # Extract usage metadata first
             usage_metadata = extract_usage_metrics(response)
@@ -495,7 +498,7 @@ class GeminiClient:
                 if response_schema:
                     if not response.parts:
                         raise APIError(
-                            "API response is empty, expected structured data."
+                            "API response is empty, expected structured data.",
                         )
                     # Assuming the first part contains the JSON data
                     data = response.parts[0].text
@@ -521,7 +524,9 @@ class GeminiClient:
             except (ValueError, IndexError, AttributeError) as e:
                 # Broad catch for unexpected response structures
                 log.error(
-                    "Error processing API response: %s. Response: %s", e, response
+                    "Error processing API response: %s. Response: %s",
+                    e,
+                    response,
                 )
                 raise APIError(f"Failed to process API response: {e}") from e
             finally:
@@ -531,7 +536,8 @@ class GeminiClient:
                     billable_tokens_val = usage_metadata.get("billable_tokens", 0)
 
                     log.debug(
-                        "Emitting telemetry metric: total_tokens = %d", total_tokens_val
+                        "Emitting telemetry metric: total_tokens = %d",
+                        total_tokens_val,
                     )
                     self.tele.metric("total_tokens", total_tokens_val)
 
@@ -542,8 +548,10 @@ class GeminiClient:
                     self.tele.metric("billable_tokens", billable_tokens_val)
 
     def _enhance_usage_with_cache_metrics(
-        self, usage_info: Dict[str, int], response
-    ) -> Dict[str, int]:
+        self,
+        usage_info: dict[str, int],
+        response,
+    ) -> dict[str, int]:
         """Enhance usage metadata with cache-specific metrics"""
         if hasattr(response, "usage_metadata"):
             cache_usage = response.usage_metadata
@@ -562,7 +570,9 @@ class GeminiClient:
         return usage_info
 
     def _api_call_with_retry(
-        self, api_call_func: Callable, max_retries: int = MAX_RETRIES
+        self,
+        api_call_func: Callable,
+        max_retries: int = MAX_RETRIES,
     ):
         """Execute an API call with exponential backoff and retry"""
         log.debug("Preparing to enter telemetry scope: client.api_call_with_retry")
@@ -616,14 +626,14 @@ class GeminiClient:
                         )
                         time.sleep(delay)
                         continue
-                    else:
-                        # Non-retryable error, log and re-raise
-                        log.debug("Emitting telemetry metric: non_retryable_errors = 1")
-                        self.tele.metric("non_retryable_errors", 1)
-                        log.error(
-                            "API call failed with non-retryable error.", exc_info=True
-                        )
-                        raise
+                    # Non-retryable error, log and re-raise
+                    log.debug("Emitting telemetry metric: non_retryable_errors = 1")
+                    self.tele.metric("non_retryable_errors", 1)
+                    log.error(
+                        "API call failed with non-retryable error.",
+                        exc_info=True,
+                    )
+                    raise
 
     # Public cache management methods
 
@@ -634,16 +644,15 @@ class GeminiClient:
                 return self.cache_manager.cleanup_expired_caches()
             return 0
 
-    def get_cache_metrics(self) -> Optional[Dict[str, Any]]:
+    def get_cache_metrics(self) -> dict[str, Any] | None:
         """Get cache metrics if caching is enabled."""
         with self.tele("client.get_cache_metrics"):
             if self.cache_manager:
                 return self.cache_manager.get_cache_metrics().to_dict()
             return None
 
-    def list_active_caches(self) -> List[Dict[str, Any]]:
-        """
-        List all active (not expired) caches.
+    def list_active_caches(self) -> list[dict[str, Any]]:
+        """List all active (not expired) caches.
         NOTE: This can be an expensive operation.
         """
         with self.tele("client.list_active_caches"):

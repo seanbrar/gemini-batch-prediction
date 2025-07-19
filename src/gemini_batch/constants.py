@@ -1,6 +1,4 @@
-"""
-Project-wide constants for Gemini Batch Processing Framework
-"""
+"""Project-wide constants for Gemini Batch Processing Framework"""
 
 # ==============================================================================
 # API and Network Configuration

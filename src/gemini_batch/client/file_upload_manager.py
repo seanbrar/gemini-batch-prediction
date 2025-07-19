@@ -1,6 +1,4 @@
-"""
-File upload management for Gemini Files API
-"""
+"""File upload management for Gemini Files API"""
 
 from pathlib import Path
 import time
@@ -28,7 +26,9 @@ class FileUploadManager:
             raise APIError(f"Failed to upload file {file_path}: {e}") from e
 
     def _wait_for_processing(
-        self, uploaded_file: Any, timeout: int = FILE_PROCESSING_TIMEOUT
+        self,
+        uploaded_file: Any,
+        timeout: int = FILE_PROCESSING_TIMEOUT,
     ) -> None:
         """Wait for uploaded file to finish processing."""
         start_time = time.time()

@@ -1,6 +1,4 @@
-"""
-Configuration system for rate limiting and model capabilities
-"""
+"""Configuration system for rate limiting and model capabilities"""
 
 from contextlib import contextmanager
 import contextvars
@@ -10,7 +8,7 @@ import logging
 import os
 
 # Use typing_extensions for Unpack for Python < 3.11
-from typing import Any, Dict, List, Optional, Protocol, TypedDict, Union, Unpack
+from typing import Any, Protocol, TypedDict, Unpack
 
 from gemini_batch.constants import MIN_CACHING_THRESHOLD
 
@@ -30,14 +28,13 @@ class APITier(Enum):
 
 
 class GeminiConfig(TypedDict, total=False):
-    """
-    Type-safe configuration options for the Gemini client and processor.
+    """Type-safe configuration options for the Gemini client and processor.
     All parameters are optional and will fall back to environment variables or defaults.
     """
 
     api_key: str
     model: str
-    tier: Union[str, APITier]
+    tier: str | APITier
     enable_caching: bool
 
 
@@ -51,14 +48,17 @@ class ClientProtocol(Protocol):
     """Protocol defining the essential capabilities of a content generation client."""
 
     def generate_content(self, content: Any, prompt: str, **kwargs) -> Any: ...
-    def generate_batch(self, content: Any, questions: List[str], **kwargs) -> Any: ...
+    def generate_batch(self, content: Any, questions: list[str], **kwargs) -> Any: ...
 
 
 class ProcessorProtocol(Protocol):
     """Protocol defining the essential capabilities of a question processor."""
 
     def process_questions(
-        self, content: Any, questions: List[str], **kwargs
+        self,
+        content: Any,
+        questions: list[str],
+        **kwargs,
     ) -> dict: ...
 
 
@@ -79,7 +79,7 @@ class CachingCapabilities:
 
     supports_implicit: bool = False
     supports_explicit: bool = True  # Default to explicit for all caching-enabled models
-    implicit_minimum_tokens: Optional[int] = None
+    implicit_minimum_tokens: int | None = None
     explicit_minimum_tokens: int = 4096
 
     def can_use_implicit_caching(self, token_count: int) -> bool:
@@ -101,7 +101,7 @@ class ModelCapabilities:
 
     supports_multimodal: bool
     context_window: int
-    caching: Optional[CachingCapabilities] = None
+    caching: CachingCapabilities | None = None
 
     def get_caching(self) -> CachingCapabilities:
         """Get caching capabilities with fallback"""
@@ -130,7 +130,7 @@ class ModelTierLimits:
     tokens_per_minute: int
     supports_multimodal: bool
     context_window: int
-    caching: Optional[CachingCapabilities] = None
+    caching: CachingCapabilities | None = None
 
 
 def _explicit_only_caching() -> CachingCapabilities:
@@ -257,7 +257,7 @@ def _validate_api_key(api_key: str) -> None:
         raise ValueError("API key appears to be invalid (too short)")
 
 
-def _parse_tier_from_string(tier_str: str) -> Optional[APITier]:
+def _parse_tier_from_string(tier_str: str) -> APITier | None:
     """Parse tier string to APITier enum with validation"""
     if not tier_str:
         return None
@@ -288,15 +288,14 @@ def _parse_enable_caching_from_env() -> bool:
 
 
 class ConfigManager:
-    """
-    Handles the resolution of configuration options with a clear precedence:
+    """Handles the resolution of configuration options with a clear precedence:
     Explicit arguments > Environment variables > Sensible defaults.
     """
 
     def __init__(self, **overrides: Unpack[GeminiConfig]):
         # API Key Resolution
-        self.api_key: Optional[str] = overrides.get("api_key") or os.getenv(
-            "GEMINI_API_KEY"
+        self.api_key: str | None = overrides.get("api_key") or os.getenv(
+            "GEMINI_API_KEY",
         )
         if self.api_key:
             _validate_api_key(self.api_key)
@@ -305,7 +304,7 @@ class ConfigManager:
                 "GEMINI_API_KEY is required. You can provide it by:\n"
                 "  • Setting GEMINI_API_KEY environment variable\n"
                 "  • Using config_scope(api_key='your-key')\n"
-                "  • Passing api_key= parameter directly"
+                "  • Passing api_key= parameter directly",
             )
 
         # Tier Resolution
@@ -343,7 +342,7 @@ class ConfigManager:
             raise GeminiBatchError(
                 f"Model '{self.model}' is not available in {self.tier.value} tier.\n"
                 f"Available models: {', '.join(available_models)}\n"
-                f"You can change tiers with: config_scope(tier='tier_1') or tier= parameter"
+                f"You can change tiers with: config_scope(tier='tier_1') or tier= parameter",
             )
 
     def _validate_caching_configuration(self) -> None:
@@ -386,7 +385,7 @@ class ConfigManager:
             return []
         return list(tier_limits.keys())
 
-    def get_model_limits(self, model: str) -> Optional[ModelTierLimits]:
+    def get_model_limits(self, model: str) -> ModelTierLimits | None:
         """Get combined model capabilities and rate limits for a specific model"""
         model_caps = MODEL_CAPABILITIES.get(model)
         tier_limits = TIER_RATE_LIMITS.get(self.tier, {}).get(model)
@@ -403,19 +402,22 @@ class ConfigManager:
         )
 
     def select_optimal_model(
-        self, content_tokens: int, query_count: int, video_count: int = 1
+        self,
+        content_tokens: int,
+        query_count: int,
+        video_count: int = 1,
     ) -> str:
         """Enhanced model selection - currently returns the default model"""
         return self.model
 
-    def get_rate_limiter_config(self, model: str) -> Dict[str, int]:
+    def get_rate_limiter_config(self, model: str) -> dict[str, int]:
         """Get rate limiter configuration for a given model"""
         limits = self.get_model_limits(model)
         if not limits:
             available_models = self._get_available_models()
             raise GeminiBatchError(
                 f"Model '{model}' is not available in {self.tier.value} tier. "
-                f"Available models: {', '.join(available_models)}"
+                f"Available models: {', '.join(available_models)}",
             )
         return {
             "requests_per_minute": limits.requests_per_minute,
@@ -427,8 +429,11 @@ class ConfigManager:
         return TIER_NAMES.get(self.tier, "Unknown Tier")
 
     def can_use_caching(
-        self, model: str, token_count: int, prefer_implicit: bool = True
-    ) -> Dict[str, Union[bool, CachingRecommendation]]:
+        self,
+        model: str,
+        token_count: int,
+        prefer_implicit: bool = True,
+    ) -> dict[str, bool | CachingRecommendation]:
         """Determine if caching is supported and recommended for a given context"""
         if not self.enable_caching:
             return {"supported": False, "recommendation": CachingRecommendation.NONE}
@@ -456,7 +461,7 @@ class ConfigManager:
             "recommendation": recommendation,
         }
 
-    def get_caching_thresholds(self, model: str) -> Dict[str, Optional[int]]:
+    def get_caching_thresholds(self, model: str) -> dict[str, int | None]:
         """Get the token thresholds for implicit and explicit caching for a model"""
         limits = self.get_model_limits(model)
         if not limits or not limits.caching:
@@ -481,7 +486,7 @@ class ConfigManager:
                 issues.append(f"Caching enabled but not supported by {self.model}")
         return issues
 
-    def get_config_summary(self) -> Dict[str, Any]:
+    def get_config_summary(self) -> dict[str, Any]:
         """Get summary of current configuration for debugging"""
         return {
             "tier": self.tier.value,
@@ -495,14 +500,13 @@ class ConfigManager:
 # Ambient Configuration (Thread-safe and async-safe)
 
 # A thread-safe, async-safe container for the ambient configuration.
-_ambient_config_var: contextvars.ContextVar[Optional[ConfigManager]] = (
+_ambient_config_var: contextvars.ContextVar[ConfigManager | None] = (
     contextvars.ContextVar("gemini_batch_config", default=None)
 )
 
 
 def get_config() -> ConfigManager:
-    """
-    Gets the configuration from the current context.
+    """Gets the configuration from the current context.
     If no configuration is set, it creates a default one from environment variables.
     """
     config = _ambient_config_var.get()
@@ -514,8 +518,7 @@ def get_config() -> ConfigManager:
 
 @contextmanager
 def config_scope(**config: Unpack[GeminiConfig]):
-    """
-    A context manager to temporarily use a different configuration.
+    """A context manager to temporarily use a different configuration.
     This is thread-safe and ideal for testing or specific overrides.
 
     Example:
@@ -530,9 +533,8 @@ def config_scope(**config: Unpack[GeminiConfig]):
         _ambient_config_var.reset(token)
 
 
-def get_effective_config(**overrides: Unpack[GeminiConfig]) -> Dict[str, Any]:
-    """
-    Show what configuration would actually be used with these overrides.
+def get_effective_config(**overrides: Unpack[GeminiConfig]) -> dict[str, Any]:
+    """Show what configuration would actually be used with these overrides.
     Useful for debugging configuration precedence.
 
     Example:
@@ -554,7 +556,7 @@ def get_effective_config(**overrides: Unpack[GeminiConfig]) -> Dict[str, Any]:
                 "tier": base_config.tier,
                 "enable_caching": base_config.enable_caching,
                 **overrides,
-            }
+            },
         )
         effective = temp_config.get_config_summary()
 
@@ -564,8 +566,7 @@ def get_effective_config(**overrides: Unpack[GeminiConfig]) -> Dict[str, Any]:
 
 
 def debug_config(**overrides: Unpack[GeminiConfig]) -> None:
-    """
-    Print current configuration for troubleshooting.
+    """Print current configuration for troubleshooting.
 
     Example:
         debug_config()  # Show current config

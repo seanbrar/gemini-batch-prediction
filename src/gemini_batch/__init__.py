@@ -1,6 +1,4 @@
-"""
-Gemini Batch Processing Framework
-"""
+"""Gemini Batch Processing Framework"""
 
 import importlib.metadata
 import logging
@@ -39,11 +37,11 @@ logging.getLogger(__name__).addHandler(logging.NullHandler())
 
 
 def process_questions(
-    content: Any, questions: List[str], **config: Unpack[GeminiConfig]
+    content: Any,
+    questions: list[str],
+    **config: Unpack[GeminiConfig],
 ) -> dict:
-    """
-    Process questions against content in a single call. Perfect for scripts and notebooks.
-    """
+    """Process questions against content in a single call. Perfect for scripts and notebooks."""
     processor = BatchProcessor(**config)
     return processor.process_questions(content, questions)
 

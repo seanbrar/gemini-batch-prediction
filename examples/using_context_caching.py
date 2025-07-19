@@ -1,6 +1,5 @@
 #!/usr/bin/env python3
-"""
-Using Context Caching
+"""Using Context Caching
 
 Shows how to enable context caching for cost-effective repeated analysis
 of large content. Context caching reduces costs when asking multiple
@@ -17,7 +16,6 @@ from gemini_batch import BatchProcessor
 
 def main():
     """Simple example of using context caching for repeated content analysis"""
-
     print("📄 Context Caching Example")
     print("=" * 30)
 
@@ -105,7 +103,7 @@ def main():
         if cached_tokens > 0:
             print(f"  📊 Cached tokens: {cached_tokens:,}")
             print(
-                "  💡 Subsequent calls with same content will be much faster/cheaper!"
+                "  💡 Subsequent calls with same content will be much faster/cheaper!",
             )
         else:
             print("  📊 Cache created (future calls will benefit)")

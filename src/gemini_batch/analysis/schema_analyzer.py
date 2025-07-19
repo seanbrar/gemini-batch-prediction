@@ -11,9 +11,7 @@ class SchemaAnalyzer:
     WARN_PROPERTY_NAME_LEN = 30
 
     def analyze(self, schema: Any) -> None:
-        """
-        Analyzes the schema and issues warnings if complexity thresholds are exceeded.
-        """
+        """Analyzes the schema and issues warnings if complexity thresholds are exceeded."""
         if not hasattr(schema, "model_fields"):
             # Not a Pydantic model we can analyze
             return
@@ -24,12 +22,12 @@ class SchemaAnalyzer:
 
         if nesting_depth > self.MAX_NESTING_DEPTH:
             warnings_found.append(
-                f"nesting depth of {nesting_depth} (max recommended: {self.MAX_NESTING_DEPTH})"
+                f"nesting depth of {nesting_depth} (max recommended: {self.MAX_NESTING_DEPTH})",
             )
 
         if num_properties > self.MAX_PROPERTIES:
             warnings_found.append(
-                f"{num_properties} properties (max recommended: {self.MAX_PROPERTIES})"
+                f"{num_properties} properties (max recommended: {self.MAX_PROPERTIES})",
             )
 
         for field_name in schema.model_fields:
@@ -55,7 +53,8 @@ class SchemaAnalyzer:
                 field_type = field.annotation
                 if hasattr(field_type, "model_fields"):  # It's a nested Pydantic model
                     max_child_depth = max(
-                        max_child_depth, self._get_nesting_depth(field_type, depth + 1)
+                        max_child_depth,
+                        self._get_nesting_depth(field_type, depth + 1),
                     )
 
         return max(depth, max_child_depth)

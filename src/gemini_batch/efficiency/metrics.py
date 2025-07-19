@@ -1,8 +1,6 @@
-"""
-Usage metrics extraction from API responses
-"""
+"""Usage metrics extraction from API responses"""
 
-from typing import Any, Dict
+from typing import Any
 
 
 def _get_token_count(usage_obj, attr_name: str) -> int:
@@ -16,7 +14,7 @@ def _get_token_count(usage_obj, attr_name: str) -> int:
         return 0
 
 
-def extract_usage_metrics(response) -> Dict[str, int]:
+def extract_usage_metrics(response) -> dict[str, int]:
     """Extract token usage from API response"""
     # Default values
     prompt_tokens = 0
@@ -48,11 +46,10 @@ def extract_usage_metrics(response) -> Dict[str, int]:
 
 
 def calculate_cache_savings(
-    usage_with_cache: Dict[str, int], usage_without_cache: Dict[str, int]
-) -> Dict[str, float]:
-    """
-    Calculate cache savings between cached and non-cached usage.
-    """
+    usage_with_cache: dict[str, int],
+    usage_without_cache: dict[str, int],
+) -> dict[str, float]:
+    """Calculate cache savings between cached and non-cached usage."""
     cached_tokens = usage_with_cache.get("cached_tokens", 0)
     prompt_tokens = usage_with_cache.get("prompt_tokens", 0)
 
@@ -91,10 +88,10 @@ def calculate_cache_savings(
 
 
 def extract_detailed_usage_metrics(
-    response, include_cache_analysis: bool = True
-) -> Dict[str, Any]:
-    """
-    Extract comprehensive usage metrics with optional cache analysis.
+    response,
+    include_cache_analysis: bool = True,
+) -> dict[str, Any]:
+    """Extract comprehensive usage metrics with optional cache analysis.
 
     Provides detailed breakdown for efficiency analysis and reporting.
     """

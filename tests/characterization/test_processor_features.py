@@ -5,6 +5,7 @@ These tests cover specific, critical behaviors like error handling,
 comparison mode, and multi-source processing to ensure the library's
 core features are stable and reliable.
 """
+
 import json
 
 import pytest
@@ -30,6 +31,7 @@ def _remove_timing_fields(output_dict):
 
     return output_dict
 
+
 @pytest.mark.golden_test("golden_files/test_processor_fallback.yml")
 def test_batch_processor_fallback_behavior(golden, mock_gemini_client):
     """
@@ -37,19 +39,27 @@ def test_batch_processor_fallback_behavior(golden, mock_gemini_client):
     fails and it must gracefully fall back to individual API calls.
     """
     # Arrange
-    content = golden['input']['content']
-    questions = golden['input']['questions']
+    content = golden["input"]["content"]
+    questions = golden["input"]["questions"]
 
     mock_gemini_client.generate_content.side_effect = [
         BatchProcessingError("Simulated API failure for batch call."),
         {
             "text": json.dumps(["Answer from individual call 1."]),
-            "usage_metadata": {"prompt_tokens": 60, "candidates_token_count": 15, "total_tokens": 75}
+            "usage_metadata": {
+                "prompt_tokens": 60,
+                "candidates_token_count": 15,
+                "total_tokens": 75,
+            },
         },
         {
             "text": json.dumps(["Answer from individual call 2."]),
-            "usage_metadata": {"prompt_tokens": 65, "candidates_token_count": 20, "total_tokens": 85}
-        }
+            "usage_metadata": {
+                "prompt_tokens": 65,
+                "candidates_token_count": 20,
+                "total_tokens": 85,
+            },
+        },
     ]
 
     # Act
@@ -60,7 +70,8 @@ def test_batch_processor_fallback_behavior(golden, mock_gemini_client):
     actual_output = _remove_timing_fields(actual_output)
 
     # Assert
-    assert actual_output == golden.out['output']
+    assert actual_output == golden.out["output"]
+
 
 @pytest.mark.golden_test("golden_files/test_processor_comparison.yml")
 def test_batch_processor_comparison_mode(golden, mock_gemini_client):
@@ -69,22 +80,34 @@ def test_batch_processor_comparison_mode(golden, mock_gemini_client):
     This should result in both a batch call and individual calls being made.
     """
     # Arrange
-    content = golden['input']['content']
-    questions = golden['input']['questions']
+    content = golden["input"]["content"]
+    questions = golden["input"]["questions"]
 
     mock_gemini_client.generate_content.side_effect = [
         {
             "text": json.dumps(["Batch answer for Q1.", "Batch answer for Q2."]),
-            "usage_metadata": {"prompt_tokens": 150, "candidates_token_count": 80, "total_tokens": 230}
+            "usage_metadata": {
+                "prompt_tokens": 150,
+                "candidates_token_count": 80,
+                "total_tokens": 230,
+            },
         },
         {
             "text": json.dumps(["Individual answer for Q1."]),
-            "usage_metadata": {"prompt_tokens": 70, "candidates_token_count": 40, "total_tokens": 110}
+            "usage_metadata": {
+                "prompt_tokens": 70,
+                "candidates_token_count": 40,
+                "total_tokens": 110,
+            },
         },
         {
             "text": json.dumps(["Individual answer for Q2."]),
-            "usage_metadata": {"prompt_tokens": 75, "candidates_token_count": 45, "total_tokens": 120}
-        }
+            "usage_metadata": {
+                "prompt_tokens": 75,
+                "candidates_token_count": 45,
+                "total_tokens": 120,
+            },
+        },
     ]
 
     # Act
@@ -93,11 +116,11 @@ def test_batch_processor_comparison_mode(golden, mock_gemini_client):
         content,
         questions,
         compare_methods=True,
-        return_usage=True
+        return_usage=True,
     )
 
     # Clean the output for deterministic comparison
     actual_output = _remove_timing_fields(actual_output)
 
     # Assert
-    assert actual_output == golden.out['output']
+    assert actual_output == golden.out["output"]

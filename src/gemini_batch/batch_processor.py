@@ -1,12 +1,10 @@
-"""
-Batch processor for multimodal content analysis
-"""
+"""Batch processor for multimodal content analysis"""
 
 from contextlib import contextmanager
 import logging
 from pathlib import Path
 import time
-from typing import Any, Dict, List, Optional, Tuple, Union, Unpack
+from typing import Any, Unpack
 
 from .analysis.schema_analyzer import SchemaAnalyzer
 from .config import ClientProtocol, GeminiConfig, get_config
@@ -27,12 +25,11 @@ class BatchProcessor:
 
     def __init__(
         self,
-        _client: Optional[ClientProtocol] = None,
-        telemetry_context: Optional[TelemetryContextProtocol] = None,
+        _client: ClientProtocol | None = None,
+        telemetry_context: TelemetryContextProtocol | None = None,
         **config: Unpack[GeminiConfig],
     ):
-        """
-        Creates a processor using ambient configuration.
+        """Creates a processor using ambient configuration.
 
         Examples:
             processor = BatchProcessor()  # Zero config (uses env vars)
@@ -41,7 +38,7 @@ class BatchProcessor:
         """
         if _client and config:
             raise ValueError(
-                "Cannot specify both `_client` and config keyword arguments."
+                "Cannot specify both `_client` and config keyword arguments.",
             )
 
         self.tele = telemetry_context or TelemetryContext()
@@ -70,7 +67,9 @@ class BatchProcessor:
     def _extract_and_track_response(self, response, question_count, metrics, config):
         """Extract answers from response and track usage metrics"""
         extraction_result = self.response_processor.extract_answers_from_response(
-            response, question_count, config.response_schema
+            response,
+            question_count,
+            config.response_schema,
         )
 
         usage_metrics = extraction_result.usage
@@ -82,15 +81,14 @@ class BatchProcessor:
 
     def process_questions(
         self,
-        content: Union[str, Path, List[Union[str, Path]]],
-        questions: List[str],
+        content: str | Path | list[str | Path],
+        questions: list[str],
         compare_methods: bool = False,
-        response_schema: Optional[Any] = None,
-        client: Optional[GeminiClient] = None,
+        response_schema: Any | None = None,
+        client: GeminiClient | None = None,
         **kwargs,  # Accept additional parameters for flexibility
-    ) -> Dict[str, Any]:
-        """
-        Process a list of questions against content.
+    ) -> dict[str, Any]:
+        """Process a list of questions against content.
 
         Args:
             content: Content to process (text, files, URLs, etc.)
@@ -115,11 +113,11 @@ class BatchProcessor:
 
     def process_questions_multi_source(
         self,
-        sources: List[Union[str, Path, List[Union[str, Path]]]],
-        questions: List[str],
-        response_schema: Optional[Any] = None,
+        sources: list[str | Path | list[str | Path]],
+        questions: list[str],
+        response_schema: Any | None = None,
         **kwargs,
-    ) -> Dict[str, Any]:
+    ) -> dict[str, Any]:
         """Process multiple sources in a single batch for maximum efficiency"""
         if not sources:
             raise ValueError("At least one source is required")
@@ -138,19 +136,18 @@ class BatchProcessor:
             {
                 "source_count": len(sources),
                 "processing_mode": "multi_source_batch",
-            }
+            },
         )
 
         return result
 
     def _process_standard(
         self,
-        content: Union[str, Path, List[Union[str, Path]]],
-        questions: List[str],
+        content: str | Path | list[str | Path],
+        questions: list[str],
         config: ProcessingOptions,
-    ) -> Dict[str, Any]:
-        """
-        Standard processing path with explicit fallback and comparison logic.
+    ) -> dict[str, Any]:
+        """Standard processing path with explicit fallback and comparison logic.
 
         This method has clear, linear control flow:
         1. Try batch processing first
@@ -173,24 +170,31 @@ class BatchProcessor:
                 with self.tele("batch.attempt") as ctx:
                     log.info("Attempting batch processing.")
                     batch_answers, batch_metrics = self._process_batch(
-                        content, questions, config
+                        content,
+                        questions,
+                        config,
                     )
                     # Contextual metrics - track token efficiency
                     if batch_metrics.total_tokens > 0:
                         self.tele.metric(
-                            "token_efficiency", batch_metrics.total_tokens / 1000
+                            "token_efficiency",
+                            batch_metrics.total_tokens / 1000,
                         )
                     batch_succeeded = True
 
             except BatchProcessingError as e:
-                with self.tele("batch.individual_fallback", error_type=type(e).__name__):
+                with self.tele(
+                    "batch.individual_fallback", error_type=type(e).__name__
+                ):
                     # Batch processing failed - explicitly fall back to individual processing
                     log.warning(
                         "Batch processing failed, falling back to individual calls. Reason: %s",
                         e,
                     )
                     individual_answers, individual_metrics = self._process_individual(
-                        content, questions, config
+                        content,
+                        questions,
+                        config,
                     )
 
                     # Use individual results as the primary result
@@ -206,11 +210,13 @@ class BatchProcessor:
             if config.compare_methods and batch_succeeded:
                 with self.tele("batch.comparison_run"):
                     log.debug(
-                        "Comparison mode enabled, running individual processing for metrics."
+                        "Comparison mode enabled, running individual processing for metrics.",
                     )
                     # Only run comparison if batch processing actually succeeded
                     individual_answers, individual_metrics = self._process_individual(
-                        content, questions, config
+                        content,
+                        questions,
+                        config,
                     )
 
             # Result building
@@ -226,16 +232,19 @@ class BatchProcessor:
 
     def _process_batch(
         self,
-        content: Union[str, Path, List[Union[str, Path]]],
-        questions: List[str],
+        content: str | Path | list[str | Path],
+        questions: list[str],
         config: ProcessingOptions,
-    ) -> Tuple[List[str], ProcessingMetrics]:
+    ) -> tuple[list[str], ProcessingMetrics]:
         """Process all questions in a single batch call."""
-        with self.tele(
-            "batch.processing",
-            method="batch",
-            schema_enabled=config.response_schema is not None,
-        ), self._metrics_tracker(call_count=1) as metrics:
+        with (
+            self.tele(
+                "batch.processing",
+                method="batch",
+                schema_enabled=config.response_schema is not None,
+            ),
+            self._metrics_tracker(call_count=1) as metrics,
+        ):
             # 1. Select prompt builder and analyze schema if needed
             if config.response_schema:
                 with self.tele("batch.schema_analysis"):
@@ -270,7 +279,10 @@ class BatchProcessor:
                 # 4. Process the successful response
                 with self.tele("batch.response_processing"):
                     extraction_result = self._extract_and_track_response(
-                        response, len(questions), metrics, config
+                        response,
+                        len(questions),
+                        metrics,
+                        config,
                     )
 
                 if extraction_result.structured_quality:
@@ -292,25 +304,27 @@ class BatchProcessor:
                 self.tele.metric("batch_failures", 1)
                 # Any failure in batch processing should be re-raised as BatchProcessingError
                 # This makes the failure explicit and allows the caller to handle it appropriately
-                raise BatchProcessingError(f"Batch API call failed: {str(e)}") from e
+                raise BatchProcessingError(f"Batch API call failed: {e!s}") from e
 
     def _process_individual(
         self,
-        content: Union[str, Path, List[Union[str, Path]]],
-        questions: List[str],
+        content: str | Path | list[str | Path],
+        questions: list[str],
         config: ProcessingOptions,
-    ) -> Tuple[List[str], ProcessingMetrics]:
-        """
-        Process questions individually.
+    ) -> tuple[list[str], ProcessingMetrics]:
+        """Process questions individually.
 
         This method is used either as a fallback when batch processing fails,
         or for comparison when compare_methods=True.
         """
-        with self.tele(
-            "individual.processing",
-            method="individual",
-            question_count=len(questions),
-        ), self._metrics_tracker(call_count=len(questions)) as metrics:
+        with (
+            self.tele(
+                "individual.processing",
+                method="individual",
+                question_count=len(questions),
+            ),
+            self._metrics_tracker(call_count=len(questions)) as metrics,
+        ):
             answers = []
 
             for i, question in enumerate(questions):
@@ -331,7 +345,10 @@ class BatchProcessor:
                         )
 
                         extraction_result = self._extract_and_track_response(
-                            response, 1, metrics, config
+                            response,
+                            1,
+                            metrics,
+                            config,
                         )
 
                         # For individual processing, we always get a single answer (str)
@@ -348,14 +365,16 @@ class BatchProcessor:
                     except Exception as e:
                         # For individual processing, we can continue with other questions
                         # even if one fails
-                        answers.append(f"Error: {str(e)}")
+                        answers.append(f"Error: {e!s}")
                         self.tele.metric("individual_failures", 1)
 
             return answers, metrics
 
     def _calculate_efficiency(
-        self, individual_metrics: ProcessingMetrics, batch_metrics: ProcessingMetrics
-    ) -> Dict[str, Any]:
+        self,
+        individual_metrics: ProcessingMetrics,
+        batch_metrics: ProcessingMetrics,
+    ) -> dict[str, Any]:
         """Calculate efficiency metrics between individual and batch processing"""
         return track_efficiency(
             individual_calls=individual_metrics.calls,
@@ -372,7 +391,7 @@ class BatchProcessor:
         )
 
     # Cache management methods
-    def get_cache_efficiency_summary(self) -> Optional[Dict[str, Any]]:
+    def get_cache_efficiency_summary(self) -> dict[str, Any] | None:
         """Get cache efficiency summary from the underlying client"""
         if hasattr(self.client, "get_cache_metrics"):
             return self.client.get_cache_metrics()
@@ -384,13 +403,14 @@ class BatchProcessor:
             return self.client.cleanup_expired_caches()
         return 0
 
-    def get_config_summary(self) -> Dict[str, Any]:
+    def get_config_summary(self) -> dict[str, Any]:
         """Get configuration summary for debugging"""
         summary = {
             "config": get_config(),
             "client_model": getattr(self.client.config_manager, "model", "unknown"),
             "client_caching": getattr(self.client, "config", {}).get(
-                "enable_caching", False
+                "enable_caching",
+                False,
             ),
         }
 

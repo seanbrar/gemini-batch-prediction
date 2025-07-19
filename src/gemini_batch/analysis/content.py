@@ -1,6 +1,5 @@
 from dataclasses import dataclass
 from pathlib import Path
-from typing import Dict, List, Optional, Union
 
 from ..client.content_processor import ContentProcessor
 from ..exceptions import ValidationError
@@ -12,8 +11,8 @@ class SourceSummary:
     """Source breakdown for efficiency demonstration"""
 
     total_count: int
-    breakdown: Dict[str, int]  # source_type -> count
-    file_types: Dict[FileType, int]  # file_type -> count
+    breakdown: dict[str, int]  # source_type -> count
+    file_types: dict[FileType, int]  # file_type -> count
     traditional_api_calls: int  # sources × questions
     batch_api_calls: int  # typically 1
     efficiency_factor: float  # traditional / batch
@@ -37,8 +36,8 @@ class ContentAnalyzer:
 
     def analyze_sources(
         self,
-        sources: Union[str, Path, List[Union[str, Path]]],
-        questions: Optional[List[str]] = None,
+        sources: str | Path | list[str | Path],
+        questions: list[str] | None = None,
     ) -> SourceSummary:
         """Analyze sources for batch processing efficiency demonstration"""
         if not sources:
@@ -69,7 +68,7 @@ class ContentAnalyzer:
             efficiency_factor=efficiency_factor,
         )
 
-    def _convert_to_analysis_format(self, extracted_contents) -> List[Dict[str, any]]:
+    def _convert_to_analysis_format(self, extracted_contents) -> list[dict[str, any]]:
         """Convert ExtractedContent list to analysis format"""
         expanded = []
 
@@ -83,7 +82,7 @@ class ContentAnalyzer:
                     "error": extracted.metadata.get("error")
                     if extracted.extraction_method == "error"
                     else None,
-                }
+                },
             )
 
         return expanded
@@ -93,7 +92,7 @@ class ContentAnalyzer:
         method = extracted_content.extraction_method
         return self.EXTRACTION_METHOD_TO_TYPE.get(method, "local_file")
 
-    def _categorize_sources(self, expanded_sources: List[Dict]) -> Dict[str, int]:
+    def _categorize_sources(self, expanded_sources: list[dict]) -> dict[str, int]:
         """Count sources by type for demo display"""
         breakdown = {}
 
@@ -104,8 +103,9 @@ class ContentAnalyzer:
         return breakdown
 
     def _categorize_file_types(
-        self, expanded_sources: List[Dict]
-    ) -> Dict[FileType, int]:
+        self,
+        expanded_sources: list[dict],
+    ) -> dict[FileType, int]:
         """Count sources by file type"""
         file_types = {}
 

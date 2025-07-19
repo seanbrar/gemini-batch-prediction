@@ -1,6 +1,5 @@
 #!/usr/bin/env python3
-"""
-Minimal custom telemetry reporter example for gemini-batch.
+"""Minimal custom telemetry reporter example for gemini-batch.
 Shows how to print timing and metric events as they happen.
 """
 
@@ -21,7 +20,7 @@ class PrintReporter(TelemetryReporter):
         depth = metadata.get("depth", 0)
         indent = "  " * depth
         print(
-            f"[TIMING] {indent}{scope}: duration={duration:.4f}s (metadata: {metadata})"
+            f"[TIMING] {indent}{scope}: duration={duration:.4f}s (metadata: {metadata})",
         )
 
     def record_metric(self, scope: str, value: Any, **metadata: Any) -> None:

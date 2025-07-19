@@ -1,6 +1,5 @@
 #!/usr/bin/env python3
-"""
-AI Study Buddy Demo: Learning Deep Learning Fundamentals
+"""AI Study Buddy Demo: Learning Deep Learning Fundamentals
 
 Shows how conversation sessions enable natural learning progression:
 - Start with foundational concepts from papers
@@ -19,7 +18,7 @@ def main():
     # Start learning journey with foundational paper
     print("📚 Starting with foundational concepts...")
     session = create_conversation(
-        "examples/test_data/research_papers/lecun_deep_learning_ai_2021.pdf"
+        "examples/test_data/research_papers/lecun_deep_learning_ai_2021.pdf",
     )
 
     # Build foundational understanding with focused questions
@@ -34,19 +33,19 @@ def main():
     # Natural follow-up based on previous answers
     print("\n🤔 Following up on the concepts...")
     followup = session.ask(
-        "Which advantage would be most important for image recognition?"
+        "Which advantage would be most important for image recognition?",
     )
     print(f"💡 Insight: {followup[:120]}...")
 
     # Add video content for practical perspective (shorter video)
     print("\n🎥 Adding video content for practical understanding...")
     session.add_source(
-        "https://www.youtube.com/watch?v=aircAruvnKk"
+        "https://www.youtube.com/watch?v=aircAruvnKk",
     )  # Use any educational ML video URL
 
     # Cross-source learning with focused questions
     practical_questions = [
-        "How do the theoretical concepts apply to the neural network visualization in the video?"
+        "How do the theoretical concepts apply to the neural network visualization in the video?",
     ]
 
     practical_answers = session.ask_multiple(practical_questions)
@@ -55,12 +54,12 @@ def main():
     # Add efficiency-focused paper for deeper understanding
     print("\n📄 Adding efficiency research for advanced concepts...")
     session.add_source(
-        "examples/test_data/research_papers/menghani_efficient_deep_learning_2021.pdf"
+        "examples/test_data/research_papers/menghani_efficient_deep_learning_2021.pdf",
     )
 
     # Focused synthesis question
     synthesis = session.ask(
-        "What would be the most practical first step for someone starting with deep learning?"
+        "What would be the most practical first step for someone starting with deep learning?",
     )
     print(f"🧠 Synthesis: {synthesis[:150]}...")
 

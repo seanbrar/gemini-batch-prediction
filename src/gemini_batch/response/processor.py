@@ -1,5 +1,4 @@
-"""
-Response processor for structured JSON outputs from the Gemini API
+"""Response processor for structured JSON outputs from the Gemini API
 
 This module handles the extraction, validation, and packaging of responses
 from the Gemini API. It supports both structured JSON responses and fallback
@@ -8,7 +7,7 @@ text parsing, with built-in quality assessment and error handling.
 
 import json
 import logging
-from typing import Any, Dict, List, Optional
+from typing import Any
 
 from pydantic import ValidationError
 
@@ -24,19 +23,17 @@ class ResponseProcessor:
 
     def __init__(self):
         """Initialize the response processor"""
-        pass
 
     def process_batch_response(
         self,
         raw_response,
-        questions: List[str],
-        response_schema: Optional[Any] = None,
+        questions: list[str],
+        response_schema: Any | None = None,
         return_usage: bool = True,
-        comparison_answers: Optional[List[str]] = None,
-        api_call_time: Optional[float] = None,
-    ) -> Dict[str, Any]:
-        """
-        Process a raw batch API response with comprehensive result packaging
+        comparison_answers: list[str] | None = None,
+        api_call_time: float | None = None,
+    ) -> dict[str, Any]:
+        """Process a raw batch API response with comprehensive result packaging
 
         This is the primary integration method that BatchProcessor should use.
         It handles all response processing, packaging, and result formatting.
@@ -70,7 +67,8 @@ class ResponseProcessor:
         if return_usage:
             if isinstance(raw_response, dict):
                 usage = raw_response.get(
-                    "usage", {"prompt_tokens": 0, "output_tokens": 0, "total_tokens": 0}
+                    "usage",
+                    {"prompt_tokens": 0, "output_tokens": 0, "total_tokens": 0},
                 )
             # For non-dict responses, usage extraction could be enhanced here
 
@@ -99,12 +97,11 @@ class ResponseProcessor:
         self,
         response,
         expected_questions: int,
-        schema: Optional[Any] = None,
-        comparison_answers: Optional[List[str]] = None,
+        schema: Any | None = None,
+        comparison_answers: list[str] | None = None,
         return_confidence: bool = True,
     ) -> ProcessedResponse:
-        """
-        Process an API response with structured validation and quality assessment
+        """Process an API response with structured validation and quality assessment
 
         Args:
             response: The API response object
@@ -118,7 +115,9 @@ class ResponseProcessor:
         """
         # Extract answers using simplified logic
         extraction_result = self.extract_answers_from_response(
-            response, expected_questions, schema
+            response,
+            expected_questions,
+            schema,
         )
 
         # Determine success based on errors
@@ -140,7 +139,8 @@ class ResponseProcessor:
         if comparison_answers and extraction_result.answers:
             if isinstance(extraction_result.answers, list):
                 quality_score = calculate_quality_score(
-                    comparison_answers, extraction_result.answers
+                    comparison_answers,
+                    extraction_result.answers,
                 )
 
         return ProcessedResponse(
@@ -166,16 +166,17 @@ class ResponseProcessor:
         )
 
     def extract_answers_from_response(
-        self, response: Any, question_count: int, response_schema: Optional[Any] = None
+        self,
+        response: Any,
+        question_count: int,
+        response_schema: Any | None = None,
     ) -> ExtractionResult:
-        """
-        Extract answers from API response using structured validation with fallback parsing
+        """Extract answers from API response using structured validation with fallback parsing
 
         Implements a "Trust, but Verify" approach: first attempts to use structured
         data from response.parsed, then falls back to parsing response.text as JSON
         if needed. Validates against provided schema when available.
         """
-
         response_text_preview = str(getattr(response, "text", ""))[:200]
         log.debug(
             "Extracting answers from response. type=%s, schema=%s, preview='%s...'",
@@ -200,7 +201,7 @@ class ResponseProcessor:
                     "cached_tokens": response_usage.get("cached_tokens", 0),
                     "cache_hit_ratio": response_usage.get("cache_hit_ratio", 0.0),
                     "cache_enabled": response_usage.get("cache_enabled", False),
-                }
+                },
             )
         else:
             usage = extract_usage_metrics(response)
@@ -237,7 +238,7 @@ class ResponseProcessor:
                         parsed_data = loaded_json
                 except json.JSONDecodeError:
                     log.warning(
-                        "Failed to decode JSON from response. Treating as single raw text answer."
+                        "Failed to decode JSON from response. Treating as single raw text answer.",
                     )
                     errors.append("Response was not valid JSON.")
                     parsed_data = [response_text]  # Fallback to a list with one item
@@ -250,7 +251,7 @@ class ResponseProcessor:
                     parsed_data = [response_text]  # Fallback
                 except Exception as e:
                     log.exception(
-                        "An unexpected error occurred during response parsing."
+                        "An unexpected error occurred during response parsing.",
                     )
                     errors.append(f"Unexpected parsing error: {e}")
                     parsed_data = [response_text]  # Fallback
@@ -273,12 +274,12 @@ class ResponseProcessor:
             else:
                 # This case might occur if the JSON was valid but not a list
                 log.warning(
-                    "Parsed data was not a list as expected. Treating as single answer."
+                    "Parsed data was not a list as expected. Treating as single answer.",
                 )
                 answers = [str(parsed_data)]
         elif errors:
             log.debug(
-                "No parsed data available, using raw response text as fallback answer."
+                "No parsed data available, using raw response text as fallback answer.",
             )
             if isinstance(response, dict):
                 raw_text = response.get("text", "")
@@ -324,9 +325,7 @@ class ResponseProcessor:
         )
 
     def _parse_json_response(self, response_text: str) -> Any:
-        """
-        Parses a response text to JSON, handling markdown-wrapped JSON.
-        """
+        """Parses a response text to JSON, handling markdown-wrapped JSON."""
         json_text = response_text.strip()
 
         # Handle markdown-wrapped JSON (common with Gemini API)
@@ -346,11 +345,12 @@ class ResponseProcessor:
             raise  # Re-raise so caller can handle appropriately
 
     def extract_structured_data(
-        self, response, schema: Any, return_confidence: bool = True
+        self,
+        response,
+        schema: Any,
+        return_confidence: bool = True,
     ) -> ProcessedResponse:
-        """
-        Extracts structured data from a model's response using Pydantic.
-        """
+        """Extracts structured data from a model's response using Pydantic."""
         # Simplified and corrected logic for structured data extraction
         try:
             # Assuming response.text contains the JSON string
@@ -376,11 +376,9 @@ class ResponseProcessor:
         self,
         response,
         question_count: int,
-        comparison_answers: Optional[List[str]] = None,
+        comparison_answers: list[str] | None = None,
     ) -> ProcessedResponse:
-        """
-        Extracts plain text answers from a response, assuming a simple format.
-        """
+        """Extracts plain text answers from a response, assuming a simple format."""
         # Simplified logic for text extraction
         answers = [line.strip() for line in response.text.split("\n") if line.strip()]
         success = len(answers) == question_count

@@ -1,5 +1,4 @@
-"""
-Cache lifecycle management for Gemini API context caching.
+"""Cache lifecycle management for Gemini API context caching.
 
 Handles explicit cache creation, tracking, and cleanup while integrating
 with existing TokenCounter analysis and ConfigManager capabilities.
@@ -7,11 +6,11 @@ with existing TokenCounter analysis and ConfigManager capabilities.
 
 from contextlib import suppress
 from dataclasses import dataclass
-from datetime import datetime, timedelta, timezone
+from datetime import UTC, datetime, timedelta
 import hashlib
 import logging
 import time
-from typing import Any, Dict, List, Optional, Tuple
+from typing import Any
 
 from google import genai
 from google.genai import types
@@ -37,8 +36,8 @@ class CacheInfo:
     ttl_seconds: int
     token_count: int
     usage_count: int = 0
-    last_used: Optional[datetime] = None
-    conversation_context_hash: Optional[str] = None
+    last_used: datetime | None = None
+    conversation_context_hash: str | None = None
 
 
 @dataclass
@@ -46,9 +45,9 @@ class CacheResult:
     """Result of cache operation"""
 
     success: bool
-    cache_info: Optional[CacheInfo] = None
-    cache_name: Optional[str] = None
-    error: Optional[str] = None
+    cache_info: CacheInfo | None = None
+    cache_name: str | None = None
+    error: str | None = None
     fallback_required: bool = False
 
 
@@ -64,7 +63,7 @@ class CacheMetrics:
     cache_creation_time: float = 0.0
     cache_savings_estimate: float = 0.0
 
-    def to_dict(self) -> Dict[str, Any]:
+    def to_dict(self) -> dict[str, Any]:
         """Convert metrics to dictionary format"""
         return {
             "total_caches": self.total_caches,
@@ -95,21 +94,24 @@ class CacheManager:
         self.content_processor = content_processor
 
         # Cache tracking
-        self.active_caches: Dict[str, CacheInfo] = {}
-        self.content_to_cache: Dict[str, str] = {}
+        self.active_caches: dict[str, CacheInfo] = {}
+        self.content_to_cache: dict[str, str] = {}
         self.metrics = CacheMetrics()
 
     def plan_generation(
         self,
-        parts: List[types.Part],
-        system_instruction: Optional[str] = None,
+        parts: list[types.Part],
+        system_instruction: str | None = None,
     ) -> CacheAction:
         """Analyzes content and returns a plan for the client to execute."""
-
         # 1. Analyze content and determine strategy
-        token_analysis = self.token_counter.estimate_for_caching(self.config_manager.model, parts)
+        token_analysis = self.token_counter.estimate_for_caching(
+            self.config_manager.model, parts
+        )
         token_count = token_analysis["tokens"]
-        cache_analysis = self.config_manager.can_use_caching(self.config_manager.model, token_count)
+        cache_analysis = self.config_manager.can_use_caching(
+            self.config_manager.model, token_count
+        )
 
         if not cache_analysis.get("supported"):
             return CacheAction(CacheStrategy.GENERATE_RAW, PartsPayload(parts=parts))
@@ -119,18 +121,24 @@ class CacheManager:
         # 2. Simple strategy dispatch
         try:
             if strategy_name == CachingRecommendation.EXPLICIT:
-                cache_info = self._ensure_explicit_cache(parts, system_instruction, token_count)
+                cache_info = self._ensure_explicit_cache(
+                    parts, system_instruction, token_count
+                )
                 _, prompt_parts = self._prepare_cache_parts(parts)
                 return CacheAction(
                     CacheStrategy.GENERATE_FROM_EXPLICIT_CACHE,
-                    ExplicitCachePayload(cache_name=cache_info.cache_name, parts=prompt_parts)
+                    ExplicitCachePayload(
+                        cache_name=cache_info.cache_name, parts=prompt_parts
+                    ),
                 )
 
-            elif strategy_name == CachingRecommendation.IMPLICIT:
-                optimized_parts = self.content_processor.optimize_for_implicit_cache(parts)
+            if strategy_name == CachingRecommendation.IMPLICIT:
+                optimized_parts = self.content_processor.optimize_for_implicit_cache(
+                    parts
+                )
                 return CacheAction(
                     CacheStrategy.GENERATE_WITH_OPTIMIZED_PARTS,
-                    PartsPayload(parts=optimized_parts)
+                    PartsPayload(parts=optimized_parts),
                 )
 
         except APIError as e:
@@ -139,7 +147,9 @@ class CacheManager:
 
         return CacheAction(CacheStrategy.GENERATE_RAW, PartsPayload(parts=parts))
 
-    def _ensure_explicit_cache(self, parts: List[types.Part], system_instruction: Optional[str], token_count: int) -> CacheInfo:
+    def _ensure_explicit_cache(
+        self, parts: list[types.Part], system_instruction: str | None, token_count: int
+    ) -> CacheInfo:
         """Ensure explicit cache exists, creating if necessary"""
         cacheable_parts, _ = self._prepare_cache_parts(parts)
         content_hash = self._hash_content(cacheable_parts, system_instruction, None)
@@ -152,16 +162,25 @@ class CacheManager:
         # Create new cache
         ttl_seconds = self._calculate_ttl(token_count)
         cache_result = self._create_cache(
-            self.config_manager.model, cacheable_parts, ttl_seconds, token_count,
-            system_instruction, content_hash, None
+            self.config_manager.model,
+            cacheable_parts,
+            ttl_seconds,
+            token_count,
+            system_instruction,
+            content_hash,
+            None,
         )
         if not cache_result.success:
             raise APIError(f"Cache creation failed: {cache_result.error}")
         return cache_result.cache_info
 
-    def _prepare_cache_parts(self, parts: List[types.Part]) -> Tuple[List[types.Part], List[types.Part]]:
+    def _prepare_cache_parts(
+        self, parts: list[types.Part]
+    ) -> tuple[list[types.Part], list[types.Part]]:
         """Separate cacheable content from prompt parts with fallback handling"""
-        cacheable_parts, prompt_parts = self.content_processor.separate_cacheable_content(parts)
+        cacheable_parts, prompt_parts = (
+            self.content_processor.separate_cacheable_content(parts)
+        )
 
         # Handle empty prompt_parts fallback
         if not prompt_parts:
@@ -174,7 +193,7 @@ class CacheManager:
 
         return cacheable_parts, prompt_parts
 
-    def _get_existing_cache(self, content_hash: str) -> Optional[CacheResult]:
+    def _get_existing_cache(self, content_hash: str) -> CacheResult | None:
         """Check for existing valid cache"""
         if content_hash not in self.content_to_cache:
             return None
@@ -197,7 +216,7 @@ class CacheManager:
 
         # Update usage tracking
         cache_info.usage_count += 1
-        cache_info.last_used = datetime.now(timezone.utc)
+        cache_info.last_used = datetime.now(UTC)
         self.metrics.cache_hits += 1
 
         return CacheResult(success=True, cache_info=cache_info, cache_name=cache_name)
@@ -205,12 +224,12 @@ class CacheManager:
     def _create_cache(
         self,
         model: str,
-        content_parts: List[types.Part],
+        content_parts: list[types.Part],
         ttl_seconds: int,
         estimated_tokens: int,
-        system_instruction: Optional[str],
+        system_instruction: str | None,
         content_hash: str,
-        conversation_context: Optional[str] = None,
+        conversation_context: str | None = None,
     ) -> CacheResult:
         """Create new explicit cache"""
         start_time = time.time()
@@ -238,11 +257,11 @@ class CacheManager:
                 cache_name=cache.name,
                 content_hash=content_hash,
                 model=model,
-                created_at=datetime.now(timezone.utc),
+                created_at=datetime.now(UTC),
                 ttl_seconds=ttl_seconds,
                 token_count=estimated_tokens,
                 usage_count=1,
-                last_used=datetime.now(timezone.utc),
+                last_used=datetime.now(UTC),
                 conversation_context_hash=self._hash_string(conversation_context)
                 if conversation_context
                 else None,
@@ -259,7 +278,9 @@ class CacheManager:
             self.metrics.cache_misses += 1
 
             return CacheResult(
-                success=True, cache_info=cache_info, cache_name=cache.name
+                success=True,
+                cache_info=cache_info,
+                cache_name=cache.name,
             )
 
         except Exception as e:
@@ -272,9 +293,9 @@ class CacheManager:
 
     def _hash_content(
         self,
-        content_parts: List[types.Part],
-        system_instruction: Optional[str],
-        conversation_context: Optional[str],
+        content_parts: list[types.Part],
+        system_instruction: str | None,
+        conversation_context: str | None,
     ) -> str:
         """Generate hash for content deduplication"""
         hasher = hashlib.sha256()
@@ -303,15 +324,14 @@ class CacheManager:
         """Calculate optimal TTL based on content size"""
         if token_count > 100_000:
             return self.default_ttl_seconds * 4  # 4 hours for large content
-        elif token_count > 50_000:
+        if token_count > 50_000:
             return self.default_ttl_seconds * 2  # 2 hours for medium content
-        else:
-            return self.default_ttl_seconds  # 1 hour for smaller content
+        return self.default_ttl_seconds  # 1 hour for smaller content
 
     def _is_cache_valid(self, cache_info: CacheInfo) -> bool:
         """Check if cache is within TTL"""
-        return datetime.now(timezone.utc) < cache_info.created_at + timedelta(
-            seconds=cache_info.ttl_seconds
+        return datetime.now(UTC) < cache_info.created_at + timedelta(
+            seconds=cache_info.ttl_seconds,
         )
 
     def cleanup_expired_caches(self) -> int:
@@ -354,6 +374,6 @@ class CacheManager:
         self.metrics.active_caches = len(self.active_caches)
         return self.metrics
 
-    def list_active_caches(self) -> List[CacheInfo]:
+    def list_active_caches(self) -> list[CacheInfo]:
         """List all active caches with their info"""
         return list(self.active_caches.values())

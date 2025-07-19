@@ -1,4 +1,4 @@
-from typing import Any, List
+from typing import Any
 
 from .base import BasePromptBuilder
 
@@ -9,7 +9,7 @@ class StructuredPromptBuilder(BasePromptBuilder):
     def __init__(self, schema: Any):
         self.schema = schema
 
-    def create_prompt(self, questions: List[str]) -> str:
+    def create_prompt(self, questions: list[str]) -> str:
         """Creates a prompt that instructs the model to populate a JSON object."""
         # Note: The schema itself is passed via the API's `response_schema` config.
         # This prompt provides the instructional context.

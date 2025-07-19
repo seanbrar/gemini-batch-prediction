@@ -1,18 +1,15 @@
-"""
-Quality assessment and comparison for batch responses
+"""Quality assessment and comparison for batch responses
 
 This module provides metrics to compare the quality of individual vs batch
 responses, helping evaluate the effectiveness of batch processing.
 """
 
-from typing import List, Optional
-
 
 def calculate_quality_score(
-    individual_answers: List[str], batch_answers: List[str]
-) -> Optional[float]:
-    """
-    Calculate quality comparison between individual and batch answers
+    individual_answers: list[str],
+    batch_answers: list[str],
+) -> float | None:
+    """Calculate quality comparison between individual and batch answers
 
     Compares individual and batch answers using three metrics:
     - Completeness: Both answers should be substantive (>10 characters)
@@ -31,7 +28,7 @@ def calculate_quality_score(
 
     quality_scores = []
 
-    for ind, batch in zip(individual_answers, batch_answers):
+    for ind, batch in zip(individual_answers, batch_answers, strict=False):
         # Completeness check: both answers should be substantive (>10 chars)
         ind_complete = len(ind.strip()) > 10
         batch_complete = len(batch.strip()) > 10
@@ -43,7 +40,7 @@ def calculate_quality_score(
 
         if len(ind_words.union(batch_words)) > 0:
             overlap = len(ind_words.intersection(batch_words)) / len(
-                ind_words.union(batch_words)
+                ind_words.union(batch_words),
             )
         else:
             overlap = 0.0

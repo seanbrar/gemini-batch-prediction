@@ -5,14 +5,13 @@ from dataclasses import dataclass
 import logging
 import os
 import time
-from typing import Any, List, Protocol, TypeAlias, Union, runtime_checkable
-
-from typing_extensions import deprecated
+from typing import Any, Protocol, TypeAlias, runtime_checkable
+from warnings import deprecated
 
 log = logging.getLogger(__name__)
 
 # Context-aware state for thread/async safety
-_scope_stack_var: ContextVar[List[str]] = ContextVar("scope_stack", default=None)
+_scope_stack_var: ContextVar[list[str]] = ContextVar("scope_stack", default=None)
 _call_count_var: ContextVar[int] = ContextVar("call_count", default=0)
 
 # Minimal-overhead optimization - evaluated once at import time
@@ -142,21 +141,17 @@ class _EnabledTelemetryContext:
 
 _NO_OP_SINGLETON = _NoOpTelemetryContext()
 
-TelemetryContextProtocol: TypeAlias = Union[
-    _EnabledTelemetryContext, _NoOpTelemetryContext
-]
+TelemetryContextProtocol: TypeAlias = _EnabledTelemetryContext | _NoOpTelemetryContext
 
 
 def TelemetryContext(*reporters: TelemetryReporter) -> TelemetryContextProtocol:
-    """
-    Factory that returns either a full-featured telemetry context or a
+    """Factory that returns either a full-featured telemetry context or a
     single, shared, no-op instance for maximum performance when disabled.
     """
     if _TELEMETRY_ENABLED and reporters:
         return _EnabledTelemetryContext(*reporters)
-    else:
-        # Always return the same, pre-existing no-op instance.
-        return _NO_OP_SINGLETON
+    # Always return the same, pre-existing no-op instance.
+    return _NO_OP_SINGLETON
 
 
 @deprecated("Use ctx(name, **metadata) instead")
@@ -204,7 +199,7 @@ class _SimpleReporter:
             for scope, values in sorted(self.metrics.items()):
                 total = sum(v[0] for v in values if isinstance(v[0], (int, float)))
                 lines.append(
-                    f"{scope:<40} | Count: {len(values):<4} | Total: {total:,.0f}"
+                    f"{scope:<40} | Count: {len(values):<4} | Total: {total:,.0f}",
                 )
 
         return "\n".join(lines)
@@ -239,5 +234,5 @@ class _SimpleReporter:
                     f"{indent}{key:<30} | "
                     f"Calls: {len(durations):<4} | "
                     f"Avg: {avg_time:.4f}s | "
-                    f"Total: {total_time:.4f}s"
+                    f"Total: {total_time:.4f}s",
                 )

@@ -1,15 +1,11 @@
 from dataclasses import dataclass, field
-from datetime import datetime, timezone
+from datetime import UTC, datetime
 import json
 import logging
 from pathlib import Path
 from typing import (
     Any,
-    Dict,
-    List,
     Optional,
-    Tuple,
-    Union,
     Unpack,
 )
 from uuid import uuid4
@@ -29,10 +25,10 @@ class ConversationTurn:
 
     question: str
     answer: str
-    timestamp: datetime = field(default_factory=lambda: datetime.now(timezone.utc))
-    sources_snapshot: List[str] = field(default_factory=list)
-    cache_info: Optional[Dict[str, Any]] = None
-    error: Optional[str] = None
+    timestamp: datetime = field(default_factory=lambda: datetime.now(UTC))
+    sources_snapshot: list[str] = field(default_factory=list)
+    cache_info: dict[str, Any] | None = None
+    error: str | None = None
 
 
 class ConversationSession:
@@ -40,12 +36,11 @@ class ConversationSession:
 
     def __init__(
         self,
-        sources: Union[str, Path, List[Union[str, Path]]],
-        _processor: Optional[ProcessorProtocol] = None,
+        sources: str | Path | list[str | Path],
+        _processor: ProcessorProtocol | None = None,
         **config: Unpack[ConversationConfig],
     ):
-        """
-        Creates a conversation session.
+        """Creates a conversation session.
 
         Examples:
             session = ConversationSession("document.pdf")
@@ -54,7 +49,7 @@ class ConversationSession:
         """
         self.sources = sources if isinstance(sources, list) else [sources]
         self.max_history_turns = config.get("max_history_turns", 5)
-        self.history: List[ConversationTurn] = []
+        self.history: list[ConversationTurn] = []
         self.session_id = str(uuid4())
 
         if _processor and config:
@@ -108,10 +103,12 @@ class ConversationSession:
             self._record_failed_turn(question, str(e))
             raise e
 
-    def ask_multiple(self, questions: List[str], **options) -> List[str]:
+    def ask_multiple(self, questions: list[str], **options) -> list[str]:
         """Ask batch of questions with conversation context"""
         log.debug(
-            "Processing %d questions with %d sources", len(questions), len(self.sources)
+            "Processing %d questions with %d sources",
+            len(questions),
+            len(self.sources),
         )
 
         try:
@@ -150,7 +147,7 @@ class ConversationSession:
                     self._record_failed_turn(q, error_message)
                 raise ValueError(error_message)
 
-            for question, answer in zip(questions, answers):
+            for question, answer in zip(questions, answers, strict=False):
                 self._record_successful_turn(question, answer, result)
 
             return answers
@@ -161,9 +158,8 @@ class ConversationSession:
                 self._record_failed_turn(question, str(e))
             raise e
 
-    def _build_history_context(self, max_tokens: Optional[int] = None) -> Optional[str]:
-        """
-        Builds context from recent, successful conversation history with intelligent token management.
+    def _build_history_context(self, max_tokens: int | None = None) -> str | None:
+        """Builds context from recent, successful conversation history with intelligent token management.
 
         Uses ambient configuration to determine optimal context limits and proper token counting
         when available through the processor's client.
@@ -191,7 +187,8 @@ class ConversationSession:
                 # Use proper token counting
                 turn_content = f"Q: {turn.question}\nA: {turn.answer}"
                 turn_tokens = self._count_tokens_with_fallback(
-                    token_counter, turn_content
+                    token_counter,
+                    turn_content,
                 )
             else:
                 # Fallback to conservative estimation
@@ -224,7 +221,8 @@ class ConversationSession:
                 # Use a conservative portion of the model's context window for history
                 # Reserve space for the main content and new questions
                 return min(
-                    model_limits.context_window // 4, CACHING_VALIDATION_THRESHOLD
+                    model_limits.context_window // 4,
+                    CACHING_VALIDATION_THRESHOLD,
                 )
 
         except Exception:
@@ -239,7 +237,8 @@ class ConversationSession:
         try:
             # Follow your established pattern of accessing client components
             if hasattr(self.processor, "client") and hasattr(
-                self.processor.client, "token_counter"
+                self.processor.client,
+                "token_counter",
             ):
                 return self.processor.client.token_counter
         except (AttributeError, TypeError):
@@ -247,7 +246,9 @@ class ConversationSession:
         return None
 
     def _count_tokens_with_fallback(
-        self, token_counter: "TokenCounter", content: str
+        self,
+        token_counter: "TokenCounter",
+        content: str,
     ) -> int:
         """Count tokens using TokenCounter with graceful fallback."""
         try:
@@ -263,7 +264,7 @@ class ConversationSession:
         self,
         question: str,
         answer: str,
-        result: Dict[str, Any],
+        result: dict[str, Any],
     ):
         """Record a successful conversation turn"""
         turn = ConversationTurn(
@@ -295,12 +296,12 @@ class ConversationSession:
         if source in self.sources:
             self.sources.remove(source)
 
-    def list_sources(self) -> List[str]:
+    def list_sources(self) -> list[str]:
         """List current conversation sources"""
         return self.sources.copy()
 
     # Session persistence
-    def save(self, path: Optional[str] = None) -> str:
+    def save(self, path: str | None = None) -> str:
         """Save conversation session to file"""
         # Fix: Convert sources to strings for JSON serialization
         serializable_sources = [str(s) for s in self.sources]
@@ -319,7 +320,7 @@ class ConversationSession:
                 }
                 for turn in self.history
             ],
-            "created_at": datetime.now(timezone.utc).isoformat(),
+            "created_at": datetime.now(UTC).isoformat(),
         }
 
         if path is None:
@@ -334,8 +335,8 @@ class ConversationSession:
     def load(
         cls,
         session_id: str,
-        path: Optional[str] = None,
-        processor: Optional[BatchProcessor] = None,
+        path: str | None = None,
+        processor: BatchProcessor | None = None,
     ) -> "ConversationSession":
         """Load conversation session from file"""
         if path is None:
@@ -363,15 +364,15 @@ class ConversationSession:
         return session
 
     # Session analytics
-    def get_history(self) -> List[Tuple[str, str]]:
+    def get_history(self) -> list[tuple[str, str]]:
         """Get conversation history as (question, answer) pairs"""
         return [(turn.question, turn.answer) for turn in self.history]
 
-    def get_detailed_history(self) -> List[ConversationTurn]:
+    def get_detailed_history(self) -> list[ConversationTurn]:
         """Get full conversation history with metadata"""
         return self.history.copy()
 
-    def get_stats(self) -> Dict[str, Any]:
+    def get_stats(self) -> dict[str, Any]:
         """Get comprehensive conversation statistics"""
         total_turns = len(self.history)
         successful_turns = len([t for t in self.history if t.error is None])
@@ -405,7 +406,7 @@ class ConversationSession:
 
 
 def create_conversation(
-    sources: Union[str, Path, List[Union[str, Path]]],
+    sources: str | Path | list[str | Path],
     **config: Unpack[ConversationConfig],
 ) -> "ConversationSession":
     """Factory function to create a new conversation session."""
@@ -413,7 +414,9 @@ def create_conversation(
 
 
 def load_conversation(
-    session_id: str, path: Optional[str] = None, **config: Unpack[ConversationConfig]
+    session_id: str,
+    path: str | None = None,
+    **config: Unpack[ConversationConfig],
 ) -> "ConversationSession":
     """Factory function to load an existing conversation session."""
     # Create a processor with any specified overrides
@@ -431,7 +434,9 @@ def load_conversation(
 
     # Create session, now passing the configured processor
     session = ConversationSession(
-        session_data["sources"], _processor=processor, **config
+        session_data["sources"],
+        _processor=processor,
+        **config,
     )
     session.session_id = session_data["session_id"]
 
