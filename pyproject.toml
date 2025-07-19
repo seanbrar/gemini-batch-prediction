@@ -119,6 +119,7 @@ exclude = [
     "__pycache__",
     "build",
     "dist",
+    "tests_old",  # TODO: Remove after old tests cleanup
     "venv",
 ]
 
