@@ -195,3 +195,6 @@ exclude = [
     "notebooks*",
     "tests*",
 ]
+
+[tool.setuptools.package-data]
+gemini_batch = ["py.typed"]
