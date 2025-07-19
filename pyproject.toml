@@ -1,95 +1,83 @@
+# --- Build System ---
 [build-system]
 requires = ["setuptools>=61.0", "wheel"]
 build-backend = "setuptools.build_meta"
 
+# --- Project Metadata ---
 [project]
+# Core Metadata
 name = "gemini-batch"
 version = "0.7.0"
 description = "A framework for batch processing with Google's Gemini API"
 readme = "README.md"
-license = "MIT"
 authors = [
     {name = "Sean Brar", email = "hello@seanbrar.com"}
 ]
+license = "MIT"
+
+# Requirements
 requires-python = ">=3.13"
 dependencies = [
-    "google-genai>=1.20.0",
-    "python-dotenv>=1.1.0",
-    "PyPDF2>=3.0.1",
     "Pillow>=11.2.1",
-    "python-magic>=0.4.27",
+    "PyPDF2>=3.0.1",
+    "google-genai>=1.20.0",
     "httpx>=0.27.0",
-]
-
-[project.optional-dependencies]
-dev = [
-    "pytest>=8.4.0",
-    "pytest-cov>=6.1.1",
-    "pytest-mock>=3.14.1",
-    "pyfakefs>=5.0.0",
-    "pydantic>=2.0.0",
-    "ruff>=0.5.0",
-    "pip-tools",
-    "vulture",
-    "pytest-golden",
-    "mypy>=1.0.0",
-    "pre-commit>=4.0.0",
-]
-viz = [
-    "matplotlib>=3.10.3",
-    "seaborn>=0.13.2",
-    "pandas>=2.3.0",
-]
-# Combined group for easy installation
-all = [
-    "gemini-batch[dev,viz]",
+    "python-dotenv>=1.1.0",
+    "python-magic>=0.4.27",
 ]
 
 [project.urls]
 Homepage = "https://github.com/seanbrar/gemini-batch-prediction"
 Repository = "https://github.com/seanbrar/gemini-batch-prediction"
 
-# --- Build, Test, and Coverage Tools ---
-
-[tool.setuptools.packages.find]
-where = ["src"]
-exclude = ["notebooks*", "tests*", "examples*"]
-
-[tool.pytest.ini_options]
-testpaths = ["tests"]
-addopts = [
-    "--import-mode=importlib",
-    "--cov=gemini_batch",
-    "--cov-report=html:coverage_html_report",
-    "--cov-report=term-missing",
-    "--cov-fail-under=80",
-    "-v"
+[project.optional-dependencies]
+dev = [
+    "pre-commit>=4.0.0",
+    "mypy>=1.0.0",
+    "pip-tools",
+    "pydantic>=2.0.0",
+    "pyfakefs>=5.0.0",
+    "pytest-cov>=6.1.1",
+    "pytest-golden",
+    "pytest-mock>=3.14.1",
+    "pytest>=8.4.0",
+    "ruff>=0.5.0",
+    "vulture",
 ]
-enable_assertion_pass_hook = true
+viz = [
+    "matplotlib>=3.10.3",
+    "pandas>=2.3.0",
+    "seaborn>=0.13.2",
+]
+all = [
+    "gemini-batch[dev,viz]",
+]
 
+# --- Tool Configurations ---
+
+# --- Coverage ---
 [tool.coverage.run]
 source = ["src/gemini_batch"]
 omit = [
-    "tests/*",
+    "setup.py",
     "src/gemini_batch/__init__.py",
     "src/gemini_batch/analysis/visualization.py",
-    "setup.py"
+    "tests/*",
 ]
 
 [tool.coverage.report]
 exclude_lines = [
+    "if __name__ == .__main__.:",
     "pragma: no cover",
-    "def __repr__",
     "raise AssertionError",
     "raise NotImplementedError",
-    "if __name__ == .__main__.:"
+    "def __repr__",
 ]
 
 [tool.coverage.html]
 directory = "coverage_html_report"
 
-# --- MyPy Configuration ---
-
+# --- MyPy ---
 [tool.mypy]
 python_version = "3.13"
 disallow_untyped_defs = true
@@ -103,12 +91,25 @@ warn_unused_configs = true
 module = "tests.*"
 disallow_untyped_defs = false
 
-# --- Ruff Linter and Formatter Configuration ---
+# --- Pytest ---
+[tool.pytest.ini_options]
+testpaths = ["tests"]
+addopts = [
+    # Basic options
+    "-v",
+    "--import-mode=importlib",
+    # Coverage options
+    "--cov=gemini_batch",
+    "--cov-report=term-missing",
+    "--cov-report=html:coverage_html_report",
+    "--cov-fail-under=80",
+]
+enable_assertion_pass_hook = true
 
+# --- Ruff ---
 [tool.ruff]
-line-length = 88
 target-version = "py313"
-
+line-length = 88
 exclude = [
     ".git",
     ".pytest_cache",
@@ -122,11 +123,11 @@ exclude = [
 ]
 
 [tool.ruff.format]
-quote-style = "double"
-indent-style = "space"
-skip-magic-trailing-comma = false
-line-ending = "auto"
 docstring-code-format = true
+indent-style = "space"
+line-ending = "auto"
+quote-style = "double"
+skip-magic-trailing-comma = false
 
 [tool.ruff.lint]
 select = [
@@ -158,31 +159,16 @@ ignore = [
 ]
 fixable = ["ALL"]
 unfixable = []
-
-# Allow unused variables when prefixed with underscore
 dummy-variable-rgx = "^(_+|(_+[a-zA-Z0-9_]*[a-zA-Z0-9]+?))$"
 
 [tool.ruff.lint.per-file-ignores]
 "__init__.py" = ["F401"]
-"examples/*" = [
-    "S105",
-    "S106",
-    "T20",
-]
-"tests/*" = [
-    "D",
-    "N806",
-    "S101",
-    "S105",
-    "S106",
-    "S108",
-]
-
+"examples/*" = ["S105", "S106", "T20"]
+"tests/*" = ["D", "N806", "S101", "S105", "S106", "S108"]
 
 [tool.ruff.lint.isort]
-known-first-party = ["gemini_batch"]
 force-sort-within-sections = true
-split-on-trailing-comma = true
+known-first-party = ["gemini_batch"]
 section-order = [
     "future",
     "standard-library",
@@ -190,6 +176,16 @@ section-order = [
     "first-party",
     "local-folder",
 ]
+split-on-trailing-comma = true
 
 [tool.ruff.lint.pydocstyle]
 convention = "google"
+
+# --- Setuptools ---
+[tool.setuptools.packages.find]
+where = ["src"]
+exclude = [
+    "examples*",
+    "notebooks*",
+    "tests*",
+]
