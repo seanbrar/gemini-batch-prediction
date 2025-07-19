@@ -32,6 +32,7 @@ dev = [
     "pip-tools",
     "vulture",
     "pytest-golden",
+    "mypy>=1.0.0",
 ]
 viz = [
     "matplotlib>=3.10.3",
@@ -85,6 +86,21 @@ exclude_lines = [
 
 [tool.coverage.html]
 directory = "coverage_html_report"
+
+# --- MyPy Configuration ---
+
+[tool.mypy]
+python_version = "3.13"
+disallow_untyped_defs = true
+namespace_packages = true
+show_error_codes = true
+strict = true
+warn_return_any = true
+warn_unused_configs = true
+
+[[tool.mypy.overrides]]
+module = "tests.*"
+disallow_untyped_defs = false
 
 # --- Ruff Linter and Formatter Configuration ---
 
