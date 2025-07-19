@@ -108,17 +108,87 @@ disallow_untyped_defs = false
 line-length = 88
 target-version = "py313"
 
+exclude = [
+    ".git",
+    ".pytest_cache",
+    ".ruff_cache",
+    ".venv",
+    "*.egg-info",
+    "__pycache__",
+    "build",
+    "dist",
+    "venv",
+]
+
 [tool.ruff.format]
 quote-style = "double"
 indent-style = "space"
 skip-magic-trailing-comma = false
 line-ending = "auto"
+docstring-code-format = true
 
 [tool.ruff.lint]
-select = ["E", "F", "I", "N", "W", "UP", "B", "C4", "SIM"]
-ignore = []
+select = [
+    "A",    # flake8-builtins
+    "B",    # flake8-bugbear
+    "C4",   # flake8-comprehensions
+    "COM",  # flake8-commas
+    "D",    # pydocstyle
+    "E",    # pycodestyle errors
+    "F",    # pyflakes
+    "I",    # isort
+    "ICN",  # flake8-import-conventions
+    "N",    # pep8-naming
+    "PIE",  # flake8-pie
+    "PYI",  # flake8-pyi
+    "RET",  # flake8-return
+    "RSE",  # flake8-raise
+    "RUF",  # ruff-specific rules
+    "S",    # bandit
+    "SIM",  # flake8-simplify
+    "T20",  # flake8-print
+    "UP",   # pyupgrade
+    "W",    # pycodestyle warnings
+]
+ignore = [
+    "COM812", # Trailing comma missing
+    "COM819", # Trailing comma prohibited
+    "E501",   # Line too long (handled by formatter)
+]
+fixable = ["ALL"]
+unfixable = []
+
+# Allow unused variables when prefixed with underscore
+dummy-variable-rgx = "^(_+|(_+[a-zA-Z0-9_]*[a-zA-Z0-9]+?))$"
+
+[tool.ruff.lint.per-file-ignores]
+"__init__.py" = ["F401"]
+"examples/*" = [
+    "S105",
+    "S106",
+    "T20",
+]
+"tests/*" = [
+    "D",
+    "N806",
+    "S101",
+    "S105",
+    "S106",
+    "S108",
+]
+
 
 [tool.ruff.lint.isort]
 known-first-party = ["gemini_batch"]
 force-sort-within-sections = true
 split-on-trailing-comma = true
+section-order = [
+    "future",
+    "standard-library",
+    "third-party",
+    "first-party",
+    "local-folder",
+]
+
+[tool.ruff.lint.pydocstyle]
+convention = "google"
