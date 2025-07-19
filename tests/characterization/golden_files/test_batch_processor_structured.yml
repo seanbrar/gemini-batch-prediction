@@ -5,7 +5,7 @@ input:
 output:
   question_count: 1
   answers:
-  - summary='This is a mocked summary of the content provided.' 
+  - summary='This is a mocked summary of the content provided.'
     key_points=['This is the first key point.', 'This is the second key point.']
   efficiency:
     individual_token_efficiency:

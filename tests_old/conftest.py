@@ -112,8 +112,8 @@ def batch_processor(gemini_client):
 def sample_content():
     """Reusable test content"""
     return """
-    Artificial Intelligence represents one of the most transformative 
-    technologies of the 21st century, enabling machines to process 
+    Artificial Intelligence represents one of the most transformative
+    technologies of the 21st century, enabling machines to process
     natural language and solve complex problems.
     """
 

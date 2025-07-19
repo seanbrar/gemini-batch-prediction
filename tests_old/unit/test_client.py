@@ -447,7 +447,7 @@ class TestGeminiClientBatchProcessing:
     def test_generates_batch_with_usage_metrics(self, gemini_client, mock_genai_client):
         """Should generate batch response with usage metrics when requested"""
         from tests.fixtures.api_responses import MockUsageMetadata
-        
+
         mock_response = SAMPLE_RESPONSES["batch_answer"]
         mock_response.usage_metadata = MockUsageMetadata(
             prompt_token_count=50,

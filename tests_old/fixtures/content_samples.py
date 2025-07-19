@@ -11,37 +11,37 @@ EDUCATIONAL_CONTENT = {
     """,
     "medium_article": """
     Deep Learning: The Revolutionary Approach to Artificial Intelligence
-    
+
     Deep learning represents a significant breakthrough in artificial intelligence,
     utilizing neural networks with multiple layers to automatically learn and extract
     features from raw data. Unlike traditional machine learning approaches that
     require manual feature engineering, deep learning models can automatically
     discover representations needed for detection or classification from raw data.
-    
+
     The transformer architecture, introduced in the seminal paper "Attention Is All You Need",
     fundamentally changed how we approach sequence modeling problems. By using self-attention
     mechanisms, transformers can process all positions in a sequence simultaneously,
     leading to significant improvements in both training efficiency and model performance.
-    
+
     Applications span computer vision, natural language processing, and speech recognition,
     with systems like GPT and BERT demonstrating human-level performance on many tasks.
     """,
     "academic_paper_excerpt": """
     Abstract: This paper presents a comprehensive analysis of attention mechanisms
     in transformer architectures for natural language understanding tasks.
-    
+
     1. Introduction
     Natural language processing has undergone significant transformation with the
     introduction of attention-based models. The self-attention mechanism allows
     models to weigh the importance of different words in a sequence when processing
     each word, leading to more nuanced understanding of context and meaning.
-    
+
     2. Methodology
     We evaluate attention patterns across multiple transformer variants including
     BERT, GPT, and T5 on benchmark datasets including GLUE, SuperGLUE, and SQuAD.
     Our analysis focuses on attention head specialization and layer-wise attention
     evolution during fine-tuning.
-    
+
     3. Results
     Our findings indicate that attention heads develop specialized functions,
     with some focusing on syntactic relationships while others capture semantic
@@ -52,7 +52,7 @@ EDUCATIONAL_CONTENT = {
     Previous discussion covered the basics of neural networks and backpropagation.
     We established that neural networks learn by adjusting weights based on error
     gradients, and that deep networks can learn hierarchical representations.
-    
+
     Now we'll explore how attention mechanisms improve upon traditional architectures
     by allowing models to focus on relevant parts of the input when making predictions.
     """,

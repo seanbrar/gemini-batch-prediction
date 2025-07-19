@@ -30,7 +30,7 @@ GEMINI_MODEL=gemini-2.0-flash                # Supports explicit only
 ### Model Caching Capabilities
 
 - **Gemini 2.5 Flash/Pro**: Both implicit and explicit caching
-- **Gemini 2.0 Flash**: Explicit caching only  
+- **Gemini 2.0 Flash**: Explicit caching only
 - **Gemini 1.5 Pro/Flash**: Explicit caching only
 - **Other models**: Check model documentation for caching support
 
@@ -42,9 +42,9 @@ results = processor.process_questions(content, questions)
 
 # Check cache usage
 if results["metrics"]["batch"]["cache_enabled"]:
-    cache_ratio = results["metrics"]["batch"]["cache_hit_ratio"] 
+    cache_ratio = results["metrics"]["batch"]["cache_hit_ratio"]
     print(f"Cache hit ratio: {cache_ratio:.1%}")
-    
+
     cost_efficiency = results["efficiency"]["cost_efficiency_ratio"]
     print(f"Cost efficiency: {cost_efficiency:.1f}x improvement")
 

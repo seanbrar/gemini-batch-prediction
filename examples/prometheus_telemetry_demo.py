@@ -45,7 +45,10 @@ class MockPrometheusClient:
         return f"{name}{{{label_str}}}"
 
     def Counter(  # noqa: D102, N802
-        self, name: str, description: str = "", labelnames: tuple[str, ...] = ()  # noqa: ARG002
+        self,
+        name: str,
+        description: str = "",
+        labelnames: tuple[str, ...] = (),  # noqa: ARG002
     ):
         self._metrics.setdefault(
             name, {"type": "COUNTER", "desc": description, "values": {}}
@@ -66,7 +69,10 @@ class MockPrometheusClient:
         return LabeledCounter()
 
     def Histogram(  # noqa: D102, N802
-        self, name: str, description: str = "", labelnames: tuple[str, ...] = ()  # noqa: ARG002
+        self,
+        name: str,
+        description: str = "",
+        labelnames: tuple[str, ...] = (),  # noqa: ARG002
     ):
         self._metrics.setdefault(
             name, {"type": "HISTOGRAM", "desc": description, "values": {}}

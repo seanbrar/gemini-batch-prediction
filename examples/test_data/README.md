@@ -4,9 +4,9 @@ This directory contains academic papers and sources focused on **AI model effici
 
 ## 📚 Dataset Overview
 
-**Topic**: AI Model Efficiency and Optimization  
-**Sources**: 10 research papers + 1 arXiv URL + 1 YouTube lecture  
-**Total**: 12 sources covering diverse efficiency approaches  
+**Topic**: AI Model Efficiency and Optimization
+**Sources**: 10 research papers + 1 arXiv URL + 1 YouTube lecture
+**Total**: 12 sources covering diverse efficiency approaches
 **Purpose**: Demonstrate cross-source synthesis and structured analysis
 
 ## 🔬 Research Papers Included
@@ -38,10 +38,10 @@ This directory contains academic papers and sources focused on **AI model effici
 
 ## 🌐 External Sources
 
-**arXiv Paper**: [Distilling the Knowledge in a Neural Network (Hinton et al., 2015)](https://arxiv.org/pdf/1503.02531)  
+**arXiv Paper**: [Distilling the Knowledge in a Neural Network (Hinton et al., 2015)](https://arxiv.org/pdf/1503.02531)
 *Geoffrey Hinton, Oriol Vinyals, and Jeff Dean - Foundational knowledge distillation paper*
 
-**YouTube Lecture**: [Efficient AI Computing | Song Han | TEDxMIT](https://www.youtube.com/watch?v=u1_K4UeAl-s)  
+**YouTube Lecture**: [Efficient AI Computing | Song Han | TEDxMIT](https://www.youtube.com/watch?v=u1_K4UeAl-s)
 *Song Han (MIT) - December 2024 - Contemporary perspective on efficient AI model design and "Deep Compression" techniques*
 
 ## 🎯 Why These Sources?
@@ -49,7 +49,7 @@ This directory contains academic papers and sources focused on **AI model effici
 This collection was chosen to demonstrate:
 
 1. **Diverse Techniques**: Pruning, quantization, distillation, architecture design, data-centric approaches
-2. **Temporal Range**: Papers from 2015-2025 showing evolution of the field  
+2. **Temporal Range**: Papers from 2015-2025 showing evolution of the field
 3. **Source Variety**: Research papers, surveys, perspectives, and multimedia content
 4. **Authority & Impact**: Includes foundational papers (Hinton's distillation) and leading researchers (Song Han's recent work)
 5. **Cross-Reference Potential**: Papers that cite and build upon each other
