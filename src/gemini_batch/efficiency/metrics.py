@@ -1,12 +1,12 @@
 """
 Usage metrics extraction from API responses
-"""  # noqa: D200, D212, D415
+"""
 
-from typing import Any, Dict  # noqa: UP035
+from typing import Any, Dict
 
 
-def _get_token_count(usage_obj, attr_name: str) -> int:  # noqa: ANN001
-    """Safely extract token count from usage object"""  # noqa: D415
+def _get_token_count(usage_obj, attr_name: str) -> int:
+    """Safely extract token count from usage object"""
     try:
         value = getattr(usage_obj, attr_name, 0)
         # Handle None values and ensure we return an int
@@ -16,8 +16,8 @@ def _get_token_count(usage_obj, attr_name: str) -> int:  # noqa: ANN001
         return 0
 
 
-def extract_usage_metrics(response) -> Dict[str, int]:  # noqa: ANN001, UP006
-    """Extract token usage from API response"""  # noqa: D415
+def extract_usage_metrics(response) -> Dict[str, int]:
+    """Extract token usage from API response"""
     # Default values
     prompt_tokens = 0
     output_tokens = 0
@@ -48,11 +48,11 @@ def extract_usage_metrics(response) -> Dict[str, int]:  # noqa: ANN001, UP006
 
 
 def calculate_cache_savings(
-    usage_with_cache: Dict[str, int], usage_without_cache: Dict[str, int]  # noqa: COM812, UP006
-) -> Dict[str, float]:  # noqa: UP006
+    usage_with_cache: Dict[str, int], usage_without_cache: Dict[str, int]
+) -> Dict[str, float]:
     """
     Calculate cache savings between cached and non-cached usage.
-    """  # noqa: D200, D212
+    """
     cached_tokens = usage_with_cache.get("cached_tokens", 0)
     prompt_tokens = usage_with_cache.get("prompt_tokens", 0)
 
@@ -77,7 +77,7 @@ def calculate_cache_savings(
 
     # Cache effectiveness (how much of the potential was cached)
     # Handle zero prompt_tokens case correctly
-    if prompt_tokens == 0:  # noqa: SIM108
+    if prompt_tokens == 0:
         cache_effectiveness = 0.0
     else:
         cache_effectiveness = cached_tokens / prompt_tokens
@@ -91,13 +91,13 @@ def calculate_cache_savings(
 
 
 def extract_detailed_usage_metrics(
-    response, include_cache_analysis: bool = True  # noqa: ANN001, COM812, FBT001, FBT002
-) -> Dict[str, Any]:  # noqa: UP006
+    response, include_cache_analysis: bool = True
+) -> Dict[str, Any]:
     """
     Extract comprehensive usage metrics with optional cache analysis.
 
     Provides detailed breakdown for efficiency analysis and reporting.
-    """  # noqa: D212
+    """
     basic_usage = extract_usage_metrics(response)
 
     detailed_metrics = {

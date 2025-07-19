@@ -1,51 +1,51 @@
 """
 Basic exceptions for Gemini batch processing
-"""  # noqa: D200, D212, D415
+"""
 
 
 class GeminiBatchError(Exception):
-    """Base exception for Gemini batch processing errors"""  # noqa: D415
+    """Base exception for Gemini batch processing errors"""
 
-    pass  # noqa: PIE790
+    pass
 
 
 class APIError(Exception):
-    """Custom exception for API-related errors"""  # noqa: D415
+    """Custom exception for API-related errors"""
 
-    pass  # noqa: PIE790
+    pass
 
 
 class BatchProcessingError(Exception):
-    """Custom exception for batch processing errors"""  # noqa: D415
+    """Custom exception for batch processing errors"""
 
-    pass  # noqa: PIE790
+    pass
 
 
 class MissingKeyError(GeminiBatchError):
-    """Raised when required API key or configuration key is missing"""  # noqa: D415
+    """Raised when required API key or configuration key is missing"""
 
-    pass  # noqa: PIE790
+    pass
 
 
 class NetworkError(GeminiBatchError):
-    """Raised when network issues occur"""  # noqa: D415
+    """Raised when network issues occur"""
 
-    pass  # noqa: PIE790
+    pass
 
 
 class FileError(GeminiBatchError):
-    """Raised when file operations fail"""  # noqa: D415
+    """Raised when file operations fail"""
 
-    pass  # noqa: PIE790
+    pass
 
 
 class ValidationError(GeminiBatchError):
-    """Raised when input validation fails"""  # noqa: D415
+    """Raised when input validation fails"""
 
-    pass  # noqa: PIE790
+    pass
 
 
 class UnsupportedContentError(GeminiBatchError):
-    """Raised when content type is not supported"""  # noqa: D415
+    """Raised when content type is not supported"""
 
-    pass  # noqa: PIE790
+    pass

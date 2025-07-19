@@ -1,9 +1,9 @@
-from dataclasses import dataclass, field  # noqa: D100
+from dataclasses import dataclass, field
 from datetime import datetime, timezone
 import json
 import logging
 from pathlib import Path
-from typing import (  # noqa: UP035
+from typing import (
     Any,
     Dict,
     List,
@@ -15,7 +15,7 @@ from typing import (  # noqa: UP035
 from uuid import uuid4
 
 from gemini_batch.batch_processor import BatchProcessor
-from gemini_batch.client.token_counter import TokenCounter  # noqa: TC001
+from gemini_batch.client.token_counter import TokenCounter
 from gemini_batch.constants import CACHING_VALIDATION_THRESHOLD, LARGE_CONTENT_THRESHOLD
 
 from .config import ConversationConfig, GeminiConfig, ProcessorProtocol, get_config
@@ -25,23 +25,23 @@ log = logging.getLogger(__name__)
 
 @dataclass
 class ConversationTurn:
-    """Single turn in conversation history"""  # noqa: D415
+    """Single turn in conversation history"""
 
     question: str
     answer: str
-    timestamp: datetime = field(default_factory=lambda: datetime.now(timezone.utc))  # noqa: UP017
-    sources_snapshot: List[str] = field(default_factory=list)  # noqa: UP006
-    cache_info: Optional[Dict[str, Any]] = None  # noqa: UP006, UP045
-    error: Optional[str] = None  # noqa: UP045
+    timestamp: datetime = field(default_factory=lambda: datetime.now(timezone.utc))
+    sources_snapshot: List[str] = field(default_factory=list)
+    cache_info: Optional[Dict[str, Any]] = None
+    error: Optional[str] = None
 
 
 class ConversationSession:
     """A zero-ceremony, easy-to-use conversation session."""
 
-    def __init__(  # noqa: ANN204
+    def __init__(
         self,
-        sources: Union[str, Path, List[Union[str, Path]]],  # noqa: UP006, UP007
-        _processor: Optional[ProcessorProtocol] = None,  # noqa: UP045
+        sources: Union[str, Path, List[Union[str, Path]]],
+        _processor: Optional[ProcessorProtocol] = None,
         **config: Unpack[ConversationConfig],
     ):
         """
@@ -51,10 +51,10 @@ class ConversationSession:
             session = ConversationSession("document.pdf")
             session = ConversationSession("docs/", max_history_turns=3)
             session = ConversationSession("docs/", _processor=shared_processor)
-        """  # noqa: D212
+        """
         self.sources = sources if isinstance(sources, list) else [sources]
         self.max_history_turns = config.get("max_history_turns", 5)
-        self.history: List[ConversationTurn] = []  # noqa: UP006
+        self.history: List[ConversationTurn] = []
         self.session_id = str(uuid4())
 
         if _processor and config:
@@ -69,8 +69,8 @@ class ConversationSession:
             }
             self.processor = BatchProcessor(**processor_config)
 
-    def ask(self, question: str, **options) -> str:  # noqa: ANN003
-        """Ask single question with full conversation context"""  # noqa: D415
+    def ask(self, question: str, **options) -> str:
+        """Ask single question with full conversation context"""
         try:
             # Pass raw sources to BatchProcessor for proper file handling
             # Add conversation history as additional context
@@ -100,18 +100,18 @@ class ConversationSession:
             except IndexError:
                 error_message = f"No answer found for question: '{question}'"
                 self._record_failed_turn(question, error_message)
-                raise ValueError(error_message)  # noqa: B904
+                raise ValueError(error_message)
 
-            return answer  # noqa: TRY300
+            return answer
 
         except Exception as e:
             self._record_failed_turn(question, str(e))
-            raise e  # noqa: TRY201
+            raise e
 
-    def ask_multiple(self, questions: List[str], **options) -> List[str]:  # noqa: ANN003, UP006
-        """Ask batch of questions with conversation context"""  # noqa: D415
+    def ask_multiple(self, questions: List[str], **options) -> List[str]:
+        """Ask batch of questions with conversation context"""
         log.debug(
-            "Processing %d questions with %d sources", len(questions), len(self.sources)  # noqa: COM812
+            "Processing %d questions with %d sources", len(questions), len(self.sources)
         )
 
         try:
@@ -139,35 +139,35 @@ class ConversationSession:
             # Record all successful turns
             answers = result["answers"]
             if len(answers) != len(questions):
-                # TODO: Gemini response formatting is unpredictable without explicit schemas  # noqa: E501, FIX002, TD002, TD003
-                # See: conversation_demo.py failures with "Received 1 answers for 3 questions"  # noqa: E501
-                # Root cause: Gemini sometimes returns plain text instead of structured JSON  # noqa: E501
-                # Planned fix: Implement consistent response schemas in BatchProcessor refactor  # noqa: E501
+                # TODO: Gemini response formatting is unpredictable without explicit schemas
+                # See: conversation_demo.py failures with "Received 1 answers for 3 questions"
+                # Root cause: Gemini sometimes returns plain text instead of structured JSON
+                # Planned fix: Implement consistent response schemas in BatchProcessor refactor
                 error_message = (
                     f"Received {len(answers)} answers for {len(questions)} questions."
                 )
                 for q in questions:
                     self._record_failed_turn(q, error_message)
-                raise ValueError(error_message)  # noqa: TRY301
+                raise ValueError(error_message)
 
-            for question, answer in zip(questions, answers):  # noqa: B905
+            for question, answer in zip(questions, answers):
                 self._record_successful_turn(question, answer, result)
 
-            return answers  # noqa: TRY300
+            return answers
 
         except Exception as e:
-            log.error("Conversation processing failed: %s", e, exc_info=True)  # noqa: G201
+            log.error("Conversation processing failed: %s", e, exc_info=True)
             for question in questions:
                 self._record_failed_turn(question, str(e))
-            raise e  # noqa: TRY201
+            raise e
 
-    def _build_history_context(self, max_tokens: Optional[int] = None) -> Optional[str]:  # noqa: UP045
+    def _build_history_context(self, max_tokens: Optional[int] = None) -> Optional[str]:
         """
         Builds context from recent, successful conversation history with intelligent token management.
 
         Uses ambient configuration to determine optimal context limits and proper token counting
         when available through the processor's client.
-        """  # noqa: D212, E501
+        """
         if not self.history:
             return None
 
@@ -191,7 +191,7 @@ class ConversationSession:
                 # Use proper token counting
                 turn_content = f"Q: {turn.question}\nA: {turn.answer}"
                 turn_tokens = self._count_tokens_with_fallback(
-                    token_counter, turn_content  # noqa: COM812
+                    token_counter, turn_content
                 )
             else:
                 # Fallback to conservative estimation
@@ -224,10 +224,10 @@ class ConversationSession:
                 # Use a conservative portion of the model's context window for history
                 # Reserve space for the main content and new questions
                 return min(
-                    model_limits.context_window // 4, CACHING_VALIDATION_THRESHOLD  # noqa: COM812
+                    model_limits.context_window // 4, CACHING_VALIDATION_THRESHOLD
                 )
 
-        except Exception:  # noqa: BLE001, S110
+        except Exception:
             # Fallback to safe constant-based limit
             pass
 
@@ -239,7 +239,7 @@ class ConversationSession:
         try:
             # Follow your established pattern of accessing client components
             if hasattr(self.processor, "client") and hasattr(
-                self.processor.client, "token_counter"  # noqa: COM812
+                self.processor.client, "token_counter"
             ):
                 return self.processor.client.token_counter
         except (AttributeError, TypeError):
@@ -247,7 +247,7 @@ class ConversationSession:
         return None
 
     def _count_tokens_with_fallback(
-        self, token_counter: "TokenCounter", content: str  # noqa: COM812
+        self, token_counter: "TokenCounter", content: str
     ) -> int:
         """Count tokens using TokenCounter with graceful fallback."""
         try:
@@ -255,17 +255,17 @@ class ConversationSession:
             config = get_config()
             estimate = token_counter.estimate_for_caching(config.model, content)
             return estimate.get("tokens", 0)
-        except Exception:  # noqa: BLE001
+        except Exception:
             # Fallback to conservative estimation
             return max(len(content) // 4 + 10, 50)
 
-    def _record_successful_turn(  # noqa: ANN202
+    def _record_successful_turn(
         self,
         question: str,
         answer: str,
-        result: Dict[str, Any],  # noqa: UP006
+        result: Dict[str, Any],
     ):
-        """Record a successful conversation turn"""  # noqa: D415
+        """Record a successful conversation turn"""
         turn = ConversationTurn(
             question=question,
             answer=answer,
@@ -274,8 +274,8 @@ class ConversationSession:
         )
         self.history.append(turn)
 
-    def _record_failed_turn(self, question: str, error_msg: str):  # noqa: ANN202
-        """Record a failed conversation turn"""  # noqa: D415
+    def _record_failed_turn(self, question: str, error_msg: str):
+        """Record a failed conversation turn"""
         turn = ConversationTurn(
             question=question,
             answer="",
@@ -285,23 +285,23 @@ class ConversationSession:
         self.history.append(turn)
 
     # Source management
-    def add_source(self, source) -> None:  # noqa: ANN001
-        """Add new content source to conversation"""  # noqa: D415
+    def add_source(self, source) -> None:
+        """Add new content source to conversation"""
         if source not in self.sources:
             self.sources.append(source)
 
-    def remove_source(self, source) -> None:  # noqa: ANN001
-        """Remove content source from conversation"""  # noqa: D415
+    def remove_source(self, source) -> None:
+        """Remove content source from conversation"""
         if source in self.sources:
             self.sources.remove(source)
 
-    def list_sources(self) -> List[str]:  # noqa: UP006
-        """List current conversation sources"""  # noqa: D415
+    def list_sources(self) -> List[str]:
+        """List current conversation sources"""
         return self.sources.copy()
 
     # Session persistence
-    def save(self, path: Optional[str] = None) -> str:  # noqa: UP045
-        """Save conversation session to file"""  # noqa: D415
+    def save(self, path: Optional[str] = None) -> str:
+        """Save conversation session to file"""
         # Fix: Convert sources to strings for JSON serialization
         serializable_sources = [str(s) for s in self.sources]
 
@@ -319,13 +319,13 @@ class ConversationSession:
                 }
                 for turn in self.history
             ],
-            "created_at": datetime.now(timezone.utc).isoformat(),  # noqa: UP017
+            "created_at": datetime.now(timezone.utc).isoformat(),
         }
 
         if path is None:
             path = f"conversation_{self.session_id}.json"
 
-        with open(path, "w") as f:  # noqa: PTH123
+        with open(path, "w") as f:
             json.dump(session_data, f, indent=2)
 
         return self.session_id
@@ -334,14 +334,14 @@ class ConversationSession:
     def load(
         cls,
         session_id: str,
-        path: Optional[str] = None,  # noqa: UP045
-        processor: Optional[BatchProcessor] = None,  # noqa: UP045
+        path: Optional[str] = None,
+        processor: Optional[BatchProcessor] = None,
     ) -> "ConversationSession":
-        """Load conversation session from file"""  # noqa: D415
+        """Load conversation session from file"""
         if path is None:
             path = f"conversation_{session_id}.json"
 
-        with open(path) as f:  # noqa: PTH123
+        with open(path) as f:
             session_data = json.load(f)
 
         # Create session with restored state
@@ -363,16 +363,16 @@ class ConversationSession:
         return session
 
     # Session analytics
-    def get_history(self) -> List[Tuple[str, str]]:  # noqa: UP006
-        """Get conversation history as (question, answer) pairs"""  # noqa: D415
+    def get_history(self) -> List[Tuple[str, str]]:
+        """Get conversation history as (question, answer) pairs"""
         return [(turn.question, turn.answer) for turn in self.history]
 
-    def get_detailed_history(self) -> List[ConversationTurn]:  # noqa: UP006
-        """Get full conversation history with metadata"""  # noqa: D415
+    def get_detailed_history(self) -> List[ConversationTurn]:
+        """Get full conversation history with metadata"""
         return self.history.copy()
 
-    def get_stats(self) -> Dict[str, Any]:  # noqa: UP006
-        """Get comprehensive conversation statistics"""  # noqa: D415
+    def get_stats(self) -> Dict[str, Any]:
+        """Get comprehensive conversation statistics"""
         total_turns = len(self.history)
         successful_turns = len([t for t in self.history if t.error is None])
         error_turns = total_turns - successful_turns
@@ -400,12 +400,12 @@ class ConversationSession:
         }
 
     def clear_history(self) -> None:
-        """Clear conversation history while preserving sources"""  # noqa: D415
+        """Clear conversation history while preserving sources"""
         self.history.clear()
 
 
 def create_conversation(
-    sources: Union[str, Path, List[Union[str, Path]]],  # noqa: UP006, UP007
+    sources: Union[str, Path, List[Union[str, Path]]],
     **config: Unpack[ConversationConfig],
 ) -> "ConversationSession":
     """Factory function to create a new conversation session."""
@@ -413,7 +413,7 @@ def create_conversation(
 
 
 def load_conversation(
-    session_id: str, path: Optional[str] = None, **config: Unpack[ConversationConfig]  # noqa: COM812, UP045
+    session_id: str, path: Optional[str] = None, **config: Unpack[ConversationConfig]
 ) -> "ConversationSession":
     """Factory function to load an existing conversation session."""
     # Create a processor with any specified overrides
@@ -426,12 +426,12 @@ def load_conversation(
     if path is None:
         path = f"conversation_{session_id}.json"
 
-    with open(path) as f:  # noqa: PTH123
+    with open(path) as f:
         session_data = json.load(f)
 
     # Create session, now passing the configured processor
     session = ConversationSession(
-        session_data["sources"], _processor=processor, **config  # noqa: COM812
+        session_data["sources"], _processor=processor, **config
     )
     session.session_id = session_data["session_id"]
 

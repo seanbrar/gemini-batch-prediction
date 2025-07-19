@@ -1,7 +1,7 @@
-import logging  # noqa: D100
-from typing import Any, Dict, Optional  # noqa: UP035
+import logging
+from typing import Any, Dict, Optional
 
-from ..config import ConfigManager  # noqa: TID252
+from ..config import ConfigManager
 
 log = logging.getLogger(__name__)
 
@@ -20,15 +20,15 @@ class TokenCounter:
 
     The class provides conservative estimates suitable for caching decisions and
     integrates with the configuration system to recommend optimal caching strategies.
-    """  # noqa: D212, E501
+    """
 
-    def __init__(self, client, config_manager: ConfigManager):  # noqa: ANN001, ANN204, D107
+    def __init__(self, client, config_manager: ConfigManager):
         self.client = client
         self.config_manager = config_manager
 
     def estimate_for_caching(
-        self, model: str, content: Any, prefer_implicit: bool = True  # noqa: ANN401, COM812, FBT001, FBT002
-    ) -> Dict[str, Any]:  # noqa: UP006
+        self, model: str, content: Any, prefer_implicit: bool = True
+    ) -> Dict[str, Any]:
         """
         Get comprehensive token estimate optimized for caching decisions.
 
@@ -49,7 +49,7 @@ class TokenCounter:
             - caching: Full caching analysis from config system
             - cacheable: Whether content is cacheable with any strategy
             - recommended_strategy: Best caching approach for this content
-        """  # noqa: D212
+        """
         try:
             # Get base count from API
             result = self.client.models.count_tokens(model=model, contents=content)
@@ -60,12 +60,12 @@ class TokenCounter:
 
             # Handle critical edge cases near thresholds
             adjusted_tokens = self._handle_threshold_edge_cases(
-                adjusted_tokens, base_tokens, model, content  # noqa: COM812
+                adjusted_tokens, base_tokens, model, content
             )
 
             # Get caching analysis from config system
             caching_analysis = self.config_manager.can_use_caching(
-                model, adjusted_tokens, prefer_implicit  # noqa: COM812
+                model, adjusted_tokens, prefer_implicit
             )
 
             return {
@@ -79,11 +79,11 @@ class TokenCounter:
                 "recommended_strategy": caching_analysis["recommendation"].value,
             }
 
-        except Exception as e:  # noqa: BLE001
+        except Exception as e:
             # Fallback to rough estimation if API call fails
             estimated = self._rough_estimate(content)
             caching_analysis = self.config_manager.can_use_caching(
-                model, estimated, prefer_implicit  # noqa: COM812
+                model, estimated, prefer_implicit
             )
 
             return {
@@ -98,7 +98,7 @@ class TokenCounter:
                 "estimation_error": str(e),
             }
 
-    def _apply_smart_safety_margin(self, base_tokens: int, content: Any) -> int:  # noqa: ANN401
+    def _apply_smart_safety_margin(self, base_tokens: int, content: Any) -> int:
         """
         Apply content-type-specific safety margins to address observed API discrepancies.
 
@@ -114,7 +114,7 @@ class TokenCounter:
 
         Returns:
             Adjusted token count with appropriate safety margin
-        """  # noqa: D212, E501
+        """
         content_type = self._detect_content_type(content)
 
         # For mixed content, analyze composition to determine dominant behavior
@@ -124,7 +124,7 @@ class TokenCounter:
             if has_video and not has_image:
                 # Video-dominated: compensate for observed overcount pattern
                 return int(base_tokens * 0.85)  # 15% reduction
-            elif has_image:  # noqa: RET505
+            elif has_image:
                 # Image-dominated: apply correction for observed undercount pattern
                 return int(base_tokens * 4.0)  # Conservative 4x multiplier
             else:
@@ -141,13 +141,13 @@ class TokenCounter:
             # Text-only: add buffer for observed minor undercount pattern
             return base_tokens + 10
 
-    def _analyze_mixed_content(self, content: Any) -> tuple[bool, bool]:  # noqa: ANN401
+    def _analyze_mixed_content(self, content: Any) -> tuple[bool, bool]:
         """
         Analyze mixed content to identify media types present.
 
         Returns:
             Tuple of (has_video, has_image) booleans
-        """  # noqa: D212
+        """
         has_video = False
         has_image = False
 
@@ -169,7 +169,7 @@ class TokenCounter:
 
         return has_video, has_image
 
-    def _detect_content_type(self, content: Any) -> str:  # noqa: ANN401, C901, PLR0912
+    def _detect_content_type(self, content: Any) -> str:
         """
         Detect the primary content type to inform safety margin selection.
 
@@ -178,10 +178,10 @@ class TokenCounter:
 
         Returns:
             Content type string: 'text', 'image', 'video', 'mixed', or 'unknown'
-        """  # noqa: D212
+        """
         if isinstance(content, str):
             return "text"
-        elif isinstance(content, list):  # noqa: RET505
+        elif isinstance(content, list):
             has_video = False
             has_image = False
             has_text = False
@@ -204,26 +204,26 @@ class TokenCounter:
                 else:
                     has_text = True
 
-            # Priority order based on observed counting challenges: images > video > text  # noqa: E501
+            # Priority order based on observed counting challenges: images > video > text
             if has_image:
                 return "image" if not (has_video or has_text) else "mixed"
-            elif has_video:  # noqa: RET505
+            elif has_video:
                 return "video" if not has_text else "mixed"
             else:
                 return "text"
         else:
             return "unknown"
 
-    def _rough_estimate(self, content: Any) -> int:  # noqa: ANN401, C901, PLR0912
+    def _rough_estimate(self, content: Any) -> int:
         """
         Fallback estimation when count_tokens() API is unavailable.
 
         Uses conservative estimates based on content type and observed patterns.
-        """  # noqa: D212
+        """
         if isinstance(content, str):
-            # Text estimation: approximately 4 characters per token with buffer for undercount  # noqa: E501
+            # Text estimation: approximately 4 characters per token with buffer for undercount
             return max(len(content) // 4 + 10, 50)
-        elif isinstance(content, list):  # noqa: RET505
+        elif isinstance(content, list):
             total = 0
             for item in content:
                 if isinstance(item, str):
@@ -252,12 +252,12 @@ class TokenCounter:
         else:
             return 1000  # Conservative default
 
-    def get_caching_thresholds(self, model: str) -> Dict[str, Optional[int]]:  # noqa: UP006, UP045
+    def get_caching_thresholds(self, model: str) -> Dict[str, Optional[int]]:
         """Get caching thresholds for a model - delegates to config system."""
         return self.config_manager.get_caching_thresholds(model)
 
     def _handle_threshold_edge_cases(
-        self, adjusted_tokens: int, base_tokens: int, model: str, content: Any  # noqa: ANN401, COM812
+        self, adjusted_tokens: int, base_tokens: int, model: str, content: Any
     ) -> int:
         """
         Apply additional safety buffer for content near caching thresholds.
@@ -274,7 +274,7 @@ class TokenCounter:
 
         Returns:
             Final adjusted token count with threshold safety buffer if needed
-        """  # noqa: D212, E501
+        """
         content_type = self._detect_content_type(content)
 
         # Focus on text content where threshold edge cases are most critical

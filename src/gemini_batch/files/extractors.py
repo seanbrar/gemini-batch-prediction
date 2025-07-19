@@ -1,16 +1,16 @@
 """
 Content extraction from various file types with multimodal support
-"""  # noqa: D200, D212, D415
+"""
 
 from abc import ABC, abstractmethod
 from dataclasses import dataclass
 import logging
 from pathlib import Path
-from typing import Any, Dict, List, Optional, Union  # noqa: UP035
+from typing import Any, Dict, List, Optional, Union
 
 import httpx
 
-from ..exceptions import GeminiBatchError  # noqa: TID252
+from ..exceptions import GeminiBatchError
 from . import utils
 from .scanner import FileInfo, FileType
 
@@ -19,40 +19,40 @@ log = logging.getLogger(__name__)
 
 @dataclass
 class ExtractedContent:
-    """Container for extracted content and metadata"""  # noqa: D415
+    """Container for extracted content and metadata"""
 
     content: str  # For text files: actual content. For multimodal: empty string
-    metadata: Dict[str, Any]  # noqa: UP006
+    metadata: Dict[str, Any]
     file_info: FileInfo
     extraction_method: str
-    file_path: Optional[Path] = None  # For API upload files: actual file path  # noqa: UP045
+    file_path: Optional[Path] = None  # For API upload files: actual file path
 
     @property
     def size(self) -> int:
-        """Size of extracted content in characters"""  # noqa: D415
+        """Size of extracted content in characters"""
         return len(self.content)
 
     @property
     def word_count(self) -> int:
-        """Approximate word count"""  # noqa: D415
+        """Approximate word count"""
         return len(self.content.split())
 
     @property
     def requires_api_upload(self) -> bool:
-        """Check if this content requires API upload"""  # noqa: D415
+        """Check if this content requires API upload"""
         return self.metadata.get("requires_api_upload", False)
 
     @property
-    def media_type(self) -> Optional[str]:  # noqa: UP045
-        """Get the media type for multimodal files"""  # noqa: D415
+    def media_type(self) -> Optional[str]:
+        """Get the media type for multimodal files"""
         return self.metadata.get("media_type")
 
     @property
     def processing_strategy(self) -> str:
-        """How this content should be processed - 'upload', 'inline', 'text_only', 'url'"""  # noqa: D415, E501
+        """How this content should be processed - 'upload', 'inline', 'text_only', 'url'"""
         if self.extraction_method in ["youtube_api", "pdf_url_api"]:
             return "url"  # Direct API (YouTube)
-        elif self.extraction_method == "arxiv_pdf_download":  # noqa: RET505
+        elif self.extraction_method == "arxiv_pdf_download":
             return "upload"  # Download + Upload (arXiv PDFs)
         elif self.requires_api_upload:
             return "upload"
@@ -63,31 +63,31 @@ class ExtractedContent:
 
 
 class BaseExtractor(ABC):
-    """Base class for content extractors"""  # noqa: D415
+    """Base class for content extractors"""
 
-    def __init__(self, max_size: int = utils.MAX_TEXT_SIZE):  # noqa: ANN204, D107
+    def __init__(self, max_size: int = utils.MAX_TEXT_SIZE):
         self.max_size = max_size
 
     @abstractmethod
     def can_extract(self, file_info: FileInfo) -> bool:
-        """Check if this extractor can handle the file type"""  # noqa: D415
-        pass  # noqa: PIE790
+        """Check if this extractor can handle the file type"""
+        pass
 
     @abstractmethod
     def extract(self, file_info: FileInfo) -> ExtractedContent:
-        """Extract content from the file"""  # noqa: D415
-        pass  # noqa: PIE790
+        """Extract content from the file"""
+        pass
 
     def _validate_file_size(self, file_info: FileInfo) -> None:
-        """Validate file size against limits"""  # noqa: D415
+        """Validate file size against limits"""
         if file_info.size > self.max_size:
-            raise GeminiBatchError(  # noqa: TRY003
-                f"File too large: {file_info.size / (1024**2):.1f}MB "  # noqa: EM102
-                f"(max: {self.max_size / (1024**2):.1f}MB)"  # noqa: COM812
+            raise GeminiBatchError(
+                f"File too large: {file_info.size / (1024**2):.1f}MB "
+                f"(max: {self.max_size / (1024**2):.1f}MB)"
             )
 
-    def _get_base_metadata(self, file_info: FileInfo) -> Dict[str, Any]:  # noqa: UP006
-        """Get essential metadata for API submission"""  # noqa: D415
+    def _get_base_metadata(self, file_info: FileInfo) -> Dict[str, Any]:
+        """Get essential metadata for API submission"""
         return {
             "file_size": file_info.size,
             "file_size_mb": round(file_info.size / (1024 * 1024), 2),
@@ -100,14 +100,14 @@ class BaseExtractor(ABC):
 
 
 class TextExtractor(BaseExtractor):
-    """Prepare text files for Gemini API submission"""  # noqa: D415
+    """Prepare text files for Gemini API submission"""
 
     def can_extract(self, file_info: FileInfo) -> bool:
-        """Check if file is a text file"""  # noqa: D415
+        """Check if file is a text file"""
         return utils.is_text_file(file_info.file_type, file_info.mime_type)
 
     def extract(self, file_info: FileInfo) -> ExtractedContent:
-        """Prepare text file for API submission"""  # noqa: D415
+        """Prepare text file for API submission"""
         self._validate_file_size(file_info)
 
         return ExtractedContent(
@@ -120,10 +120,10 @@ class TextExtractor(BaseExtractor):
 
 
 class MediaExtractor(BaseExtractor):
-    """Handle non-text files (images, videos, audio, PDFs) for API upload"""  # noqa: D415
+    """Handle non-text files (images, videos, audio, PDFs) for API upload"""
 
     # Media type mappings for API submission
-    MEDIA_TYPE_MAP = {  # noqa: RUF012
+    MEDIA_TYPE_MAP = {
         FileType.IMAGE: "image",
         FileType.VIDEO: "video",
         FileType.AUDIO: "audio",
@@ -131,7 +131,7 @@ class MediaExtractor(BaseExtractor):
     }
 
     def can_extract(self, file_info: FileInfo) -> bool:
-        """Check if file is a supported media type (non-text)"""  # noqa: D415
+        """Check if file is a supported media type (non-text)"""
         return file_info.file_type in {
             FileType.PDF,
             FileType.IMAGE,
@@ -140,7 +140,7 @@ class MediaExtractor(BaseExtractor):
         }
 
     def extract(self, file_info: FileInfo) -> ExtractedContent:
-        """Prepare media file for processing (inline or API upload based on size)"""  # noqa: D415
+        """Prepare media file for processing (inline or API upload based on size)"""
         log.debug(
             "Processing %s file: %s (%d bytes)",
             file_info.file_type.value,
@@ -150,12 +150,12 @@ class MediaExtractor(BaseExtractor):
 
         self._validate_file_size(file_info)
 
-        # Get base metadata (includes size-based upload decision) and add media-specific info  # noqa: E501
+        # Get base metadata (includes size-based upload decision) and add media-specific info
         metadata = self._get_base_metadata(file_info)
         metadata.update(
             {
                 "media_type": self.MEDIA_TYPE_MAP.get(file_info.file_type, "document"),
-            }  # noqa: COM812
+            }
         )
 
         extracted = ExtractedContent(
@@ -166,19 +166,19 @@ class MediaExtractor(BaseExtractor):
             extraction_method="media",
         )
 
-        return extracted  # noqa: RET504
+        return extracted
 
 
 class URLExtractor(BaseExtractor):
-    """Extract content from URLs - supports arXiv PDFs only"""  # noqa: D415
+    """Extract content from URLs - supports arXiv PDFs only"""
 
-    def __init__(self, timeout: int = 30, max_size: int = utils.MAX_FILE_SIZE):  # noqa: ANN204, D107
+    def __init__(self, timeout: int = 30, max_size: int = utils.MAX_FILE_SIZE):
         super().__init__(max_size)
         self.timeout = timeout
         self._content_cache = {}  # Cache downloaded content to avoid double downloads
 
     def can_extract(self, source: str) -> bool:
-        """Check if source is a supported URL (arXiv PDFs only)"""  # noqa: D415
+        """Check if source is a supported URL (arXiv PDFs only)"""
         if not utils.is_url(source):
             return False
 
@@ -189,12 +189,12 @@ class URLExtractor(BaseExtractor):
         # Only support arXiv PDF URLs
         return self._is_arxiv_pdf_url(source)
 
-    def can_extract_source(self, source: Union[str, Path]) -> bool:  # noqa: UP007
-        """Check if source is a supported URL (arXiv PDFs only)"""  # noqa: D415
+    def can_extract_source(self, source: Union[str, Path]) -> bool:
+        """Check if source is a supported URL (arXiv PDFs only)"""
         return self.can_extract(str(source))
 
     def _is_arxiv_pdf_url(self, url: str) -> bool:
-        """Check if URL is a supported arXiv PDF"""  # noqa: D415
+        """Check if URL is a supported arXiv PDF"""
         url_lower = url.lower()
 
         # Specific arXiv PDF patterns
@@ -203,19 +203,19 @@ class URLExtractor(BaseExtractor):
         return any(pattern in url_lower for pattern in arxiv_patterns)
 
     def _create_http_client(self) -> httpx.Client:
-        """Create a configured HTTP client - centralized configuration"""  # noqa: D415
+        """Create a configured HTTP client - centralized configuration"""
         return httpx.Client(timeout=self.timeout)
 
     def _cache_content(self, url: str, content: bytes) -> None:
-        """Cache content for a URL - centralized caching logic"""  # noqa: D415
+        """Cache content for a URL - centralized caching logic"""
         self._content_cache[url] = content
 
-    def _get_cached_content(self, url: str) -> Optional[bytes]:  # noqa: UP045
-        """Get cached content if available"""  # noqa: D415
+    def _get_cached_content(self, url: str) -> Optional[bytes]:
+        """Get cached content if available"""
         return self._content_cache.get(url)
 
     def _make_http_request(self, url: str, method: str = "GET") -> httpx.Response:
-        """Make HTTP request with centralized error handling"""  # noqa: D415
+        """Make HTTP request with centralized error handling"""
         try:
             with self._create_http_client() as client:
                 if method.upper() == "HEAD":
@@ -226,16 +226,16 @@ class URLExtractor(BaseExtractor):
                 response.raise_for_status()
                 return response
         except httpx.TimeoutException as e:
-            raise GeminiBatchError(f"URL request timeout: {url}") from e  # noqa: EM102, TRY003
+            raise GeminiBatchError(f"URL request timeout: {url}") from e
         except httpx.HTTPStatusError as e:
-            raise GeminiBatchError(f"HTTP error {e.response.status_code}: {url}") from e  # noqa: EM102, TRY003
+            raise GeminiBatchError(f"HTTP error {e.response.status_code}: {url}") from e
         except Exception as e:
-            raise GeminiBatchError(f"Failed to fetch URL {url}: {e}") from e  # noqa: EM102, TRY003
+            raise GeminiBatchError(f"Failed to fetch URL {url}: {e}") from e
 
     def _extract_mime_and_size_from_response(
-        self, response: httpx.Response  # noqa: COM812
+        self, response: httpx.Response
     ) -> tuple[str, int]:
-        """Extract MIME type and content size from HTTP response"""  # noqa: D415
+        """Extract MIME type and content size from HTTP response"""
         mime_type = response.headers.get("content-type", "").split(";")[0]
         content_length = response.headers.get("content-length")
 
@@ -243,7 +243,7 @@ class URLExtractor(BaseExtractor):
             # GET response - we have content
             content_size = len(response.content)
             return mime_type, content_size
-        elif content_length:  # noqa: RET505
+        elif content_length:
             # HEAD response with content-length
             return mime_type, int(content_length)
         else:
@@ -251,7 +251,7 @@ class URLExtractor(BaseExtractor):
             return None, None
 
     def _get_content_metadata(self, url: str) -> tuple[str, int]:
-        """Get content metadata efficiently using HEAD request first, with GET fallback"""  # noqa: D415, E501
+        """Get content metadata efficiently using HEAD request first, with GET fallback"""
         # Check cache first
         cached_content = self._get_cached_content(url)
         if cached_content:
@@ -262,12 +262,12 @@ class URLExtractor(BaseExtractor):
         try:
             head_response = self._make_http_request(url, "HEAD")
             mime_type, content_size = self._extract_mime_and_size_from_response(
-                head_response  # noqa: COM812
+                head_response
             )
 
             if mime_type and content_size is not None:
                 return mime_type or self._determine_mime_type_from_url(
-                    url  # noqa: COM812
+                    url
                 ), content_size
         except GeminiBatchError as e:
             # If HEAD fails with 405/501, fall back to GET
@@ -279,7 +279,7 @@ class URLExtractor(BaseExtractor):
         # Fallback to GET request
         get_response = self._make_http_request(url, "GET")
         mime_type, content_size = self._extract_mime_and_size_from_response(
-            get_response  # noqa: COM812
+            get_response
         )
 
         # Cache the content since we downloaded it
@@ -289,20 +289,20 @@ class URLExtractor(BaseExtractor):
         return mime_type or self._determine_mime_type_from_url(url), content_size
 
     def _determine_mime_type_from_url(self, url: str) -> str:
-        """Determine MIME type from URL using centralized utilities with minimal fallback"""  # noqa: D415, E501
+        """Determine MIME type from URL using centralized utilities with minimal fallback"""
         try:
             url_path = Path(url)
             extension = url_path.suffix.lower()
             if extension in utils.EXTENSION_TO_MIME:
                 return utils.EXTENSION_TO_MIME[extension]
-        except Exception:  # noqa: BLE001, S110
+        except Exception:
             pass
 
         # Minimal fallback for common cases not in utils
         return "application/octet-stream"
 
     def _is_large_pdf_url(self, url: str) -> bool:
-        """Check if arXiv PDF URL is large enough to warrant Files API handling"""  # noqa: D415
+        """Check if arXiv PDF URL is large enough to warrant Files API handling"""
         if not self._is_arxiv_pdf_url(url):
             return False
 
@@ -316,32 +316,32 @@ class URLExtractor(BaseExtractor):
 
             # If no content-length header, assume it might be large
             # ArXiv papers often don't include content-length
-            return True  # noqa: TRY300
+            return True
 
-        except Exception:  # noqa: BLE001
+        except Exception:
             # If HEAD request fails, assume not large for safety
             return False
 
-    def _validate_video_url(self, url: str):  # noqa: ANN202
-        """Reject non-YouTube video URLs with helpful message"""  # noqa: D415
+    def _validate_video_url(self, url: str):
+        """Reject non-YouTube video URLs with helpful message"""
         video_indicators = ["video", "watch", "embed", "player"]
         if not utils.is_youtube_url(url) and any(
             indicator in url.lower() for indicator in video_indicators
         ):
-            raise GeminiBatchError(  # noqa: TRY003
-                f"Only YouTube videos are supported directly. "  # noqa: EM102
-                f"For other platforms, please download: {url}"  # noqa: COM812
+            raise GeminiBatchError(
+                f"Only YouTube videos are supported directly. "
+                f"For other platforms, please download: {url}"
             )
 
     def extract_from_url(self, url: str) -> ExtractedContent:
-        """Extract arXiv PDF URLs for processing"""  # noqa: D202, D415
+        """Extract arXiv PDF URLs for processing"""
 
         # Validate that this is a supported URL
         if not self._is_arxiv_pdf_url(url):
-            raise GeminiBatchError(  # noqa: TRY003
-                f"Unsupported URL: {url}. "  # noqa: EM102
+            raise GeminiBatchError(
+                f"Unsupported URL: {url}. "
                 f"Only arXiv PDF URLs (arxiv.org/pdf/) are supported. "
-                f"For YouTube videos, use the direct URL."  # noqa: COM812
+                f"For YouTube videos, use the direct URL."
             )
 
         # Get content metadata
@@ -349,9 +349,9 @@ class URLExtractor(BaseExtractor):
 
         # Validate size
         if content_size > self.max_size:
-            raise GeminiBatchError(  # noqa: TRY003
-                f"PDF too large: {content_size / (1024**2):.1f}MB "  # noqa: EM102
-                f"(max: {self.max_size / (1024**2):.1f}MB)"  # noqa: COM812
+            raise GeminiBatchError(
+                f"PDF too large: {content_size / (1024**2):.1f}MB "
+                f"(max: {self.max_size / (1024**2):.1f}MB)"
             )
 
         # Create FileInfo for arXiv PDF
@@ -390,8 +390,8 @@ class URLExtractor(BaseExtractor):
         )
 
     def _extract_large_pdf_url(self, url: str) -> ExtractedContent:
-        """Handle large PDF URLs that should be passed directly to API"""  # noqa: D415
-        from .scanner import FileInfo, FileType  # noqa: PLC0415
+        """Handle large PDF URLs that should be passed directly to API"""
+        from .scanner import FileInfo, FileType
 
         return ExtractedContent(
             content="",  # No content - will be handled by API
@@ -412,16 +412,16 @@ class URLExtractor(BaseExtractor):
             extraction_method="pdf_url_api",
         )
 
-    def extract_source(self, source: Union[str, Path]) -> ExtractedContent:  # noqa: UP007
-        """Extract content from URL source"""  # noqa: D415
+    def extract_source(self, source: Union[str, Path]) -> ExtractedContent:
+        """Extract content from URL source"""
         return self.extract_from_url(str(source))
 
-    def get_cached_content(self, url: str) -> Optional[bytes]:  # noqa: UP045
-        """Get cached content for a URL to avoid re-downloading"""  # noqa: D415
+    def get_cached_content(self, url: str) -> Optional[bytes]:
+        """Get cached content for a URL to avoid re-downloading"""
         return self._get_cached_content(url)
 
     def download_content_if_needed(self, url: str) -> bytes:
-        """Download content only if not already cached"""  # noqa: D415
+        """Download content only if not already cached"""
         cached_content = self._get_cached_content(url)
         if cached_content:
             return cached_content
@@ -433,24 +433,24 @@ class URLExtractor(BaseExtractor):
         return content_data
 
     def extract(self, file_info: FileInfo) -> ExtractedContent:
-        """Extract method for compatibility with BaseExtractor interface"""  # noqa: D415
+        """Extract method for compatibility with BaseExtractor interface"""
         # This shouldn't be called directly for URLs, but provide fallback
         return self.extract_from_url(str(file_info.path))
 
     def _get_extension_from_url(self, url: str) -> str:
-        """Extract file extension from URL"""  # noqa: D415
+        """Extract file extension from URL"""
         try:
             url_path = Path(url)
             return url_path.suffix.lower()
-        except Exception:  # noqa: BLE001
+        except Exception:
             return ""
 
 
 class ContentExtractorManager:
-    """Content extractor manager with automatic extractor selection"""  # noqa: D415
+    """Content extractor manager with automatic extractor selection"""
 
-    def __init__(self, custom_extractors: Optional[List[BaseExtractor]] = None):  # noqa: ANN204, UP006, UP045
-        """Initialize with default extractors and optional custom ones"""  # noqa: D415
+    def __init__(self, custom_extractors: Optional[List[BaseExtractor]] = None):
+        """Initialize with default extractors and optional custom ones"""
         self.extractors = [
             TextContentExtractor(),
             YouTubeExtractor(),
@@ -462,16 +462,16 @@ class ContentExtractorManager:
         if custom_extractors:
             self.extractors.extend(custom_extractors)
 
-    def process_source(self, source: Union[str, Path]) -> ExtractedContent:  # noqa: UP007
-        """Process any source type using the appropriate extractor"""  # noqa: D415
+    def process_source(self, source: Union[str, Path]) -> ExtractedContent:
+        """Process any source type using the appropriate extractor"""
         # Try extractors that can handle source directly (string/Path)
         for extractor in self.extractors:
             if hasattr(
-                extractor, "can_extract_source"  # noqa: COM812
+                extractor, "can_extract_source"
             ) and extractor.can_extract_source(source):
                 try:
                     return extractor.extract_source(source)
-                except Exception:  # noqa: BLE001, S112
+                except Exception:
                     continue
 
         # Fall back to file-based extraction for Path objects
@@ -479,9 +479,9 @@ class ContentExtractorManager:
             path = Path(source)
             if path.exists() and path.is_file():
                 return self.extract_content_from_path(path)
-            elif path.exists() and path.is_dir():  # noqa: RET505
+            elif path.exists() and path.is_dir():
                 # Return special marker for directory processing
-                from .scanner import FileInfo, FileType  # noqa: PLC0415
+                from .scanner import FileInfo, FileType
 
                 return ExtractedContent(
                     content="",
@@ -498,42 +498,42 @@ class ContentExtractorManager:
                     extraction_method="directory_scan",
                 )
 
-        raise GeminiBatchError(f"No extractor available for source: {source}")  # noqa: EM102, TRY003
+        raise GeminiBatchError(f"No extractor available for source: {source}")
 
     def extract_content_from_path(self, file_path: Path) -> ExtractedContent:
-        """Extract content from file path (original method)"""  # noqa: D415
-        from .scanner import DirectoryScanner  # noqa: PLC0415
+        """Extract content from file path (original method)"""
+        from .scanner import DirectoryScanner
 
         scanner = DirectoryScanner()
-        file_info = scanner._create_file_info(file_path, file_path.parent)  # noqa: SLF001
+        file_info = scanner._create_file_info(file_path, file_path.parent)
         return self.extract_content(file_info)
 
     def extract_content(self, file_info: FileInfo) -> ExtractedContent:
-        """Extract content using the first capable extractor"""  # noqa: D415
+        """Extract content using the first capable extractor"""
         for extractor in self.extractors:
             if extractor.can_extract(file_info):
                 try:
                     return extractor.extract(file_info)
-                except Exception:  # noqa: BLE001, S112
+                except Exception:
                     # If this extractor fails, try the next one
                     continue
 
         # No extractor could handle the file
-        raise GeminiBatchError(  # noqa: TRY003
-            f"No extractor available for file: {file_info.path} "  # noqa: EM102
-            f"(type: {file_info.file_type}, mime: {file_info.mime_type})"  # noqa: COM812
+        raise GeminiBatchError(
+            f"No extractor available for file: {file_info.path} "
+            f"(type: {file_info.file_type}, mime: {file_info.mime_type})"
         )
 
     def extract_from_url(self, url: str) -> ExtractedContent:
-        """Extract content from URL using URLExtractor"""  # noqa: D415
+        """Extract content from URL using URLExtractor"""
         url_extractor = URLExtractor()
         if url_extractor.can_extract(url):
             return url_extractor.extract_from_url(url)
-        else:  # noqa: RET505
-            raise GeminiBatchError(f"URL not supported: {url}")  # noqa: EM102, TRY003
+        else:
+            raise GeminiBatchError(f"URL not supported: {url}")
 
     def register_extractor(self, extractor: BaseExtractor, priority: int = -1) -> None:
-        """Add a custom extractor to the manager with optional priority"""  # noqa: D415
+        """Add a custom extractor to the manager with optional priority"""
         if extractor not in self.extractors:
             if 0 <= priority < len(self.extractors):
                 self.extractors.insert(priority, extractor)
@@ -541,7 +541,7 @@ class ContentExtractorManager:
                 self.extractors.append(extractor)
 
     def get_supported_types(self) -> set[FileType]:
-        """Get all file types supported by registered extractors"""  # noqa: D415
+        """Get all file types supported by registered extractors"""
         return {
             FileType.TEXT,
             FileType.PDF,
@@ -552,20 +552,20 @@ class ContentExtractorManager:
 
 
 class TextContentExtractor(BaseExtractor):
-    """Handle direct text content (strings that aren't URLs or file paths)"""  # noqa: D415
+    """Handle direct text content (strings that aren't URLs or file paths)"""
 
-    def can_extract(self, file_info: FileInfo) -> bool:  # noqa: ARG002
-        """This extractor doesn't work with FileInfo"""  # noqa: D415
+    def can_extract(self, file_info: FileInfo) -> bool:
+        """This extractor doesn't work with FileInfo"""
         return False
 
-    def can_extract_source(self, source: Union[str, Path]) -> bool:  # noqa: UP007
-        """Check if source is direct text content"""  # noqa: D415
+    def can_extract_source(self, source: Union[str, Path]) -> bool:
+        """Check if source is direct text content"""
         return utils.is_text_content(str(source), source)
 
-    def extract_source(self, source: Union[str, Path]) -> ExtractedContent:  # noqa: UP007
-        """Extract text content directly"""  # noqa: D415
+    def extract_source(self, source: Union[str, Path]) -> ExtractedContent:
+        """Extract text content directly"""
         text = str(source)
-        from .scanner import FileInfo, FileType  # noqa: PLC0415
+        from .scanner import FileInfo, FileType
 
         return ExtractedContent(
             content=text,
@@ -583,25 +583,25 @@ class TextContentExtractor(BaseExtractor):
         )
 
     def extract(self, file_info: FileInfo) -> ExtractedContent:
-        """Not used - this extractor works with sources directly"""  # noqa: D415
-        raise NotImplementedError("Use extract_source() instead")  # noqa: EM101
+        """Not used - this extractor works with sources directly"""
+        raise NotImplementedError("Use extract_source() instead")
 
 
 class YouTubeExtractor(BaseExtractor):
-    """Handle YouTube URLs"""  # noqa: D415
+    """Handle YouTube URLs"""
 
-    def can_extract(self, file_info: FileInfo) -> bool:  # noqa: ARG002
-        """This extractor doesn't work with FileInfo"""  # noqa: D415
+    def can_extract(self, file_info: FileInfo) -> bool:
+        """This extractor doesn't work with FileInfo"""
         return False
 
-    def can_extract_source(self, source: Union[str, Path]) -> bool:  # noqa: UP007
-        """Check if source is a YouTube URL"""  # noqa: D415
+    def can_extract_source(self, source: Union[str, Path]) -> bool:
+        """Check if source is a YouTube URL"""
         return utils.is_youtube_url(str(source))
 
-    def extract_source(self, source: Union[str, Path]) -> ExtractedContent:  # noqa: UP007
-        """Extract YouTube URL for API processing"""  # noqa: D415
+    def extract_source(self, source: Union[str, Path]) -> ExtractedContent:
+        """Extract YouTube URL for API processing"""
         url = str(source)
-        from .scanner import FileInfo, FileType  # noqa: PLC0415
+        from .scanner import FileInfo, FileType
 
         return ExtractedContent(
             content="",  # No content - will be handled by API
@@ -623,5 +623,5 @@ class YouTubeExtractor(BaseExtractor):
         )
 
     def extract(self, file_info: FileInfo) -> ExtractedContent:
-        """Not used - this extractor works with sources directly"""  # noqa: D415
-        raise NotImplementedError("Use extract_source() instead")  # noqa: EM101
+        """Not used - this extractor works with sources directly"""
+        raise NotImplementedError("Use extract_source() instead")

@@ -1,4 +1,4 @@
-#!/usr/bin/env python3  # noqa: EXE001
+#!/usr/bin/env python3
 """
 Production-Ready Prometheus Telemetry Example
 
@@ -20,13 +20,13 @@ To use with a real Prometheus server:
    ```
 
 3. Keep PrometheusReporter unchanged - it works with both mock and real clients.
-"""  # noqa: D212, D415, E501
+"""
 
 import os
 
 os.environ["GEMINI_TELEMETRY"] = "1"
 
-from typing import Any, Dict, Tuple  # noqa: UP035
+from typing import Any, Dict, Tuple
 
 from gemini_batch import BatchProcessor
 from gemini_batch.telemetry import TelemetryContext, TelemetryReporter
@@ -35,45 +35,45 @@ from gemini_batch.telemetry import TelemetryContext, TelemetryReporter
 class MockPrometheusClient:
     """Mock Prometheus client for demonstration."""
 
-    def __init__(self):  # noqa: ANN204, D107
+    def __init__(self):
         self._metrics = {}
 
-    def _get_metric_key(self, name: str, labels: Dict[str, str]) -> str:  # noqa: UP006
+    def _get_metric_key(self, name: str, labels: Dict[str, str]) -> str:
         if not labels:
             return name
         label_str = ",".join(f'{k}="{v}"' for k, v in sorted(labels.items()))
         return f"{name}{{{label_str}}}"
 
-    def Counter(self, name: str, description: str = "", labelnames: Tuple[str, ...] = ()):  # noqa: ANN201, ARG002, D102, E501, N802, UP006
-        self._metrics.setdefault(name, {"type": "COUNTER", "desc": description, "values": {}})  # noqa: E501
+    def Counter(self, name: str, description: str = "", labelnames: Tuple[str, ...] = ()):
+        self._metrics.setdefault(name, {"type": "COUNTER", "desc": description, "values": {}})
         client_instance = self
         class LabeledCounter:
-            def labels(self, **labels):  # noqa: ANN003, ANN202
+            def labels(self, **labels):
                 class FinalCounter:
-                    def inc(self, amount: int = 1):  # noqa: ANN202
-                        key = client_instance._get_metric_key(name, labels)  # noqa: SLF001
-                        client_instance._metrics[name]["values"].setdefault(key, 0)  # noqa: SLF001
-                        client_instance._metrics[name]["values"][key] += amount  # noqa: SLF001
+                    def inc(self, amount: int = 1):
+                        key = client_instance._get_metric_key(name, labels)
+                        client_instance._metrics[name]["values"].setdefault(key, 0)
+                        client_instance._metrics[name]["values"][key] += amount
                         print(f"[prometheus] COUNTER {key}: +{amount}")
                 return FinalCounter()
         return LabeledCounter()
 
-    def Histogram(self, name: str, description: str = "", labelnames: Tuple[str, ...] = ()):  # noqa: ANN201, ARG002, D102, E501, N802, UP006
-        self._metrics.setdefault(name, {"type": "HISTOGRAM", "desc": description, "values": {}})  # noqa: E501
+    def Histogram(self, name: str, description: str = "", labelnames: Tuple[str, ...] = ()):
+        self._metrics.setdefault(name, {"type": "HISTOGRAM", "desc": description, "values": {}})
         client_instance = self
         class LabeledHistogram:
-            def labels(self, **labels):  # noqa: ANN003, ANN202
+            def labels(self, **labels):
                 class FinalHistogram:
-                    def observe(self, value: float):  # noqa: ANN202
-                        key = client_instance._get_metric_key(name, labels)  # noqa: SLF001
-                        client_instance._metrics[name]["values"].setdefault(key, {"sum": 0.0, "count": 0})  # noqa: E501, SLF001
-                        client_instance._metrics[name]["values"][key]["sum"] += value  # noqa: SLF001
-                        client_instance._metrics[name]["values"][key]["count"] += 1  # noqa: SLF001
+                    def observe(self, value: float):
+                        key = client_instance._get_metric_key(name, labels)
+                        client_instance._metrics[name]["values"].setdefault(key, {"sum": 0.0, "count": 0})
+                        client_instance._metrics[name]["values"][key]["sum"] += value
+                        client_instance._metrics[name]["values"][key]["count"] += 1
                         print(f"[prometheus] HISTOGRAM {key}: observed {value:.4f}s")
                 return FinalHistogram()
         return LabeledHistogram()
 
-    def print_report(self):  # noqa: ANN201
+    def print_report(self):
         """Prints the final state of all collected metrics in Prometheus format."""
         print("\n--- Mock Prometheus Final State ---")
         if not self._metrics:
@@ -87,17 +87,17 @@ class MockPrometheusClient:
                     print(f"{key} {value}")
                 elif data["type"] == "HISTOGRAM":
                     # Correctly format histogram output
-                    metric_name_without_labels = key.split('{')[0]  # noqa: Q000
-                    labels_part = key.replace(metric_name_without_labels, '')  # noqa: Q000
-                    print(f"{metric_name_without_labels}_sum{labels_part} {value['sum']:.4f}")  # noqa: E501
-                    print(f"{metric_name_without_labels}_count{labels_part} {value['count']}")  # noqa: E501
+                    metric_name_without_labels = key.split('{')[0]
+                    labels_part = key.replace(metric_name_without_labels, '')
+                    print(f"{metric_name_without_labels}_sum{labels_part} {value['sum']:.4f}")
+                    print(f"{metric_name_without_labels}_count{labels_part} {value['count']}")
         print("-----------------------------------")
 
 
 class PrometheusReporter(TelemetryReporter):
     """TelemetryReporter that sends metrics to Prometheus."""
 
-    def __init__(self, client: Any, model_name: str):  # noqa: ANN204, ANN401, D107
+    def __init__(self, client: Any, model_name: str):
         self.prometheus = client
         self.model_name = model_name
         self.api_call_duration = self.prometheus.Histogram(
@@ -116,12 +116,12 @@ class PrometheusReporter(TelemetryReporter):
             labelnames=("model",),
         )
 
-    def record_timing(self, scope: str, duration: float, **metadata):  # noqa: ANN003, ANN201, ARG002
+    def record_timing(self, scope: str, duration: float, **metadata):
         """Maps timing data to Prometheus Histograms."""
         if scope.endswith("client.api_call_with_retry"):
             self.api_call_duration.labels(model=self.model_name).observe(duration)
 
-    def record_metric(self, scope: str, value: Any, **metadata):  # noqa: ANN003, ANN201, ANN401, ARG002
+    def record_metric(self, scope: str, value: Any, **metadata):
         """Maps data to Prometheus Counters."""
         if scope.endswith("batch_success"):
             self.batch_operations.labels(status="success").inc(int(value))
@@ -131,7 +131,7 @@ class PrometheusReporter(TelemetryReporter):
             self.token_usage.labels(model=self.model_name).inc(int(value))
 
 
-def main():  # noqa: ANN201
+def main():
     """Main function to run the telemetry simulation."""
     if not os.getenv("GEMINI_API_KEY"):
         print("ERROR: GEMINI_API_KEY environment variable not set.")
@@ -144,7 +144,7 @@ def main():  # noqa: ANN201
 
     mock_prometheus_client = MockPrometheusClient()
     prometheus_reporter = PrometheusReporter(
-        client=mock_prometheus_client, model_name=model_name  # noqa: COM812
+        client=mock_prometheus_client, model_name=model_name
     )
     tele_context = TelemetryContext(prometheus_reporter)
 
@@ -166,9 +166,9 @@ def main():  # noqa: ANN201
         for i, answer in enumerate(results.get("answers", []), 1):
             print(f"  Answer {i}: {answer[:80]}...")
 
-    except Exception as e:  # noqa: BLE001
+    except Exception as e:
         print(f"\nAn error occurred during processing: {e}")
-        print("Please ensure your API key is valid and has access to the configured model.")  # noqa: E501
+        print("Please ensure your API key is valid and has access to the configured model.")
     finally:
         print("...processing finished.")
 

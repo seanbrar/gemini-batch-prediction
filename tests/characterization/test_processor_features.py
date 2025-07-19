@@ -13,8 +13,8 @@ from gemini_batch import BatchProcessor
 from gemini_batch.exceptions import BatchProcessingError
 
 
-def _remove_timing_fields(output_dict):  # noqa: ANN001, ANN202
-    """Remove timing-sensitive fields from output for consistent golden test comparisons."""  # noqa: E501
+def _remove_timing_fields(output_dict):
+    """Remove timing-sensitive fields from output for consistent golden test comparisons."""
     # Remove processing_time from top level
     output_dict.pop("processing_time", None)
 
@@ -31,25 +31,25 @@ def _remove_timing_fields(output_dict):  # noqa: ANN001, ANN202
     return output_dict
 
 @pytest.mark.golden_test("golden_files/test_processor_fallback.yml")
-def test_batch_processor_fallback_behavior(golden, mock_gemini_client):  # noqa: ANN001, ANN201
+def test_batch_processor_fallback_behavior(golden, mock_gemini_client):
     """
     Characterizes the behavior of the BatchProcessor when a batch API call
     fails and it must gracefully fall back to individual API calls.
     """
     # Arrange
-    content = golden['input']['content']  # noqa: Q000
-    questions = golden['input']['questions']  # noqa: Q000
+    content = golden['input']['content']
+    questions = golden['input']['questions']
 
     mock_gemini_client.generate_content.side_effect = [
         BatchProcessingError("Simulated API failure for batch call."),
         {
             "text": json.dumps(["Answer from individual call 1."]),
-            "usage_metadata": {"prompt_tokens": 60, "candidates_token_count": 15, "total_tokens": 75}  # noqa: COM812, E501
+            "usage_metadata": {"prompt_tokens": 60, "candidates_token_count": 15, "total_tokens": 75}
         },
         {
             "text": json.dumps(["Answer from individual call 2."]),
-            "usage_metadata": {"prompt_tokens": 65, "candidates_token_count": 20, "total_tokens": 85}  # noqa: COM812, E501
-        }  # noqa: COM812
+            "usage_metadata": {"prompt_tokens": 65, "candidates_token_count": 20, "total_tokens": 85}
+        }
     ]
 
     # Act
@@ -60,31 +60,31 @@ def test_batch_processor_fallback_behavior(golden, mock_gemini_client):  # noqa:
     actual_output = _remove_timing_fields(actual_output)
 
     # Assert
-    assert actual_output == golden.out['output']  # noqa: Q000
+    assert actual_output == golden.out['output']
 
 @pytest.mark.golden_test("golden_files/test_processor_comparison.yml")
-def test_batch_processor_comparison_mode(golden, mock_gemini_client):  # noqa: ANN001, ANN201
+def test_batch_processor_comparison_mode(golden, mock_gemini_client):
     """
     Characterizes the behavior of the BatchProcessor when `compare_methods=True`.
     This should result in both a batch call and individual calls being made.
     """
     # Arrange
-    content = golden['input']['content']  # noqa: Q000
-    questions = golden['input']['questions']  # noqa: Q000
+    content = golden['input']['content']
+    questions = golden['input']['questions']
 
     mock_gemini_client.generate_content.side_effect = [
         {
             "text": json.dumps(["Batch answer for Q1.", "Batch answer for Q2."]),
-            "usage_metadata": {"prompt_tokens": 150, "candidates_token_count": 80, "total_tokens": 230}  # noqa: COM812, E501
+            "usage_metadata": {"prompt_tokens": 150, "candidates_token_count": 80, "total_tokens": 230}
         },
         {
             "text": json.dumps(["Individual answer for Q1."]),
-            "usage_metadata": {"prompt_tokens": 70, "candidates_token_count": 40, "total_tokens": 110}  # noqa: COM812, E501
+            "usage_metadata": {"prompt_tokens": 70, "candidates_token_count": 40, "total_tokens": 110}
         },
         {
             "text": json.dumps(["Individual answer for Q2."]),
-            "usage_metadata": {"prompt_tokens": 75, "candidates_token_count": 45, "total_tokens": 120}  # noqa: COM812, E501
-        }  # noqa: COM812
+            "usage_metadata": {"prompt_tokens": 75, "candidates_token_count": 45, "total_tokens": 120}
+        }
     ]
 
     # Act
@@ -93,11 +93,11 @@ def test_batch_processor_comparison_mode(golden, mock_gemini_client):  # noqa: A
         content,
         questions,
         compare_methods=True,
-        return_usage=True  # noqa: COM812
+        return_usage=True
     )
 
     # Clean the output for deterministic comparison
     actual_output = _remove_timing_fields(actual_output)
 
     # Assert
-    assert actual_output == golden.out['output']  # noqa: Q000
+    assert actual_output == golden.out['output']

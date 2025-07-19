@@ -1,27 +1,27 @@
-import logging  # noqa: D100
-from typing import Any, Dict, List, Optional  # noqa: UP035
+import logging
+from typing import Any, Dict, List, Optional
 
-from .types import ProcessingMetrics, ProcessingOptions  # noqa: TC001
+from .types import ProcessingMetrics, ProcessingOptions
 
 log = logging.getLogger(__name__)
 
 
 class ResultBuilder:
-    """Unified result building for different processing modes"""  # noqa: D415
+    """Unified result building for different processing modes"""
 
-    def __init__(self, efficiency_calculator):  # noqa: ANN001, ANN204, D107
+    def __init__(self, efficiency_calculator):
         self.efficiency_calculator = efficiency_calculator
 
-    def build_standard_result(  # noqa: PLR0913
+    def build_standard_result(
         self,
-        questions: List[str],  # noqa: UP006
-        batch_answers: List[str],  # noqa: UP006
+        questions: List[str],
+        batch_answers: List[str],
         batch_metrics: "ProcessingMetrics",
         individual_metrics: "ProcessingMetrics",
-        individual_answers: Optional[List[str]],  # noqa: UP006, UP045
+        individual_answers: Optional[List[str]],
         config: "ProcessingOptions",
-    ) -> Dict[str, Any]:  # noqa: UP006
-        """Build result for standard processing mode"""  # noqa: D415
+    ) -> Dict[str, Any]:
+        """Build result for standard processing mode"""
         # Check if batch processing failed (0 calls) and we have individual metrics
         if batch_metrics.calls == 0 and individual_metrics.calls > 0:
             # Batch failed, use individual metrics as primary
@@ -62,7 +62,7 @@ class ResultBuilder:
                 "tokens_saved": individual_metrics.total_tokens
                 - batch_metrics.total_tokens,
                 "cache_cost_benefit": efficiency.get("cache_efficiency", {}).get(
-                    "cache_improvement_factor", 1.0  # noqa: COM812
+                    "cache_improvement_factor", 1.0
                 ),
             }
         else:
@@ -81,12 +81,12 @@ class ResultBuilder:
 
     def enhance_response_processor_result(
         self,
-        result: Dict[str, Any],  # noqa: UP006
+        result: Dict[str, Any],
         batch_metrics: "ProcessingMetrics",
         individual_metrics: "ProcessingMetrics",
-        individual_answers: List[str],  # noqa: UP006
+        individual_answers: List[str],
     ) -> None:
-        """Add efficiency comparison metrics to ResponseProcessor result"""  # noqa: D415
+        """Add efficiency comparison metrics to ResponseProcessor result"""
         efficiency = self.efficiency_calculator(individual_metrics, batch_metrics)
 
         result.update(
@@ -97,20 +97,20 @@ class ResultBuilder:
                     "individual": individual_metrics.to_dict(),
                 },
                 "individual_answers": individual_answers,
-            }  # noqa: COM812
+            }
         )
 
     def _add_optional_data(
         self,
-        result: Dict[str, Any],  # noqa: UP006
+        result: Dict[str, Any],
         batch_metrics: "ProcessingMetrics",
-        individual_answers: Optional[List[str]],  # noqa: UP006, UP045
+        individual_answers: Optional[List[str]],
         config: "ProcessingOptions",
     ) -> None:
-        """Add optional data to result dictionary"""  # noqa: D415
+        """Add optional data to result dictionary"""
         # Add structured data if available
         if batch_metrics.structured_output and batch_metrics.structured_output.get(
-            "structured_data"  # noqa: COM812
+            "structured_data"
         ):
             result["structured_data"] = batch_metrics.structured_output[
                 "structured_data"

@@ -1,6 +1,6 @@
 """
 Configuration system for rate limiting and model capabilities
-"""  # noqa: D200, D212, D415
+"""
 
 from contextlib import contextmanager
 import contextvars
@@ -10,7 +10,7 @@ import logging
 import os
 
 # Use typing_extensions for Unpack for Python < 3.11
-from typing import Any, Dict, List, Optional, Protocol, TypedDict, Union, Unpack  # noqa: UP035
+from typing import Any, Dict, List, Optional, Protocol, TypedDict, Union, Unpack
 
 from gemini_batch.constants import MIN_CACHING_THRESHOLD
 
@@ -22,7 +22,7 @@ log = logging.getLogger(__name__)
 # Protocols & Type-Safe Configuration
 
 
-class APITier(Enum):  # noqa: D101
+class APITier(Enum):
     FREE = "free"
     TIER_1 = "tier_1"
     TIER_2 = "tier_2"
@@ -33,11 +33,11 @@ class GeminiConfig(TypedDict, total=False):
     """
     Type-safe configuration options for the Gemini client and processor.
     All parameters are optional and will fall back to environment variables or defaults.
-    """  # noqa: D205, D212
+    """
 
     api_key: str
     model: str
-    tier: Union[str, APITier]  # noqa: UP007
+    tier: Union[str, APITier]
     enable_caching: bool
 
 
@@ -50,15 +50,15 @@ class ConversationConfig(TypedDict, total=False):
 class ClientProtocol(Protocol):
     """Protocol defining the essential capabilities of a content generation client."""
 
-    def generate_content(self, content: Any, prompt: str, **kwargs) -> Any: ...  # noqa: ANN003, ANN401, D102
-    def generate_batch(self, content: Any, questions: List[str], **kwargs) -> Any: ...  # noqa: ANN003, ANN401, D102, UP006
+    def generate_content(self, content: Any, prompt: str, **kwargs) -> Any: ...
+    def generate_batch(self, content: Any, questions: List[str], **kwargs) -> Any: ...
 
 
 class ProcessorProtocol(Protocol):
     """Protocol defining the essential capabilities of a question processor."""
 
-    def process_questions(  # noqa: D102
-        self, content: Any, questions: List[str], **kwargs  # noqa: ANN003, ANN401, COM812, UP006
+    def process_questions(
+        self, content: Any, questions: List[str], **kwargs
     ) -> dict: ...
 
 
@@ -66,7 +66,7 @@ class ProcessorProtocol(Protocol):
 
 
 class CachingRecommendation(Enum):
-    """Recommended caching strategy for a given context"""  # noqa: D415
+    """Recommended caching strategy for a given context"""
 
     IMPLICIT = "implicit"
     EXPLICIT = "explicit"
@@ -75,15 +75,15 @@ class CachingRecommendation(Enum):
 
 @dataclass
 class CachingCapabilities:
-    """Caching capabilities for a model"""  # noqa: D415
+    """Caching capabilities for a model"""
 
     supports_implicit: bool = False
     supports_explicit: bool = True  # Default to explicit for all caching-enabled models
-    implicit_minimum_tokens: Optional[int] = None  # noqa: UP045
+    implicit_minimum_tokens: Optional[int] = None
     explicit_minimum_tokens: int = 4096
 
     def can_use_implicit_caching(self, token_count: int) -> bool:
-        """Check if implicit caching is available for given token count"""  # noqa: D415
+        """Check if implicit caching is available for given token count"""
         return (
             self.supports_implicit
             and self.implicit_minimum_tokens is not None
@@ -91,20 +91,20 @@ class CachingCapabilities:
         )
 
     def can_use_explicit_caching(self, token_count: int) -> bool:
-        """Check if explicit caching is available for given token count"""  # noqa: D415
+        """Check if explicit caching is available for given token count"""
         return self.supports_explicit and token_count >= self.explicit_minimum_tokens
 
 
 @dataclass
 class ModelCapabilities:
-    """Intrinsic model capabilities (same across all tiers)"""  # noqa: D415
+    """Intrinsic model capabilities (same across all tiers)"""
 
     supports_multimodal: bool
     context_window: int
-    caching: Optional[CachingCapabilities] = None  # noqa: UP045
+    caching: Optional[CachingCapabilities] = None
 
     def get_caching(self) -> CachingCapabilities:
-        """Get caching capabilities with fallback"""  # noqa: D415
+        """Get caching capabilities with fallback"""
         if self.caching is not None:
             return self.caching
         return CachingCapabilities(
@@ -116,7 +116,7 @@ class ModelCapabilities:
 
 @dataclass
 class TierRateLimits:
-    """Rate limits for a specific model in a specific tier"""  # noqa: D415
+    """Rate limits for a specific model in a specific tier"""
 
     requests_per_minute: int
     tokens_per_minute: int
@@ -124,17 +124,17 @@ class TierRateLimits:
 
 @dataclass
 class ModelTierLimits:
-    """Combined model capabilities and rate limits for a specific tier"""  # noqa: D415
+    """Combined model capabilities and rate limits for a specific tier"""
 
     requests_per_minute: int
     tokens_per_minute: int
     supports_multimodal: bool
     context_window: int
-    caching: Optional[CachingCapabilities] = None  # noqa: UP045
+    caching: Optional[CachingCapabilities] = None
 
 
 def _explicit_only_caching() -> CachingCapabilities:
-    """Standard explicit-only caching configuration"""  # noqa: D415
+    """Standard explicit-only caching configuration"""
     return CachingCapabilities(
         supports_implicit=False,
         supports_explicit=True,
@@ -143,7 +143,7 @@ def _explicit_only_caching() -> CachingCapabilities:
 
 
 def _gemini_25_flash_caching() -> CachingCapabilities:
-    """Gemini 2.5 Flash caching configuration with implicit support"""  # noqa: D415
+    """Gemini 2.5 Flash caching configuration with implicit support"""
     return CachingCapabilities(
         supports_implicit=True,
         supports_explicit=True,
@@ -153,7 +153,7 @@ def _gemini_25_flash_caching() -> CachingCapabilities:
 
 
 def _gemini_25_pro_caching() -> CachingCapabilities:
-    """Gemini 2.5 Pro caching configuration with implicit support"""  # noqa: D415
+    """Gemini 2.5 Pro caching configuration with implicit support"""
     return CachingCapabilities(
         supports_implicit=True,
         supports_explicit=True,
@@ -248,17 +248,17 @@ TIER_NAMES = {
 
 
 def _validate_api_key(api_key: str) -> None:
-    """Validate API key format and raise appropriate errors"""  # noqa: D415
+    """Validate API key format and raise appropriate errors"""
     if not api_key or not isinstance(api_key, str):
-        raise ValueError("API key must be a non-empty string")  # noqa: EM101, TRY003
+        raise ValueError("API key must be a non-empty string")
 
     api_key = api_key.strip()
-    if len(api_key) < 30:  # noqa: PLR2004
-        raise ValueError("API key appears to be invalid (too short)")  # noqa: EM101, TRY003
+    if len(api_key) < 30:
+        raise ValueError("API key appears to be invalid (too short)")
 
 
-def _parse_tier_from_string(tier_str: str) -> Optional[APITier]:  # noqa: UP045
-    """Parse tier string to APITier enum with validation"""  # noqa: D415
+def _parse_tier_from_string(tier_str: str) -> Optional[APITier]:
+    """Parse tier string to APITier enum with validation"""
     if not tier_str:
         return None
 
@@ -279,7 +279,7 @@ def _parse_tier_from_string(tier_str: str) -> Optional[APITier]:  # noqa: UP045
 
 
 def _parse_enable_caching_from_env() -> bool:
-    """Parse GEMINI_ENABLE_CACHING environment variable"""  # noqa: D415
+    """Parse GEMINI_ENABLE_CACHING environment variable"""
     env_value = os.getenv("GEMINI_ENABLE_CACHING", "").lower().strip()
     return env_value in ("true", "1", "yes", "on")
 
@@ -291,21 +291,21 @@ class ConfigManager:
     """
     Handles the resolution of configuration options with a clear precedence:
     Explicit arguments > Environment variables > Sensible defaults.
-    """  # noqa: D205, D212
+    """
 
-    def __init__(self, **overrides: Unpack[GeminiConfig]):  # noqa: ANN204, D107
+    def __init__(self, **overrides: Unpack[GeminiConfig]):
         # API Key Resolution
-        self.api_key: Optional[str] = overrides.get("api_key") or os.getenv(  # noqa: UP045
-            "GEMINI_API_KEY"  # noqa: COM812
+        self.api_key: Optional[str] = overrides.get("api_key") or os.getenv(
+            "GEMINI_API_KEY"
         )
         if self.api_key:
             _validate_api_key(self.api_key)
         else:
-            raise ValueError(  # noqa: TRY003
-                "GEMINI_API_KEY is required. You can provide it by:\n"  # noqa: EM101
+            raise ValueError(
+                "GEMINI_API_KEY is required. You can provide it by:\n"
                 "  • Setting GEMINI_API_KEY environment variable\n"
                 "  • Using config_scope(api_key='your-key')\n"
-                "  • Passing api_key= parameter directly"  # noqa: COM812
+                "  • Passing api_key= parameter directly"
             )
 
         # Tier Resolution
@@ -337,17 +337,17 @@ class ConfigManager:
         self._validate_caching_configuration()
 
     def _validate_model_for_tier(self) -> None:
-        """Validate that the selected model is available in the selected tier"""  # noqa: D415
+        """Validate that the selected model is available in the selected tier"""
         if self.model and not self.get_model_limits(self.model):
             available_models = self._get_available_models()
-            raise GeminiBatchError(  # noqa: TRY003
-                f"Model '{self.model}' is not available in {self.tier.value} tier.\n"  # noqa: EM102
+            raise GeminiBatchError(
+                f"Model '{self.model}' is not available in {self.tier.value} tier.\n"
                 f"Available models: {', '.join(available_models)}\n"
-                f"You can change tiers with: config_scope(tier='tier_1') or tier= parameter"  # noqa: COM812, E501
+                f"You can change tiers with: config_scope(tier='tier_1') or tier= parameter"
             )
 
     def _validate_caching_configuration(self) -> None:
-        """Validate caching configuration is consistent"""  # noqa: D415
+        """Validate caching configuration is consistent"""
         if not self.enable_caching:
             return
 
@@ -361,14 +361,14 @@ class ConfigManager:
             )
             self.enable_caching = False
 
-    def __repr__(self) -> str:  # noqa: D105
+    def __repr__(self) -> str:
         return (
             f"ConfigManager(model='{self.model}', tier={self.tier.value}, "
             f"caching={self.enable_caching}, api_key_set={bool(self.api_key)})"
         )
 
     def _get_default_model(self) -> str:
-        """Get the best default model available for the current tier"""  # noqa: D415
+        """Get the best default model available for the current tier"""
         tier_models = self._get_available_models()
         if not tier_models:
             return "gemini-2.0-flash"  # Absolute fallback
@@ -380,14 +380,14 @@ class ConfigManager:
         return tier_models[0]
 
     def _get_available_models(self) -> list[str]:
-        """Get list of available model names for the current tier"""  # noqa: D415
+        """Get list of available model names for the current tier"""
         tier_limits = TIER_RATE_LIMITS.get(self.tier)
         if not tier_limits:
             return []
         return list(tier_limits.keys())
 
-    def get_model_limits(self, model: str) -> Optional[ModelTierLimits]:  # noqa: UP045
-        """Get combined model capabilities and rate limits for a specific model"""  # noqa: D415
+    def get_model_limits(self, model: str) -> Optional[ModelTierLimits]:
+        """Get combined model capabilities and rate limits for a specific model"""
         model_caps = MODEL_CAPABILITIES.get(model)
         tier_limits = TIER_RATE_LIMITS.get(self.tier, {}).get(model)
 
@@ -403,19 +403,19 @@ class ConfigManager:
         )
 
     def select_optimal_model(
-        self, content_tokens: int, query_count: int, video_count: int = 1  # noqa: ARG002, COM812
+        self, content_tokens: int, query_count: int, video_count: int = 1
     ) -> str:
-        """Enhanced model selection - currently returns the default model"""  # noqa: D415
+        """Enhanced model selection - currently returns the default model"""
         return self.model
 
-    def get_rate_limiter_config(self, model: str) -> Dict[str, int]:  # noqa: UP006
-        """Get rate limiter configuration for a given model"""  # noqa: D415
+    def get_rate_limiter_config(self, model: str) -> Dict[str, int]:
+        """Get rate limiter configuration for a given model"""
         limits = self.get_model_limits(model)
         if not limits:
             available_models = self._get_available_models()
-            raise GeminiBatchError(  # noqa: TRY003
-                f"Model '{model}' is not available in {self.tier.value} tier. "  # noqa: EM102
-                f"Available models: {', '.join(available_models)}"  # noqa: COM812
+            raise GeminiBatchError(
+                f"Model '{model}' is not available in {self.tier.value} tier. "
+                f"Available models: {', '.join(available_models)}"
             )
         return {
             "requests_per_minute": limits.requests_per_minute,
@@ -423,13 +423,13 @@ class ConfigManager:
         }
 
     def get_tier_name(self) -> str:
-        """Get human-readable tier name"""  # noqa: D415
+        """Get human-readable tier name"""
         return TIER_NAMES.get(self.tier, "Unknown Tier")
 
     def can_use_caching(
-        self, model: str, token_count: int, prefer_implicit: bool = True  # noqa: COM812, FBT001, FBT002
-    ) -> Dict[str, Union[bool, CachingRecommendation]]:  # noqa: UP006, UP007
-        """Determine if caching is supported and recommended for a given context"""  # noqa: D415
+        self, model: str, token_count: int, prefer_implicit: bool = True
+    ) -> Dict[str, Union[bool, CachingRecommendation]]:
+        """Determine if caching is supported and recommended for a given context"""
         if not self.enable_caching:
             return {"supported": False, "recommendation": CachingRecommendation.NONE}
 
@@ -456,8 +456,8 @@ class ConfigManager:
             "recommendation": recommendation,
         }
 
-    def get_caching_thresholds(self, model: str) -> Dict[str, Optional[int]]:  # noqa: UP006, UP045
-        """Get the token thresholds for implicit and explicit caching for a model"""  # noqa: D415
+    def get_caching_thresholds(self, model: str) -> Dict[str, Optional[int]]:
+        """Get the token thresholds for implicit and explicit caching for a model"""
         limits = self.get_model_limits(model)
         if not limits or not limits.caching:
             return {"implicit": None, "explicit": None}
@@ -469,7 +469,7 @@ class ConfigManager:
         }
 
     def validate_configuration(self) -> list[str]:
-        """Validate entire configuration and return issues"""  # noqa: D415
+        """Validate entire configuration and return issues"""
         issues = []
         if not self.api_key:
             issues.append("Missing API key")
@@ -481,8 +481,8 @@ class ConfigManager:
                 issues.append(f"Caching enabled but not supported by {self.model}")
         return issues
 
-    def get_config_summary(self) -> Dict[str, Any]:  # noqa: UP006
-        """Get summary of current configuration for debugging"""  # noqa: D415
+    def get_config_summary(self) -> Dict[str, Any]:
+        """Get summary of current configuration for debugging"""
         return {
             "tier": self.tier.value,
             "tier_name": self.get_tier_name(),
@@ -495,7 +495,7 @@ class ConfigManager:
 # Ambient Configuration (Thread-safe and async-safe)
 
 # A thread-safe, async-safe container for the ambient configuration.
-_ambient_config_var: contextvars.ContextVar[Optional[ConfigManager]] = (  # noqa: UP045
+_ambient_config_var: contextvars.ContextVar[Optional[ConfigManager]] = (
     contextvars.ContextVar("gemini_batch_config", default=None)
 )
 
@@ -504,7 +504,7 @@ def get_config() -> ConfigManager:
     """
     Gets the configuration from the current context.
     If no configuration is set, it creates a default one from environment variables.
-    """  # noqa: D205, D212
+    """
     config = _ambient_config_var.get()
     if config is None:
         config = ConfigManager()
@@ -513,7 +513,7 @@ def get_config() -> ConfigManager:
 
 
 @contextmanager
-def config_scope(**config: Unpack[GeminiConfig]):  # noqa: ANN201
+def config_scope(**config: Unpack[GeminiConfig]):
     """
     A context manager to temporarily use a different configuration.
     This is thread-safe and ideal for testing or specific overrides.
@@ -522,7 +522,7 @@ def config_scope(**config: Unpack[GeminiConfig]):  # noqa: ANN201
         with config_scope(model="gemini-2.5-pro"):
             # Code inside this block will use gemini-2.5-pro
             processor = BatchProcessor()
-    """  # noqa: D205, D212
+    """
     token = _ambient_config_var.set(ConfigManager(**config))
     try:
         yield
@@ -530,7 +530,7 @@ def config_scope(**config: Unpack[GeminiConfig]):  # noqa: ANN201
         _ambient_config_var.reset(token)
 
 
-def get_effective_config(**overrides: Unpack[GeminiConfig]) -> Dict[str, Any]:  # noqa: UP006
+def get_effective_config(**overrides: Unpack[GeminiConfig]) -> Dict[str, Any]:
     """
     Show what configuration would actually be used with these overrides.
     Useful for debugging configuration precedence.
@@ -541,7 +541,7 @@ def get_effective_config(**overrides: Unpack[GeminiConfig]) -> Dict[str, Any]:  
 
         # Compare with current ambient config
         print(get_effective_config())
-    """  # noqa: D205, D212
+    """
     base_config = get_config()
     effective = base_config.get_config_summary()
 
@@ -554,7 +554,7 @@ def get_effective_config(**overrides: Unpack[GeminiConfig]) -> Dict[str, Any]:  
                 "tier": base_config.tier,
                 "enable_caching": base_config.enable_caching,
                 **overrides,
-            }  # noqa: COM812
+            }
         )
         effective = temp_config.get_config_summary()
 
@@ -570,14 +570,14 @@ def debug_config(**overrides: Unpack[GeminiConfig]) -> None:
     Example:
         debug_config()  # Show current config
         debug_config(model="gemini-2.5-pro")  # Show config with overrides
-    """  # noqa: D212
+    """
     effective = get_effective_config(**overrides)
 
-    print("Gemini Batch Configuration:")  # noqa: T201
-    print(f"  Model: {effective['model']}")  # noqa: T201
-    print(f"  Tier: {effective['tier_name']}")  # noqa: T201
-    print(f"  Caching: {effective['enable_caching']}")  # noqa: T201
-    print(f"  API Key: {'✓ Set' if effective['api_key_present'] else '✗ Missing'}")  # noqa: T201
+    print("Gemini Batch Configuration:")
+    print(f"  Model: {effective['model']}")
+    print(f"  Tier: {effective['tier_name']}")
+    print(f"  Caching: {effective['enable_caching']}")
+    print(f"  API Key: {'✓ Set' if effective['api_key_present'] else '✗ Missing'}")
     if overrides:
-        print(f"  Overrides: {overrides}")  # noqa: T201
-    print(f"  Source: {effective['_config_source']}")  # noqa: T201
+        print(f"  Overrides: {overrides}")
+    print(f"  Source: {effective['_config_source']}")

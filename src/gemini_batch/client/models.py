@@ -1,34 +1,34 @@
-from dataclasses import dataclass  # noqa: D100
+from dataclasses import dataclass
 from enum import Enum, auto
-from typing import List, Union  # noqa: UP035
+from typing import List, Union
 
 from google.genai import types
 
 
 @dataclass(frozen=True)
-class PartsPayload:  # noqa: D101
-    parts: List[types.Part]  # noqa: UP006
+class PartsPayload:
+    parts: List[types.Part]
 
 @dataclass(frozen=True)
-class ExplicitCachePayload:  # noqa: D101
+class ExplicitCachePayload:
     cache_name: str
-    parts: List[types.Part]  # noqa: UP006
+    parts: List[types.Part]
 
-class CacheStrategy(Enum):  # noqa: D101
+class CacheStrategy(Enum):
     GENERATE_RAW = auto()
     GENERATE_WITH_OPTIMIZED_PARTS = auto()
     GENERATE_FROM_EXPLICIT_CACHE = auto()
 
 @dataclass(frozen=True)
-class CacheAction:  # noqa: D101
+class CacheAction:
     strategy: CacheStrategy
-    payload: Union[PartsPayload, ExplicitCachePayload]  # noqa: UP007
+    payload: Union[PartsPayload, ExplicitCachePayload]
 
-    def __post_init__(self):  # noqa: ANN204, D105
+    def __post_init__(self):
         # Validate payload matches strategy
         if self.strategy == CacheStrategy.GENERATE_FROM_EXPLICIT_CACHE:
             if not isinstance(self.payload, ExplicitCachePayload):
-                raise ValueError(f"Strategy {self.strategy} requires ExplicitCachePayload")  # noqa: E501, EM102, TRY003
-        else:  # noqa: PLR5501
+                raise ValueError(f"Strategy {self.strategy} requires ExplicitCachePayload")
+        else:
             if not isinstance(self.payload, PartsPayload):
-                raise ValueError(f"Strategy {self.strategy} requires PartsPayload")  # noqa: EM102, TRY003
+                raise ValueError(f"Strategy {self.strategy} requires PartsPayload")

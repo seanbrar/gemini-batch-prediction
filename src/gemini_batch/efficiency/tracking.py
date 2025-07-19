@@ -1,19 +1,19 @@
 """
 Efficiency tracking and metrics calculation for batch processing
-"""  # noqa: D200, D212, D415
+"""
 
-from typing import Dict  # noqa: UP035
+from typing import Dict
 
-from ..constants import TARGET_EFFICIENCY_RATIO  # noqa: TID252
+from ..constants import TARGET_EFFICIENCY_RATIO
 
 
 def calculate_token_efficiency(prompt_tokens: int, output_tokens: int) -> float:
-    """Calculate token efficiency: output tokens / total tokens"""  # noqa: D415
+    """Calculate token efficiency: output tokens / total tokens"""
     total_tokens = prompt_tokens + output_tokens
     return output_tokens / max(total_tokens, 1)
 
 
-def calculate_cache_aware_efficiency_metrics(  # noqa: PLR0913
+def calculate_cache_aware_efficiency_metrics(
     individual_prompt_tokens: int,
     individual_output_tokens: int,
     individual_cached_tokens: int,
@@ -22,23 +22,23 @@ def calculate_cache_aware_efficiency_metrics(  # noqa: PLR0913
     batch_cached_tokens: int,
     individual_time: float,
     batch_time: float,
-) -> Dict[str, float]:  # noqa: UP006
+) -> Dict[str, float]:
     """
     Calculate efficiency metrics.
 
     Accounts for cached tokens in efficiency calculations to provide
     more accurate cost and performance comparisons.
-    """  # noqa: D202, D212
+    """
 
     # Calculate effective tokens (excluding cached portions for cost estimation)
     individual_effective_prompt = individual_prompt_tokens - individual_cached_tokens
     batch_effective_prompt = batch_prompt_tokens - batch_cached_tokens
 
     individual_token_efficiency = calculate_token_efficiency(
-        individual_prompt_tokens, individual_output_tokens  # noqa: COM812
+        individual_prompt_tokens, individual_output_tokens
     )
     batch_token_efficiency = calculate_token_efficiency(
-        batch_prompt_tokens, batch_output_tokens  # noqa: COM812
+        batch_prompt_tokens, batch_output_tokens
     )
 
     # Cache-aware efficiency (based on effective tokens)
@@ -94,8 +94,8 @@ def _calculate_cache_efficiency_metrics(
     batch_cached_tokens: int,
     individual_prompt_tokens: int,
     batch_prompt_tokens: int,
-) -> Dict[str, float]:  # noqa: UP006
-    """Calculate cache-specific efficiency metrics"""  # noqa: D202, D415
+) -> Dict[str, float]:
+    """Calculate cache-specific efficiency metrics"""
 
     individual_cache_ratio = individual_cached_tokens / max(individual_prompt_tokens, 1)
     batch_cache_ratio = batch_cached_tokens / max(batch_prompt_tokens, 1)
@@ -105,7 +105,7 @@ def _calculate_cache_efficiency_metrics(
 
     # Cache utilization score
     cache_utilization = (individual_cached_tokens + batch_cached_tokens) / max(
-        individual_prompt_tokens + batch_prompt_tokens, 1  # noqa: COM812
+        individual_prompt_tokens + batch_prompt_tokens, 1
     )
 
     return {
@@ -117,7 +117,7 @@ def _calculate_cache_efficiency_metrics(
     }
 
 
-def track_efficiency(  # noqa: PLR0913
+def track_efficiency(
     individual_calls: int,
     batch_calls: int,
     individual_prompt_tokens: int = 0,
@@ -129,9 +129,9 @@ def track_efficiency(  # noqa: PLR0913
     # Cache-aware parameters
     individual_cached_tokens: int = 0,
     batch_cached_tokens: int = 0,
-    include_cache_metrics: bool = True,  # noqa: FBT001, FBT002
-) -> Dict[str, float]:  # noqa: UP006
-    """Calculate efficiency metrics for batch processing with optional cache awareness"""  # noqa: D202, D415, E501
+    include_cache_metrics: bool = True,
+) -> Dict[str, float]:
+    """Calculate efficiency metrics for batch processing with optional cache awareness"""
 
     # Determine if comparison data is available
     comparison_available = individual_calls > 0 and batch_calls > 0
@@ -162,10 +162,10 @@ def track_efficiency(  # noqa: PLR0913
             # Traditional efficiency calculation (without cache awareness)
             # Calculate token efficiency for each approach
             individual_token_efficiency = calculate_token_efficiency(
-                individual_prompt_tokens, individual_output_tokens  # noqa: COM812
+                individual_prompt_tokens, individual_output_tokens
             )
             batch_token_efficiency = calculate_token_efficiency(
-                batch_prompt_tokens, batch_output_tokens  # noqa: COM812
+                batch_prompt_tokens, batch_output_tokens
             )
 
             # Total tokens used by each approach
@@ -196,12 +196,12 @@ def track_efficiency(  # noqa: PLR0913
 
         if batch_prompt_tokens > 0 and batch_output_tokens > 0:
             batch_efficiency = calculate_token_efficiency(
-                batch_prompt_tokens, batch_output_tokens  # noqa: COM812
+                batch_prompt_tokens, batch_output_tokens
             )
 
         if individual_prompt_tokens > 0 and individual_output_tokens > 0:
             individual_efficiency = calculate_token_efficiency(
-                individual_prompt_tokens, individual_output_tokens  # noqa: COM812
+                individual_prompt_tokens, individual_output_tokens
             )
 
         metrics = {
@@ -239,14 +239,14 @@ def track_efficiency(  # noqa: PLR0913
 
 
 def analyze_cache_efficiency_impact(
-    traditional_metrics: Dict[str, float], cache_aware_metrics: Dict[str, float]  # noqa: COM812, UP006
-) -> Dict[str, float]:  # noqa: UP006
+    traditional_metrics: Dict[str, float], cache_aware_metrics: Dict[str, float]
+) -> Dict[str, float]:
     """
     Analyze the impact of cache efficiency on overall performance.
 
     Compares traditional efficiency calculations with cache-aware ones
     to quantify the benefit of caching.
-    """  # noqa: D202, D212
+    """
 
     traditional_efficiency = traditional_metrics.get("token_efficiency_ratio", 1.0)
     cache_aware_efficiency = cache_aware_metrics.get("cost_efficiency_ratio", 1.0)
@@ -260,5 +260,5 @@ def analyze_cache_efficiency_impact(
         "additional_efficiency_from_cache": cache_benefit - 1.0,
         "cache_utilization_score": cache_metrics.get("overall_cache_utilization", 0.0),
         "cache_effectiveness": cache_metrics.get("cache_improvement_factor", 1.0),
-        "recommended_caching": cache_benefit > 1.1,  # 10% improvement threshold  # noqa: PLR2004
+        "recommended_caching": cache_benefit > 1.1,  # 10% improvement threshold
     }

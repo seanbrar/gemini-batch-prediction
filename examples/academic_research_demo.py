@@ -1,4 +1,4 @@
-#!/usr/bin/env python3  # noqa: EXE001
+#!/usr/bin/env python3
 """
 Academic Research Demo: Multi-Source Literature Analysis
 
@@ -12,9 +12,9 @@ This example shows how to:
 - Analyze source composition and efficiency
 
 Adapt this template for your own research questions and sources.
-"""  # noqa: D212, D415
+"""
 
-from typing import List  # noqa: UP035
+from typing import List
 
 from pydantic import BaseModel
 
@@ -23,17 +23,17 @@ from gemini_batch.analysis import ContentAnalyzer
 
 
 class ResearchSynthesis(BaseModel):
-    """Structured output schema for research synthesis"""  # noqa: D415
+    """Structured output schema for research synthesis"""
 
     executive_summary: str
-    main_techniques: List[str]  # noqa: UP006
+    main_techniques: List[str]
     most_promising_approach: str
-    research_gaps: List[str]  # noqa: UP006
-    practical_recommendations: List[str]  # noqa: UP006
+    research_gaps: List[str]
+    practical_recommendations: List[str]
 
 
-def analyze_ai_efficiency_research():  # noqa: ANN201
-    """Example: Analyze AI model efficiency research across multiple sources"""  # noqa: D202, D415
+def analyze_ai_efficiency_research():
+    """Example: Analyze AI model efficiency research across multiple sources"""
 
     # Define research sources (mix of local files, URLs, videos)
     sources = [
@@ -63,7 +63,7 @@ def analyze_ai_efficiency_research():  # noqa: ANN201
     print(f"Total sources: {content_summary.total_count}")
     print(f"Traditional approach: {content_summary.traditional_api_calls} API calls")
     print(f"Batch approach: {content_summary.batch_api_calls} API call")
-    print(f"Efficiency potential: {content_summary.efficiency_factor:.1f}× improvement")  # noqa: RUF001
+    print(f"Efficiency potential: {content_summary.efficiency_factor:.1f}× improvement")
     print()
 
     # Process all sources with structured output
@@ -85,7 +85,7 @@ def analyze_ai_efficiency_research():  # noqa: ANN201
 
     print(
         f"✅ Analyzed {content_summary.total_count} sources in "
-        f"{processing_time:.1f} seconds"  # noqa: COM812
+        f"{processing_time:.1f} seconds"
     )
     print()
 
@@ -100,27 +100,27 @@ def analyze_ai_efficiency_research():  # noqa: ANN201
     return synthesis
 
 
-def custom_research_template():  # noqa: ANN201
-    """Template for adapting to your own research questions"""  # noqa: D202, D415
+def custom_research_template():
+    """Template for adapting to your own research questions"""
 
-    # TODO: Replace with your sources  # noqa: FIX002, TD002, TD003
+    # TODO: Replace with your sources
     your_sources = [
         "path/to/your/papers/",
         "https://your-research-url.com",
         # Add more sources...
     ]
 
-    # TODO: Replace with your research questions  # noqa: FIX002, TD002, TD003
+    # TODO: Replace with your research questions
     your_questions = [
         "What are the main themes in this literature?",
         "What methodologies are most common?",
         # Add more questions...
     ]
 
-    # TODO: Define your output schema  # noqa: FIX002, TD002, TD003
+    # TODO: Define your output schema
     class YourResearchSchema(BaseModel):
         summary: str
-        key_findings: List[str]  # noqa: UP006
+        key_findings: List[str]
         # Add more fields...
 
     # Process (same pattern as above)
@@ -134,7 +134,7 @@ def custom_research_template():  # noqa: ANN201
     return result["structured_data"]
 
 
-def main():  # noqa: ANN201, D103
+def main():
     print("🔬 Academic Research Demo: Multi-Source Literature Analysis")
     print("=" * 60)
     print()
@@ -146,7 +146,7 @@ def main():  # noqa: ANN201, D103
         # Demonstrate structured output access
         print(
             f"📋 Generated {len(synthesis.main_techniques)} techniques, "
-            f"{len(synthesis.research_gaps)} gaps identified"  # noqa: COM812
+            f"{len(synthesis.research_gaps)} gaps identified"
         )
 
         print()
@@ -158,10 +158,10 @@ def main():  # noqa: ANN201, D103
         print()
         print("📝 Adapt the custom_research_template() function for your own research!")
 
-    except Exception as e:  # noqa: BLE001
+    except Exception as e:
         print(f"⚠️  Demo requires network access and API credits: {e}")
         print(
-            "   See the custom_research_template() function for the workflow pattern."  # noqa: COM812
+            "   See the custom_research_template() function for the workflow pattern."
         )
 
 

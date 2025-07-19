@@ -1,11 +1,11 @@
-from abc import ABC, abstractmethod  # noqa: D100
-from typing import List  # noqa: UP035
+from abc import ABC, abstractmethod
+from typing import List
 
 
 class BasePromptBuilder(ABC):
     """Abstract base class for all prompt builders."""
 
     @abstractmethod
-    def create_prompt(self, questions: List[str]) -> str:  # noqa: UP006
+    def create_prompt(self, questions: List[str]) -> str:
         """Creates the full prompt text to be sent to the model."""
-        pass  # noqa: PIE790
+        pass

@@ -8,7 +8,7 @@ EDUCATIONAL_CONTENT = {
     Machine learning is a method of data analysis that automates analytical model building.
     It uses algorithms that iteratively learn from data, allowing computers to find hidden
     insights without being explicitly programmed where to look.
-    """,  # noqa: E501
+    """,
     "medium_article": """
     Deep Learning: The Revolutionary Approach to Artificial Intelligence
     
@@ -25,7 +25,7 @@ EDUCATIONAL_CONTENT = {
     
     Applications span computer vision, natural language processing, and speech recognition,
     with systems like GPT and BERT demonstrating human-level performance on many tasks.
-    """,  # noqa: E501, W293
+    """,
     "academic_paper_excerpt": """
     Abstract: This paper presents a comprehensive analysis of attention mechanisms
     in transformer architectures for natural language understanding tasks.
@@ -47,7 +47,7 @@ EDUCATIONAL_CONTENT = {
     with some focusing on syntactic relationships while others capture semantic
     associations. Lower layers tend to capture positional and syntactic information,
     while higher layers focus on semantic and task-specific patterns.
-    """,  # noqa: W293
+    """,
     "conversation_context": """
     Previous discussion covered the basics of neural networks and backpropagation.
     We established that neural networks learn by adjusting weights based on error
@@ -55,7 +55,7 @@ EDUCATIONAL_CONTENT = {
     
     Now we'll explore how attention mechanisms improve upon traditional architectures
     by allowing models to focus on relevant parts of the input when making predictions.
-    """,  # noqa: W293
+    """,
 }
 
 # Question sets for different testing scenarios

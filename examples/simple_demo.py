@@ -1,4 +1,4 @@
-#!/usr/bin/env python3  # noqa: EXE001
+#!/usr/bin/env python3
 """
 Minimal demonstration of the Gemini Batch Processing Framework
 
@@ -7,12 +7,12 @@ This is the simplest possible example - see examples/ for advanced features,
 efficiency analysis, and multi-source processing capabilities.
 
 Perfect starting point for understanding how the framework works.
-"""  # noqa: D212, D415
+"""
 
 from gemini_batch import BatchProcessor
 
 
-def main():  # noqa: ANN201, D103
+def main():
     print("🚀 Gemini Batch Processing Framework - MVP Demo\n")
 
     processor = BatchProcessor()
@@ -29,10 +29,10 @@ def main():  # noqa: ANN201, D103
     print("\n✨ Same interface works with files, URLs, videos, and more!")
     print("💡 For large content + multiple questions, try context caching:")
     print(
-        "   processor = BatchProcessor(client=GeminiClient.from_env(enable_caching=True))"  # noqa: COM812, E501
+        "   processor = BatchProcessor(client=GeminiClient.from_env(enable_caching=True))"
     )
     print(
-        "\nSee examples/ for caching demos, advanced features, and efficiency analysis."  # noqa: COM812
+        "\nSee examples/ for caching demos, advanced features, and efficiency analysis."
     )
 
 
