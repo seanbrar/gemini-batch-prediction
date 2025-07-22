@@ -119,8 +119,8 @@ results = processor.process_questions(
 
 ```python
 results = processor.process_questions(
-    content="Hello world", 
-    questions=["What is this?"], 
+    content="Hello world",
+    questions=["What is this?"],
     return_usage=True
 )
 print(f"Tokens used: {results['metrics']['batch']['total_tokens']}")

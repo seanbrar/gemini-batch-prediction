@@ -38,7 +38,7 @@ Process multiple distinct source collections in one call:
 # Combined analysis: all sources in one API call
 sources = [
     "Direct text content",
-    "document.pdf", 
+    "document.pdf",
     ["file1.txt", "file2.txt"],
     "https://youtube.com/watch?v=example"
 ]
@@ -60,7 +60,7 @@ Process multiple sources one at a time:
 # Sequential analysis: each source processed individually
 sources = [
     "document1.pdf",
-    "document2.pdf", 
+    "document2.pdf",
     "document3.pdf"
 ]
 
