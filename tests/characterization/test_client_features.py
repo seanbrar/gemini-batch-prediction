@@ -43,10 +43,10 @@ def test_explicit_caching_behavior(
         # Return a realistic mock response object with the necessary attributes
         mock_response = MagicMock()
         mock_response.text = "Mocked response"
-        mock_response.usage_metadata = MagicMock()
-        mock_response.usage_metadata.prompt_token_count = 100
-        mock_response.usage_metadata.candidates_token_count = 50
-        mock_response.usage_metadata.cached_content_token_count = 0
+        mock_response.usage = MagicMock()
+        mock_response.usage.prompt_token_count = 100
+        mock_response.usage.candidates_token_count = 50
+        mock_response.usage.cached_content_token_count = 0
         return mock_response
 
     def log_cache_create(*args, **kwargs):  # noqa: ARG001

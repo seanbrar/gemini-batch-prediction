@@ -28,7 +28,7 @@ def test_conversation_ask_behavior(golden, mock_gemini_client):
     mock_responses = [
         {
             "text": json.dumps(["Answer to the first question."]),
-            "usage_metadata": {
+            "usage": {
                 "prompt_tokens": 50,
                 "candidates_token_count": 10,
                 "total_tokens": 60,
@@ -38,7 +38,7 @@ def test_conversation_ask_behavior(golden, mock_gemini_client):
             "text": json.dumps(
                 ["Answer to the second question, considering the first."]
             ),
-            "usage_metadata": {
+            "usage": {
                 "prompt_tokens": 70,
                 "candidates_token_count": 15,
                 "total_tokens": 85,
