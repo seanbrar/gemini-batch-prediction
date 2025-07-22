@@ -1,7 +1,5 @@
 #!/usr/bin/env python3
-"""
-Demonstration of batch processing with text content.
-"""
+"""Demonstration of batch processing with text content."""
 
 import time
 
@@ -12,7 +10,7 @@ from gemini_batch.response import calculate_quality_score
 
 
 def get_short_ai_content():
-    """Original short AI content for quick testing"""
+    """Original short AI content for quick testing"""  # noqa: D415
     content = """
     Artificial Intelligence represents one of the most transformative technologies
     of the 21st century, fundamentally reshaping how we interact with information
@@ -40,7 +38,7 @@ def get_short_ai_content():
 
 
 def get_extended_ai_content():
-    """Extended AI content for better batch processing demonstration"""
+    """Extended AI content for better batch processing demonstration"""  # noqa: D415
     content = """
     Artificial Intelligence (AI) represents one of the most transformative technologies
     of the 21st century, fundamentally reshaping how we interact with information,
@@ -141,7 +139,7 @@ def get_extended_ai_content():
 
 
 def get_public_domain_content():
-    """Fetch content from a public domain source for demonstration"""
+    """Fetch content from a public domain source for demonstration"""  # noqa: D415
     try:
         print("📥 Attempting to fetch Pride and Prejudice from Project Gutenberg...")
         # Example: Fetch a short public domain text
@@ -159,7 +157,7 @@ def get_public_domain_content():
                 # Extract first few chapters (≈ 3,000-4,000 words)
                 content = full_text[start_pos : start_pos + 15000]
                 print(
-                    f"✅ Extracted {len(content):,} characters starting from Chapter I"
+                    f"✅ Extracted {len(content):,} characters starting from Chapter I",
                 )
 
                 questions = [
@@ -172,8 +170,7 @@ def get_public_domain_content():
                 ]
 
                 return content.strip(), questions
-            else:
-                print("Could not find Chapter I in downloaded content")
+            print("Could not find Chapter I in downloaded content")
         else:
             print(f"HTTP {response.status_code} error fetching content")
     except (requests.RequestException, ValueError) as e:
@@ -184,8 +181,8 @@ def get_public_domain_content():
     return get_extended_ai_content()
 
 
-def run_demo_with_content(name, content, questions, processor, compare_methods=True):
-    """Run demo with specific content and display results"""
+def run_demo_with_content(name, content, questions, processor, compare_methods=True):  # noqa: FBT002
+    """Run demo with specific content and display results"""  # noqa: D415
     print(f"\n{'=' * 60}")
     print(f"🧪 TESTING: {name}")
     print(f"Content length: {len(content):,} characters")
@@ -194,7 +191,9 @@ def run_demo_with_content(name, content, questions, processor, compare_methods=T
 
     # Process the questions
     results = processor.process_questions(
-        content, questions, compare_methods=compare_methods
+        content,
+        questions,
+        compare_methods=compare_methods,
     )
 
     # Display truncated answers
@@ -225,12 +224,13 @@ def run_demo_with_content(name, content, questions, processor, compare_methods=T
         print(f"⚡ Efficiency improvement: {efficiency['token_efficiency_ratio']:.1f}x")
         print(f"🚀 Time improvement: {efficiency['time_efficiency']:.1f}x")
         print(
-            f"🎯 Meets 3x target: {'✅ Yes' if efficiency['meets_target'] else '❌ No'}"
+            f"🎯 Meets 3x target: {'✅ Yes' if efficiency['meets_target'] else '❌ No'}",
         )
 
         # Calculate and display quality score
         quality_score = calculate_quality_score(
-            results.get("individual_answers", []), results["answers"]
+            results.get("individual_answers", []),
+            results["answers"],
         )
         if quality_score is not None:
             print(f"✨ Quality score: {quality_score * 100:.1f}/100")
@@ -241,7 +241,7 @@ def run_demo_with_content(name, content, questions, processor, compare_methods=T
     return results
 
 
-def main():
+def main():  # noqa: D103
     print("Gemini Batch Processing Framework - Enhanced Demo")
     print("Testing different content lengths to demonstrate efficiency gains")
 
@@ -266,7 +266,11 @@ def main():
                 time.sleep(5)
 
             results = run_demo_with_content(
-                name, content, questions, processor, compare_methods=not batch_only
+                name,
+                content,
+                questions,
+                processor,
+                compare_methods=not batch_only,
             )
             efficiency = results["efficiency"]
 
@@ -282,7 +286,7 @@ def main():
                             results["metrics"]["individual"]["total_tokens"]
                             - results["metrics"]["batch"]["total_tokens"]
                         ),
-                    }
+                    },
                 )
         except Exception as e:
             print(f"Error testing {name}: {e}")
@@ -300,16 +304,16 @@ def main():
                 f"{result['name']:<25} "
                 f"{result['content_length']:,<10} "
                 f"{result['efficiency_ratio']:.1f}x{'':<8} "
-                f"{'✅ Yes' if result['meets_target'] else '❌ No':<12}"
+                f"{'✅ Yes' if result['meets_target'] else '❌ No':<12}",
             )
 
     print(
         "\n💡 KEY INSIGHT: Longer content demonstrates "
-        "greater batch processing benefits"
+        "greater batch processing benefits",
     )
     print(
         "   because the same content is reused across "
-        "multiple questions, reducing redundancy."
+        "multiple questions, reducing redundancy.",
     )
 
 

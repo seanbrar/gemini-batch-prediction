@@ -3,174 +3,189 @@ Global test configuration with support for different test types.
 """
 
 import os
-from unittest.mock import MagicMock, patch
+from unittest.mock import MagicMock, PropertyMock, patch
 
+from pydantic import BaseModel
 import pytest
 
 from gemini_batch import BatchProcessor, GeminiClient
-from gemini_batch.client.configuration import ClientConfiguration
 
-from .fixtures.api_responses import (
-    MockResponse,
-    MockUsageMetadata,
-)
+# --- Test Environment Markers ---
 
 
-# Test environment markers
 def pytest_configure(config):
     """Configure custom markers for test organization."""
     markers = [
         "unit: Fast, isolated unit tests",
         "integration: Component integration tests with mocked APIs",
         "api: Real API integration tests (requires API key)",
-        "regression: Regression prevention tests",
-        "performance: Performance and efficiency tests",
-        "e2e: End-to-end user scenario tests",
-        "slow: Tests that take >5 seconds",
-        "expensive: Tests that use significant API quota",
+        "characterization: Golden master tests to detect behavior changes.",
+        "slow: Tests that take >1 second",
     ]
-
     for marker in markers:
         config.addinivalue_line("markers", marker)
 
 
-# Environment detection
-@pytest.fixture(scope="session")
-def test_environment():
-    """Detect and configure test environment."""
-    env_type = "mock"  # Default to mocked tests
-
-    if os.getenv("GEMINI_API_KEY") and os.getenv("ENABLE_API_TESTS"):
-        env_type = "api"
-    elif os.getenv("CI"):
-        env_type = "ci"
-
-    return {
-        "type": env_type,
-        "has_api_key": bool(os.getenv("GEMINI_API_KEY")),
-        "is_ci": bool(os.getenv("CI")),
-        "enable_api_tests": bool(os.getenv("ENABLE_API_TESTS")),
-    }
-
-
-# Skip logic for API tests
-def pytest_collection_modifyitems(config, items):
-    """Automatically skip API tests when API key unavailable."""
+def pytest_collection_modifyitems(config, items):  # noqa: ARG001
+    """Automatically skip API tests when API key is unavailable."""
     if not (os.getenv("GEMINI_API_KEY") and os.getenv("ENABLE_API_TESTS")):
         skip_api = pytest.mark.skip(
-            reason="API tests require GEMINI_API_KEY and ENABLE_API_TESTS=1"
+            reason="API tests require GEMINI_API_KEY and ENABLE_API_TESTS=1",
         )
         for item in items:
             if "api" in item.keywords:
                 item.add_marker(skip_api)
 
 
-# Enhanced fixtures
+# --- Core Fixtures ---
+
+
 @pytest.fixture
 def mock_api_key():
-    """Provide test API key"""
+    """Provide a consistent, fake API key for tests."""
     return "test_api_key_12345_67890_abcdef_ghijkl"
 
 
 @pytest.fixture
 def mock_env(mock_api_key, monkeypatch):
-    """Mock environment variables"""
+    """
+    Mocks essential environment variables to ensure tests run in a
+    consistent, isolated environment.
+    """
     monkeypatch.setenv("GEMINI_API_KEY", mock_api_key)
     monkeypatch.setenv("GEMINI_MODEL", "gemini-2.0-flash")
+    monkeypatch.setenv("GEMINI_ENABLE_CACHING", "False")
 
 
 @pytest.fixture
-def mock_genai_client():
-    """Mock the underlying genai.Client"""
-    with patch("google.genai.Client") as mock:
-        client_instance = MagicMock()
-        mock.return_value = client_instance
-        yield client_instance
-
-
-@pytest.fixture
-def client_config(mock_api_key):
-    """Provide ClientConfiguration for testing"""
-    return ClientConfiguration(
-        api_key=mock_api_key, model_name="gemini-2.0-flash", enable_caching=False
-    )
-
-
-@pytest.fixture
-def gemini_client(client_config, mock_genai_client):
-    """Provide configured GeminiClient for testing"""
-    return GeminiClient(client_config)
-
-
-@pytest.fixture
-def batch_processor(gemini_client):
-    """Provide BatchProcessor for testing"""
-    return BatchProcessor(client=gemini_client)
-
-
-@pytest.fixture
-def sample_content():
-    """Reusable test content"""
-    return """
-    Artificial Intelligence represents one of the most transformative 
-    technologies of the 21st century, enabling machines to process 
-    natural language and solve complex problems.
+def mock_gemini_client(mock_env):  # noqa: ARG001
     """
+    Provides a MagicMock of the GeminiClient.
+
+    This is a powerful fixture that prevents real API calls. The mock's methods,
+    like `generate_content`, can be configured within individual tests to return
+    specific, predictable responses, making tests deterministic and fast.
+    """
+    # We create a mock instance that has the same interface as the real GeminiClient.
+    mock_client = MagicMock(spec=GeminiClient)
+
+    # We mock the `generate_content` method, as this is the primary method
+    # called by BatchProcessor.
+    mock_client.generate_content.return_value = {
+        "text": '["Default mock answer"]',
+        "usage_metadata": {
+            "prompt_tokens": 10,
+            "candidates_token_count": 5,
+            "total_tokens": 15,
+        },
+    }
+    return mock_client
 
 
 @pytest.fixture
-def sample_questions():
-    """Reusable test questions"""
-    return [
-        "What makes AI transformative?",
-        "How does AI process language?",
-        "What problems can AI solve?",
-    ]
+def batch_processor(mock_gemini_client):
+    """
+    Provides a BatchProcessor instance that is pre-configured with a
+    mocked GeminiClient. This is the standard way to test BatchProcessor
+    without hitting the actual API.
+    """
+    # We inject the mock client directly into the processor.
+    # This is a key principle of Dependency Injection for testability.
+    return BatchProcessor(_client=mock_gemini_client)
 
 
-# Response builder for flexible test scenarios
+# --- Advanced Fixtures for Client Behavior Testing ---
+
+
 @pytest.fixture
-def response_builder():
-    """Factory for creating custom mock responses"""
+def mocked_internal_genai_client():
+    """
+    Mocks the internal `google.genai.Client` that GeminiClient uses.
 
-    def _build_response(text: str, prompt_tokens: int = 100, output_tokens: int = 50):
-        return MockResponse(
-            text=text,
-            usage_metadata=MockUsageMetadata(
-                prompt_token_count=prompt_tokens, candidates_token_count=output_tokens
-            ),
+    This allows us to test the logic of our GeminiClient by inspecting the
+    low-level API calls it attempts to make, without any real network activity.
+    """
+    # We patch the class that our client will instantiate.
+    with patch("gemini_batch.gemini_client.genai.Client") as mock_genai:
+        # Create an instance of the mock to be used by our client
+        mock_instance = mock_genai.return_value
+
+        # Mock the nested structure for creating and using caches
+        mock_instance.caches.create.return_value = MagicMock(
+            name="caches.create_return",
+        )
+        type(mock_instance.caches.create.return_value).name = PropertyMock(
+            return_value="cachedContents/mock-cache-123",
         )
 
-    return _build_response
+        # Mock the token counter to avoid real API calls during planning
+        mock_instance.models.count_tokens.return_value = MagicMock(total_tokens=5000)
 
-
-# Conversation testing fixtures
-@pytest.fixture
-def conversation_session(batch_processor):
-    """Provide ConversationSession for testing"""
-    from gemini_batch.conversation import create_conversation
-
-    return create_conversation(
-        "Test content for conversation", processor=batch_processor
-    )
+        yield mock_instance
 
 
 @pytest.fixture
-def multi_source_content():
-    """Content with multiple sources for testing"""
-    return [
-        "Primary source: Machine learning fundamentals",
-        "Secondary source: Deep learning applications",
-        "Tertiary source: AI ethics and considerations",
-    ]
+def caching_gemini_client(mock_env, mocked_internal_genai_client):  # noqa: ARG001
+    """
+    Provides a real GeminiClient instance configured for caching, but with
+    its internal API calls mocked.
+    """
+    # We instantiate our actual GeminiClient. Because the `genai.Client` is
+    # patched, our client will receive the `mocked_internal_genai_client`
+    # when it tries to initialize its internal client.
+    # We explicitly enable caching for this test client.
+    client = GeminiClient(enable_caching=True)
+    return client  # noqa: RET504
 
 
 @pytest.fixture
-def conversation_questions():
-    """Questions that build on each other for conversation testing"""
-    return [
-        "What is the main topic?",
-        "How does this relate to what we discussed?",
-        "What are the practical implications?",
-        "What should I learn next?",
-    ]
+def mock_httpx_client():
+    """
+    Mocks the httpx.Client to prevent real network requests for URL processing.
+    """
+    # We patch the client where it's used in the extractors module.
+    with patch("gemini_batch.files.extractors.httpx.Client") as mock_client_class:
+        mock_instance = mock_client_class.return_value.__enter__.return_value
+        yield mock_instance
+
+
+@pytest.fixture
+def mock_get_mime_type():
+    """
+    Mocks the get_mime_type utility function to prevent python-magic
+    from bypassing pyfakefs, making MIME type detection deterministic in tests.
+    """
+    # We patch the function in the `utils` module where it is defined.
+    with patch("gemini_batch.files.utils.get_mime_type") as mock_func:
+        # Define a simple side effect to simulate MIME type detection based on file extension.
+        def side_effect(file_path, use_magic=True):  # noqa: ARG001, FBT002
+            if str(file_path).endswith(".png"):
+                return "image/png"
+            if str(file_path).endswith(".txt") or str(file_path).endswith(".md"):
+                return "text/plain"
+            # Provide a sensible default for any other file types in tests.
+            return "application/octet-stream"
+
+        mock_func.side_effect = side_effect
+        yield mock_func
+
+
+# --- Helper Fixtures ---
+@pytest.fixture
+def fs(fs):
+    """
+    A fixture for pyfakefs that automatically enables OS-specific path separators.
+    This makes filesystem tests more robust across different operating systems.
+    """
+    fs.os = os
+    return fs
+
+
+# --- Pydantic Schema for Structured Tests ---
+
+
+class SimpleSummary(BaseModel):
+    """A simple Pydantic schema for structured output tests."""
+
+    summary: str
+    key_points: list[str]

@@ -1,6 +1,5 @@
 #!/usr/bin/env python3
-"""
-Academic Research Demo: Multi-Source Literature Analysis
+"""Academic Research Demo: Multi-Source Literature Analysis
 
 Demonstrates analyzing multiple research sources (papers, videos, web content)
 simultaneously using structured output and cross-source synthesis.
@@ -12,9 +11,7 @@ This example shows how to:
 - Analyze source composition and efficiency
 
 Adapt this template for your own research questions and sources.
-"""
-
-from typing import List
+"""  # noqa: D415
 
 from pydantic import BaseModel
 
@@ -23,18 +20,17 @@ from gemini_batch.analysis import ContentAnalyzer
 
 
 class ResearchSynthesis(BaseModel):
-    """Structured output schema for research synthesis"""
+    """Structured output schema for research synthesis"""  # noqa: D415
 
     executive_summary: str
-    main_techniques: List[str]
+    main_techniques: list[str]
     most_promising_approach: str
-    research_gaps: List[str]
-    practical_recommendations: List[str]
+    research_gaps: list[str]
+    practical_recommendations: list[str]
 
 
 def analyze_ai_efficiency_research():
-    """Example: Analyze AI model efficiency research across multiple sources"""
-
+    """Example: Analyze AI model efficiency research across multiple sources"""  # noqa: D415
     # Define research sources (mix of local files, URLs, videos)
     sources = [
         "../examples/test_data/research_papers/",  # Directory of papers
@@ -63,7 +59,7 @@ def analyze_ai_efficiency_research():
     print(f"Total sources: {content_summary.total_count}")
     print(f"Traditional approach: {content_summary.traditional_api_calls} API calls")
     print(f"Batch approach: {content_summary.batch_api_calls} API call")
-    print(f"Efficiency potential: {content_summary.efficiency_factor:.1f}× improvement")
+    print(f"Efficiency potential: {content_summary.efficiency_factor:.1f}× improvement")  # noqa: RUF001
     print()
 
     # Process all sources with structured output
@@ -85,7 +81,7 @@ def analyze_ai_efficiency_research():
 
     print(
         f"✅ Analyzed {content_summary.total_count} sources in "
-        f"{processing_time:.1f} seconds"
+        f"{processing_time:.1f} seconds",
     )
     print()
 
@@ -101,8 +97,7 @@ def analyze_ai_efficiency_research():
 
 
 def custom_research_template():
-    """Template for adapting to your own research questions"""
-
+    """Template for adapting to your own research questions"""  # noqa: D415
     # TODO: Replace with your sources
     your_sources = [
         "path/to/your/papers/",
@@ -120,7 +115,7 @@ def custom_research_template():
     # TODO: Define your output schema
     class YourResearchSchema(BaseModel):
         summary: str
-        key_findings: List[str]
+        key_findings: list[str]
         # Add more fields...
 
     # Process (same pattern as above)
@@ -134,7 +129,7 @@ def custom_research_template():
     return result["structured_data"]
 
 
-def main():
+def main():  # noqa: D103
     print("🔬 Academic Research Demo: Multi-Source Literature Analysis")
     print("=" * 60)
     print()
@@ -146,7 +141,7 @@ def main():
         # Demonstrate structured output access
         print(
             f"📋 Generated {len(synthesis.main_techniques)} techniques, "
-            f"{len(synthesis.research_gaps)} gaps identified"
+            f"{len(synthesis.research_gaps)} gaps identified",
         )
 
         print()
@@ -161,7 +156,7 @@ def main():
     except Exception as e:
         print(f"⚠️  Demo requires network access and API credits: {e}")
         print(
-            "   See the custom_research_template() function for the workflow pattern."
+            "   See the custom_research_template() function for the workflow pattern.",
         )
 
 

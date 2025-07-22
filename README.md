@@ -1,6 +1,6 @@
 # Gemini Batch Prediction Framework
 
-> **Google Summer of Code 2025 Project**  
+> **Google Summer of Code 2025 Project**
 > Creating efficient video content analysis through intelligent batching and context caching with the Gemini API
 
 **Organization:** Google DeepMind
@@ -138,7 +138,7 @@ results = processor.process_questions_multi_source(sources, questions)
 # Automatic tier detection from environment
 processor = BatchProcessor()  # Reads GEMINI_TIER from .env
 
-# Or specify explicitly  
+# Or specify explicitly
 from gemini_batch.config import APITier
 processor = BatchProcessor(tier=APITier.TIER_1)
 ```
