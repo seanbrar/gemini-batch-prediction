@@ -189,7 +189,6 @@ build_command = "pip install build && python -m build"
 upload_to_pypi = false
 
 [tool.semantic_release.changelog]
-changelog_file = "CHANGELOG.md"
 exclude_commit_patterns = [
     "^chore",
     "^docs",
@@ -198,6 +197,9 @@ exclude_commit_patterns = [
     "^refactor",
     "^test",
 ]
+
+[tool.semantic_release.changelog.default_templates]
+changelog_file = "CHANGELOG.md"
 
 # --- Setuptools ---
 [tool.setuptools.packages.find]
