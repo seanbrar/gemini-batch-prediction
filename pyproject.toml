@@ -10,9 +10,7 @@ name = "gemini-batch"
 version = "0.7.0"
 description = "A framework for batch processing with Google's Gemini API"
 readme = "README.md"
-authors = [
-    {name = "Sean Brar", email = "hello@seanbrar.com"}
-]
+authors = [{ name = "Sean Brar", email = "hello@seanbrar.com" }]
 license = "MIT"
 
 # Requirements
@@ -45,14 +43,8 @@ dev = [
     "ruff>=0.12.2",
     "vulture>=2.14",
 ]
-viz = [
-    "matplotlib~=3.10",
-    "pandas~=2.3",
-    "seaborn~=0.13",
-]
-all = [
-    "gemini-batch[dev,viz]",
-]
+viz = ["matplotlib~=3.10", "pandas~=2.3", "seaborn~=0.13"]
+all = ["gemini-batch[dev,viz]"]
 
 # --- Tool Configurations ---
 
@@ -103,7 +95,7 @@ addopts = [
     "--cov=gemini_batch",
     "--cov-report=term-missing",
     "--cov-report=html:coverage_html_report",
-    "--cov-fail-under=40",  # TODO: Raise after additional tests are complete
+    "--cov-fail-under=40",                    # TODO: Raise after additional tests are complete
 ]
 enable_assertion_pass_hook = true
 
@@ -120,7 +112,7 @@ exclude = [
     "__pycache__",
     "build",
     "dist",
-    "tests_old",  # TODO: Remove after old tests cleanup
+    "tests_old",     # TODO: Remove after old tests cleanup
     "venv",
 ]
 
@@ -133,31 +125,31 @@ skip-magic-trailing-comma = false
 
 [tool.ruff.lint]
 select = [
-    "A",    # flake8-builtins
-    "ARG",  # flake8-unused-arguments
-    "B",    # flake8-bugbear
-    "C4",   # flake8-comprehensions
-    "COM",  # flake8-commas
-    "D",    # pydocstyle
-    "E",    # pycodestyle errors
-    "ERA",  # eradicate
-    "F",    # pyflakes
-    "FBT",  # flake8-boolean-trap
-    "I",    # isort
-    "ICN",  # flake8-import-conventions
-    "N",    # pep8-naming
-    "PIE",  # flake8-pie
-    "PTH",  # flake8-use-pathlib
-    "PYI",  # flake8-pyi
-    "RET",  # flake8-return
-    "RSE",  # flake8-raise
-    "RUF",  # ruff-specific rules
-    "S",    # bandit
-    "SIM",  # flake8-simplify
-    "T20",  # flake8-print
-    "TC",   # flake8-type-checking
-    "UP",   # pyupgrade
-    "W",    # pycodestyle warnings
+    "A",   # flake8-builtins
+    "ARG", # flake8-unused-arguments
+    "B",   # flake8-bugbear
+    "C4",  # flake8-comprehensions
+    "COM", # flake8-commas
+    "D",   # pydocstyle
+    "E",   # pycodestyle errors
+    "ERA", # eradicate
+    "F",   # pyflakes
+    "FBT", # flake8-boolean-trap
+    "I",   # isort
+    "ICN", # flake8-import-conventions
+    "N",   # pep8-naming
+    "PIE", # flake8-pie
+    "PTH", # flake8-use-pathlib
+    "PYI", # flake8-pyi
+    "RET", # flake8-return
+    "RSE", # flake8-raise
+    "RUF", # ruff-specific rules
+    "S",   # bandit
+    "SIM", # flake8-simplify
+    "T20", # flake8-print
+    "TC",  # flake8-type-checking
+    "UP",  # pyupgrade
+    "W",   # pycodestyle warnings
 ]
 ignore = [
     "COM812", # Trailing comma missing
@@ -191,22 +183,28 @@ convention = "google"
 
 # --- Semantic Release ---
 [tool.semantic_release]
-version_variable = "pyproject.toml:project.version"
+version_toml = ["pyproject.toml:project.version"]
 branch = "main"
 build_command = "pip install build && python -m build"
 upload_to_pypi = false
 
 [tool.semantic_release.changelog]
+exclude_commit_patterns = [
+    "^chore",
+    "^docs",
+    "^ci",
+    "^style",
+    "^refactor",
+    "^test",
+]
+
+[tool.semantic_release.changelog.default_templates]
 changelog_file = "CHANGELOG.md"
 
 # --- Setuptools ---
 [tool.setuptools.packages.find]
 where = ["src"]
-exclude = [
-    "examples*",
-    "notebooks*",
-    "tests*",
-]
+exclude = ["examples*", "notebooks*", "tests*"]
 
 [tool.setuptools.package-data]
 gemini_batch = ["py.typed"]
