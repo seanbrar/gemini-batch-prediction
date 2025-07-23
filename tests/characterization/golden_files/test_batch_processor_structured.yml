@@ -22,11 +22,11 @@ output:
   metrics:
     batch:
       calls: 1
-      prompt_tokens: 0
+      prompt_tokens: 120
       output_tokens: 0
       cached_tokens: 0
-      total_tokens: 0
-      effective_tokens: 0
+      total_tokens: 120
+      effective_tokens: 120
       cache_hit_ratio: 0.0
     individual:
       calls: 0
@@ -44,9 +44,9 @@ output:
     - This is the first key point.
     - This is the second key point.
   usage:
-    prompt_tokens: 0
+    prompt_tokens: 120
     output_tokens: 0
-    total_tokens: 0
+    total_tokens: 120
     cached_tokens: 0
-    effective_tokens: 0
+    effective_tokens: 120
     cache_hit_ratio: 0.0

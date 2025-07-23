@@ -512,13 +512,13 @@ class GeminiClient:
                             raise APIError(f"Failed to parse JSON response: {e}") from e
 
                     if return_usage:
-                        return {"data": data, "usage_metadata": usage_metadata}
+                        return {"data": data, "usage": usage_metadata}
                     return data
 
                 # Handle standard text response
                 text_response = response.text
                 if return_usage:
-                    return {"text": text_response, "usage_metadata": usage_metadata}
+                    return {"text": text_response, "usage": usage_metadata}
                 return text_response
 
             except (ValueError, IndexError, AttributeError) as e:

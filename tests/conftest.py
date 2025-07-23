@@ -73,7 +73,7 @@ def mock_gemini_client(mock_env):  # noqa: ARG001
     # called by BatchProcessor.
     mock_client.generate_content.return_value = {
         "text": '["Default mock answer"]',
-        "usage_metadata": {
+        "usage": {
             "prompt_tokens": 10,
             "candidates_token_count": 5,
             "total_tokens": 15,
