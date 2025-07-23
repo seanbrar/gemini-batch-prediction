@@ -13,33 +13,31 @@ output:
   - Batch answer for Q1.
   - Batch answer for Q2.
   efficiency:
-    individual_token_efficiency:
-    batch_token_efficiency:
-    token_efficiency_ratio:
-    overall_efficiency:
-    meets_target: true
-    cache_efficiency:
-      individual_cache_ratio: 0.0
-      batch_cache_ratio: 0.0
-      cache_enabled: false
+    individual_token_efficiency: 0.0
+    batch_token_efficiency: 0.0
+    token_efficiency_ratio: 0.9666666666666667
+    overall_efficiency: 0.9666666666666667
+    meets_target: false
+    individual_total_tokens: 145
+    batch_total_tokens: 150
     comparison_available: true
     cache_aware_calculation: false
   metrics:
     batch:
       calls: 1
-      prompt_tokens: 0
+      prompt_tokens: 150
       output_tokens: 0
       cached_tokens: 0
-      total_tokens: 0
-      effective_tokens: 0
+      total_tokens: 150
+      effective_tokens: 150
       cache_hit_ratio: 0.0
     individual:
       calls: 2
-      prompt_tokens: 0
+      prompt_tokens: 145
       output_tokens: 0
       cached_tokens: 0
-      total_tokens: 0
-      effective_tokens: 0
+      total_tokens: 145
+      effective_tokens: 145
       cache_hit_ratio: 0.0
   cache_summary:
     cache_enabled: false
@@ -47,9 +45,9 @@ output:
   - Individual answer for Q1.
   - Individual answer for Q2.
   usage:
-    prompt_tokens: 0
+    prompt_tokens: 150
     output_tokens: 0
-    total_tokens: 0
+    total_tokens: 150
     cached_tokens: 0
-    effective_tokens: 0
+    effective_tokens: 150
     cache_hit_ratio: 0.0

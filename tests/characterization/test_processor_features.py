@@ -46,7 +46,7 @@ def test_batch_processor_fallback_behavior(golden, mock_gemini_client):
         BatchProcessingError("Simulated API failure for batch call."),
         {
             "text": json.dumps(["Answer from individual call 1."]),
-            "usage_metadata": {
+            "usage": {
                 "prompt_tokens": 60,
                 "candidates_token_count": 15,
                 "total_tokens": 75,
@@ -54,7 +54,7 @@ def test_batch_processor_fallback_behavior(golden, mock_gemini_client):
         },
         {
             "text": json.dumps(["Answer from individual call 2."]),
-            "usage_metadata": {
+            "usage": {
                 "prompt_tokens": 65,
                 "candidates_token_count": 20,
                 "total_tokens": 85,
@@ -86,7 +86,7 @@ def test_batch_processor_comparison_mode(golden, mock_gemini_client):
     mock_gemini_client.generate_content.side_effect = [
         {
             "text": json.dumps(["Batch answer for Q1.", "Batch answer for Q2."]),
-            "usage_metadata": {
+            "usage": {
                 "prompt_tokens": 150,
                 "candidates_token_count": 80,
                 "total_tokens": 230,
@@ -94,7 +94,7 @@ def test_batch_processor_comparison_mode(golden, mock_gemini_client):
         },
         {
             "text": json.dumps(["Individual answer for Q1."]),
-            "usage_metadata": {
+            "usage": {
                 "prompt_tokens": 70,
                 "candidates_token_count": 40,
                 "total_tokens": 110,
@@ -102,7 +102,7 @@ def test_batch_processor_comparison_mode(golden, mock_gemini_client):
         },
         {
             "text": json.dumps(["Individual answer for Q2."]),
-            "usage_metadata": {
+            "usage": {
                 "prompt_tokens": 75,
                 "candidates_token_count": 45,
                 "total_tokens": 120,

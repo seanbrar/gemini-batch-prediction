@@ -27,11 +27,11 @@ output:
   metrics:
     batch:
       calls: 2
-      prompt_tokens: 0
+      prompt_tokens: 125
       output_tokens: 0
       cached_tokens: 0
-      total_tokens: 0
-      effective_tokens: 0
+      total_tokens: 125
+      effective_tokens: 125
       cache_hit_ratio: 0.0
     individual:
       calls: 0
@@ -44,9 +44,9 @@ output:
   cache_summary:
     cache_enabled: false
   usage:
-    prompt_tokens: 0
+    prompt_tokens: 125
     output_tokens: 0
-    total_tokens: 0
+    total_tokens: 125
     cached_tokens: 0
-    effective_tokens: 0
+    effective_tokens: 125
     cache_hit_ratio: 0.0

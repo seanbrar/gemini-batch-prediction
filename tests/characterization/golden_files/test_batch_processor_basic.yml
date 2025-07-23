@@ -23,11 +23,11 @@ output:
   metrics:
     batch:
       calls: 1
-      prompt_tokens: 0
+      prompt_tokens: 110
       output_tokens: 0
       cached_tokens: 0
-      total_tokens: 0
-      effective_tokens: 0
+      total_tokens: 110
+      effective_tokens: 110
       cache_hit_ratio: 0.0
     individual:
       calls: 0
@@ -40,9 +40,9 @@ output:
   cache_summary:
     cache_enabled: false
   usage:
-    prompt_tokens: 0
+    prompt_tokens: 110
     output_tokens: 0
-    total_tokens: 0
+    total_tokens: 110
     cached_tokens: 0
-    effective_tokens: 0
+    effective_tokens: 110
     cache_hit_ratio: 0.0

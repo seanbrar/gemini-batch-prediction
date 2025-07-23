@@ -54,7 +54,7 @@ def test_batch_processor_basic_behavior(golden, mock_gemini_client):
     )
     mock_gemini_client.generate_content.return_value = {
         "text": mock_response_text,
-        "usage_metadata": {
+        "usage": {
             "prompt_tokens": 110,
             "candidates_token_count": 45,
             "total_tokens": 155,
@@ -89,7 +89,7 @@ def test_batch_processor_structured_output(golden, mock_gemini_client):
     }
     mock_gemini_client.generate_content.return_value = {
         "text": json.dumps(mock_structured_response),
-        "usage_metadata": {
+        "usage": {
             "prompt_tokens": 120,
             "candidates_token_count": 60,
             "total_tokens": 180,
