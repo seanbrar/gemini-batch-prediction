@@ -1,10 +1,13 @@
-# Manual release workflow using semantic versioning
-# Triggered only via GitHub Actions UI to control release timing
-# Uses semantic-release for automated versioning and changelog generation
 name: Release
 
 on:
   workflow_dispatch:  # Manual trigger only
+    inputs:
+      dry_run:
+        description: 'Run in dry-run mode to preview changes'
+        required: false
+        type: boolean
+        default: true # Defaults to dry-run to prevent accidental releases.
 
 jobs:
   # Ensure main branch is stable before releasing
@@ -13,18 +16,31 @@ jobs:
     with:
       python-version: "3.13"
 
-  # Create versioned release with automated changelog
   release:
-    needs: [pre-release-checks]  # Only run if checks pass
+    needs: [pre-release-checks]
     runs-on: ubuntu-latest
+
+    # Prevents multiple instances of this release job from running at the same time,
+    # which avoids race conditions where two releases could be created for the same code.
+    concurrency:
+      group: release
+      cancel-in-progress: false
+
+    # Defines the permissions granted to the GITHUB_TOKEN for this job.
+    # These are required by semantic-release to interact with the repository.
     permissions:
-      contents: write  # Required for semantic-release to push tags and commits
+      contents: write      # To push commits (for version bumps) and create tags/releases.
+      issues: write        # To comment on issues fixed in the release.
+      pull-requests: write # To comment on PRs included in the release.
 
     steps:
       - name: Checkout repository
         uses: actions/checkout@v4
         with:
-          fetch-depth: 0  # Full history needed for semantic-release
+          # Fetches the entire Git history, which semantic-release needs
+          # to analyze all commits since the last release.
+          fetch-depth: 0
+          # Uses the built-in token to authenticate repository operations.
           token: ${{ secrets.GITHUB_TOKEN }}
 
       - name: Set up Python 3.13
@@ -32,37 +48,129 @@ jobs:
         with:
           python-version: "3.13"
 
-      # Install project to ensure package builds correctly
-      - name: Install dependencies
+      - name: Install dependencies and configure Git
         run: |
+          # Installs the project's dependencies, including development tools like semantic-release.
           python -m pip install --upgrade pip
           pip install -e ".[dev]"
+          # Configures Git with a bot identity for the commits that semantic-release will create.
+          git config user.name "github-actions[bot]"
+          git config user.email "github-actions[bot]@users.noreply.github.com"
 
-      # Configure Git for semantic-release commits
-      - name: Configure Git
+      - name: Debug Repository State
         run: |
-          git config user.name "semantic-release (via GitHub Actions)"
-          git config user.email "semantic-release@github"
+          echo "--- Runner Environment ---"
+          echo "Runner OS: $(uname -a)"
+          echo "Python version: $(python --version)"
+          echo "--- Git State ---"
+          echo "Current branch: $(git branch --show-current)"
+          echo "Last 5 commits:"
+          git log --oneline -5
+          echo "Last 10 version tags:"
+          git tag -l "v*" | sort -V | tail -10
+          echo "--- Configuration ---"
+          echo "pyproject.toml version: $(grep '^version = ' pyproject.toml || echo 'Not Found')"
+          echo "semantic-release config check:"
+          python -c "
+          import tomllib
+          try:
+              with open('pyproject.toml', 'rb') as f:
+                  config = tomllib.load(f)
+                  sr_config = config.get('tool', {}).get('semantic_release', {})
+                  print(f'  Tag format: {sr_config.get(\"tag_format\", \"NOT SET\")}')
+                  print(f'  Allow zero version: {sr_config.get(\"allow_zero_version\", \"NOT SET\")}')
+          except Exception as e:
+              print(f'  Could not parse config: {e}')
+          "
+          echo "---------------------------"
 
-      # Generate version based on conventional commits
-      # Updates version files and creates changelog entry
-      - name: Version, Tag, and Update Changelog
-        id: semantic
+      # Determines if a new release is needed based on commit messages.
+      - name: Determine Next Version
+        # The 'id' allows other steps to access the outputs of this step.
+        id: semver
         run: |
-          # semantic-release analyzes commits since last release
-          # Calculates new version (patch/minor/major) and updates files
-          semantic-release version --no-vcs-release --no-push
-          echo "NEW_TAG=$(semantic-release version --print-tag)" >> $GITHUB_ENV
+          echo "🔍 Analyzing commits to determine if a release is needed..."
 
-      # Push the version commit and new tag to main
-      - name: Push changes
-        run: git push --follow-tags origin main
+          # 'semantic-release version --print' outputs the next version number if a release is warranted.
+          # If no release is needed, it exits with an error, so '|| true' prevents this from failing the workflow.
+          NEXT_VERSION=$(semantic-release version --print 2>/dev/null || true)
 
-      # Create GitHub release as draft for manual review
-      - name: Create Draft GitHub Release
+          # Checks if the command produced a version number.
+          if [[ -n "$NEXT_VERSION" ]]; then
+            echo "✅ Release needed: v${NEXT_VERSION}"
+            # Sets outputs that can be used by subsequent steps' 'if' conditions.
+            echo "IS_NEW_RELEASE=true" >> $GITHUB_OUTPUT
+            echo "VERSION=${NEXT_VERSION}" >> $GITHUB_OUTPUT
+          else
+            echo "ℹ️  No release needed - no relevant commits since last release"
+            echo "IS_NEW_RELEASE=false" >> $GITHUB_OUTPUT
+          fi
+
+      # If this is a dry run and a new version is pending, this step runs a preview.
+      - name: Preview Release (Dry Run)
+        if: inputs.dry_run == true && steps.semver.outputs.IS_NEW_RELEASE == 'true'
+        run: |
+          echo "🛡️ DRY RUN MODE - Previewing what would happen for v${{ steps.semver.outputs.VERSION }}"
+          echo ""
+          # The '--noop' flag tells semantic-release to report what it would do without making any changes.
+          semantic-release --noop -vv
+
+      # This step performs the actual release, but only if it's not a dry run AND a new version exists.
+      - name: Create and Publish Release
+        if: inputs.dry_run == false && steps.semver.outputs.IS_NEW_RELEASE == 'true'
         env:
+          # semantic-release requires this token to authenticate with the GitHub API.
           GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}
         run: |
-          # Creates draft release with auto-generated notes from commits
-          # Draft allows final review before making release public
-          gh release create ${{ env.NEW_TAG }} --draft --generate-notes
+          echo "🚀 Creating and publishing release v${{ steps.semver.outputs.VERSION }}..."
+          # The 'publish' command automatically handles all release tasks: bumping the version,
+          # updating the changelog, creating a Git tag, and publishing a GitHub Release.
+          semantic-release -v publish
+
+      # Creates a neat summary in the GitHub Actions UI if a release was successful.
+      - name: Release Summary
+        if: inputs.dry_run == false && steps.semver.outputs.IS_NEW_RELEASE == 'true'
+        run: |
+          # Writing to '$GITHUB_STEP_SUMMARY' creates a formatted report on the workflow run page.
+          echo "## ✅ Release Successful" >> $GITHUB_STEP_SUMMARY
+          echo "" >> $GITHUB_STEP_SUMMARY
+          echo "Version **v${{ steps.semver.outputs.VERSION }}** has been successfully published." >> $GITHUB_STEP_SUMMARY
+          echo "" >> $GITHUB_STEP_SUMMARY
+          echo "### What was done:" >> $GITHUB_STEP_SUMMARY
+          echo "- 📝 Version bumped in pyproject.toml" >> $GITHUB_STEP_SUMMARY
+          echo "- 📋 CHANGELOG.md updated" >> $GITHUB_STEP_SUMMARY
+          echo "- 🏷️ Git tag v${{ steps.semver.outputs.VERSION }} created" >> $GITHUB_STEP_SUMMARY
+          echo "- 📦 Distribution packages built" >> $GITHUB_STEP_SUMMARY
+          echo "- 🚀 GitHub release published" >> $GITHUB_STEP_SUMMARY
+          echo "" >> $GITHUB_STEP_SUMMARY
+          echo "🔍 **[View the release on GitHub](https://github.com/${{ github.repository }}/releases/tag/v${{ steps.semver.outputs.VERSION }})**" >> $GITHUB_STEP_SUMMARY
+
+      # Dry run summary with next steps
+      - name: Dry Run Summary
+        if: inputs.dry_run == true && steps.semver.outputs.IS_NEW_RELEASE == 'true'
+        run: |
+          echo "## 🛡️ Dry Run Completed" >> $GITHUB_STEP_SUMMARY
+          echo "" >> $GITHUB_STEP_SUMMARY
+          echo "A new release **v${{ steps.semver.outputs.VERSION }}** is ready to be published." >> $GITHUB_STEP_SUMMARY
+          echo "" >> $GITHUB_STEP_SUMMARY
+          echo "### Preview shows these changes would be made:" >> $GITHUB_STEP_SUMMARY
+          echo "- 📝 Version bump: **v${{ steps.semver.outputs.VERSION }}**" >> $GITHUB_STEP_SUMMARY
+          echo "- 📋 Changelog updates based on recent commits" >> $GITHUB_STEP_SUMMARY
+          echo "- 🏷️ Git tag creation and push" >> $GITHUB_STEP_SUMMARY
+          echo "- 📦 Package building and GitHub release" >> $GITHUB_STEP_SUMMARY
+          echo "" >> $GITHUB_STEP_SUMMARY
+          echo "### To publish this release:" >> $GITHUB_STEP_SUMMARY
+          echo "Re-run this workflow with **dry_run** set to **false**" >> $GITHUB_STEP_SUMMARY
+
+      # Informs the user that no action was taken because no relevant changes were found.
+      - name: No Action Summary
+        if: steps.semver.outputs.IS_NEW_RELEASE == 'false'
+        run: |
+          echo "## ℹ️ No Release Created" >> $GITHUB_STEP_SUMMARY
+          echo "" >> $GITHUB_STEP_SUMMARY
+          echo "No relevant changes were detected since the last release." >> $GITHUB_STEP_SUMMARY
+          echo "" >> $GITHUB_STEP_SUMMARY
+          echo "### To trigger a release, ensure commits follow conventional format:" >> $GITHUB_STEP_SUMMARY
+          echo "- \`feat:\` for new features (minor version bump)" >> $GITHUB_STEP_SUMMARY
+          echo "- \`fix:\` for bug fixes (patch version bump)" >> $GITHUB_STEP_SUMMARY
+          echo "- \`feat!:\` or \`BREAKING CHANGE:\` for breaking changes (major version bump)" >> $GITHUB_STEP_SUMMARY
