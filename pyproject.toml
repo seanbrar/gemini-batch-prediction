@@ -39,7 +39,7 @@ dev = [
     "pytest-cov>=6.2.1",
     "pytest-golden>=0.2.2",
     "pytest-mock>=3.14.1",
-    "python-semantic-release>=9.21.1",
+    "python-semantic-release==10.2.0",
     "ruff>=0.12.2",
     "vulture>=2.14",
 ]
