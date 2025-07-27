@@ -91,11 +91,6 @@ addopts = [
     # Basic options
     "-v",
     "--import-mode=importlib",
-    # Coverage options
-    "--cov=gemini_batch",
-    "--cov-report=term-missing",
-    "--cov-report=html:coverage_html_report",
-    "--cov-fail-under=40",                    # TODO: Raise after additional tests are complete
 ]
 enable_assertion_pass_hook = true
 

@@ -109,11 +109,13 @@ jobs:
       # If this is a dry run and a new version is pending, this step runs a preview.
       - name: Preview Release (Dry Run)
         if: inputs.dry_run == true && steps.semver.outputs.IS_NEW_RELEASE == 'true'
+        env:
+          GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}
         run: |
           echo "🛡️ DRY RUN MODE - Previewing what would happen for v${{ steps.semver.outputs.VERSION }}"
           echo ""
           # The '--noop' flag tells semantic-release to report what it would do without making any changes.
-          semantic-release --noop -vv
+          semantic-release --noop -vv version
 
       # This step performs the actual release, but only if it's not a dry run AND a new version exists.
       - name: Create and Publish Release
