@@ -2,6 +2,7 @@
 Global test configuration with support for different test types.
 """
 
+import logging
 import os
 from unittest.mock import MagicMock, PropertyMock, patch
 
@@ -10,9 +11,16 @@ import pytest
 
 from gemini_batch import BatchProcessor, GeminiClient
 
+
+# --- Logging Fixtures ---
+@pytest.fixture(scope="session", autouse=True)
+def quiet_noisy_libraries():
+    """Sets the log level for noisy external libraries to WARNING."""
+    logging.getLogger("urllib3").setLevel(logging.WARNING)
+    logging.getLogger("requests").setLevel(logging.WARNING)
+
+
 # --- Test Environment Markers ---
-
-
 def pytest_configure(config):
     """Configure custom markers for test organization."""
     markers = [
