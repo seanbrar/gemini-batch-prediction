@@ -93,6 +93,16 @@ addopts = [
     "--import-mode=importlib",
 ]
 enable_assertion_pass_hook = true
+log_cli = true
+log_cli_level = "INFO"
+log_cli_format = "%(name)-40s - %(levelname)-8s - %(message)s"
+log_cli_date_format = "%Y-%m-%d %H:%M:%S"
+
+markers = [
+    "integration: marks tests as integration tests (slow, requires external tools)",
+    "api: marks tests as API integration tests (requires API key)",
+    "unit: marks tests as fast unit tests",
+]
 
 # --- Ruff ---
 [tool.ruff]
