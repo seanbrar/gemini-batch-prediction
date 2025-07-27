@@ -26,7 +26,7 @@ install-dev: ## 📦 Install all development dependencies
 
 test: ## 🎯 Run the default test suite (unit + characterization) without coverage
 	@echo "🎯 Running default test suite (unit + characterization)..."
-	$(PYTEST) $(PYTEST_ARGS) --log-cli-level=$(TEST_LOG_LEVEL) tests/unit/ tests/characterization/
+	$(PYTEST) $(PYTEST_ARGS) --log-cli-level=$(TEST_LOG_LEVEL) -m "unit or characterization"
 
 test-coverage: ## 📊 Run all tests and generate a coverage report
 	@echo "📊 Running all tests with coverage report..."
@@ -54,19 +54,19 @@ clean: ## 🧹 Clean up all test and build artifacts
 
 test-unit: ## 🧪 Run all unit tests
 	@echo "🧪 Running unit tests..."
-	$(PYTEST) $(PYTEST_ARGS) --log-cli-level=$(TEST_LOG_LEVEL) tests/unit/
+	$(PYTEST) $(PYTEST_ARGS) --log-cli-level=$(TEST_LOG_LEVEL) -m "unit"
 
 test-characterization: ## 📸 Run characterization (golden file) tests
 	@echo "📸 Running characterization tests..."
-	$(PYTEST) $(PYTEST_ARGS) --log-cli-level=$(TEST_LOG_LEVEL) tests/characterization/
+	$(PYTEST) $(PYTEST_ARGS) --log-cli-level=$(TEST_LOG_LEVEL) -m "characterization"
 
 test-integration: .check-semantic-release ## 🔗 Run integration tests
 	@echo "🔗 Running integration tests..."
-	$(PYTEST) $(PYTEST_ARGS) -m integration --log-cli-level=$(TEST_LOG_LEVEL) tests/integration/
+	$(PYTEST) $(PYTEST_ARGS) --log-cli-level=$(TEST_LOG_LEVEL) -m "integration"
 
 test-api: .check-api-key ## 🔑 Run API tests (requires GEMINI_API_KEY)
 	@echo "🔑 Running API integration tests..."
-	$(PYTEST) $(PYTEST_ARGS) -m api --log-cli-level=$(TEST_LOG_LEVEL) tests/api_integration/
+	$(PYTEST) $(PYTEST_ARGS) --log-cli-level=$(TEST_LOG_LEVEL) -m "api"
 
 # ------------------------------------------------------------------------------
 # Prerequisite Checks (Internal)
