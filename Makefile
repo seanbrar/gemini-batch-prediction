@@ -63,7 +63,11 @@ test-golden-files: ## 📸 Run golden file regression tests
 
 test-integration: .check-semantic-release ## 🔗 Run integration tests
 	@echo "🔗 Running integration tests..."
-	$(PYTEST) $(PYTEST_ARGS) --log-cli-level=$(TEST_LOG_LEVEL) -m "integration"
+	@if $(PYTEST) --collect-only -q -m "integration" | grep -q "no tests ran\|collected 0 items"; then \
+		echo "⚠️  No integration tests found, skipping..."; \
+	else \
+		$(PYTEST) $(PYTEST_ARGS) --log-cli-level=$(TEST_LOG_LEVEL) -m "integration"; \
+	fi
 
 test-api: .check-api-key ## 🔑 Run API tests (requires GEMINI_API_KEY)
 	@echo "🔑 Running API integration tests..."
