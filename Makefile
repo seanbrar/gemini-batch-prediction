@@ -34,9 +34,8 @@ test-coverage: ## 📊 Run all tests and generate a coverage report
 	$(PYTEST) $(PYTEST_ARGS) $(COVERAGE_ARGS) --log-cli-level=$(TEST_LOG_LEVEL) tests/
 	@echo "✅ Coverage report generated in coverage_html_report/"
 
-test-all: test ## 🏁 Run all non-API tests
+test-all: test test-integration ## 🏁 Run all non-API tests
 	@echo "✅ All non-API tests complete."
-	# TODO: Add test-integration when integration tests exist
 
 lint: ## ✒️ Check formatting and lint code
 	@echo "✒️ Checking formatting and linting with ruff..."

@@ -1,0 +1,104 @@
+{%- set sections = {
+"features": "✨ Features",
+"bug fixes": "🐛 Bug Fixes",
+"performance improvements": "⚡ Performance Improvements",
+"reverts": "Reverts",
+"refactoring": "♻️ Refactoring",
+"documentation": "📚 Documentation",
+"build system": "📦 Build System & Dependencies"
+} -%}
+
+{#- Macro to check if there are any commits that will actually be rendered -#}
+{%- macro has_renderable_commits(commits_by_type) -%}
+{%- set ns = namespace(found=false) -%}
+{%- for section_key in sections.keys() -%}
+{%- if commits_by_type.get(section_key) -%}
+{%- set ns.found = true -%}
+{%- endif -%}
+{%- endfor -%}
+{%- if ns.found -%}true{%- endif -%}
+{%- endmacro -%}
+
+{#- Macro to render the content of a single commit line -#}
+{%- macro render_commit_content(commit) -%}
+{%- if commit.scope -%}
+**({{ commit.scope }})** {{- " " -}}
+{%- endif -%}
+{%- if commit.descriptions and commit.descriptions[0] -%}
+{{- commit.descriptions[0][0] | upper ~ commit.descriptions[0][1:] -}}
+{%- endif -%}
+{{- " " -}}
+([`{{ commit.short_hash }}`]({{ commit.hexsha | commit_hash_url }}))
+{%- if commit.linked_issues -%}
+{{- " " -}}
+({%- for issue in commit.linked_issues -%}
+[{{- issue }}]({{ issue | issue_url }})
+{%- if not loop.last -%}, {% endif -%}
+{%- endfor -%})
+{%- endif -%}
+{%- endmacro -%}
+
+{#- Macro to render breaking changes from a list of commits -#}
+{%- macro render_breaking_changes(commits) -%}
+{# First, collect all breaking change descriptions into a single list #}
+{% set all_descriptions = [] %}
+{% for commit in commits %}
+{% if commit.breaking_descriptions %}
+{% set _ = all_descriptions.extend(commit.breaking_descriptions) %}
+{% endif %}
+{% endfor %}
+
+{# Then, use the |unique filter to de-duplicate the list #}
+{%- set changes = all_descriptions | unique | list -%}
+
+{%- if changes %}
+### 💥 Breaking Changes
+
+{% for desc in changes %}
+- {% if desc %}{{ (desc[0] | upper) + desc[1:] }}{% endif %}{% if not loop.last %}{{ '\n' }}{% endif %}
+{% endfor %}
+
+{% endif %}
+{%- endmacro %}
+
+{#- Renders all sections for a given release -#}
+{%- macro render_release_sections(commits_by_type) %}
+{%- set breaking_content = render_breaking_changes(commits_by_type.values() | sum(start=[])) -%}
+{{- breaking_content -}}
+{%- set has_prior_content = breaking_content | trim | length > 0 -%}
+{% for section_key, section_title in sections.items() -%}
+{%- if commits_by_type[section_key] -%}
+{%- if has_prior_content %}
+
+{% endif %}
+### {{ section_title }}
+
+{% for commit in commits_by_type[section_key] | sort(attribute='scope') -%}
+- {{ render_commit_content(commit) }}
+{% endfor %}
+{%- set has_prior_content = true -%}
+{%- endif %}
+{%- endfor %}
+{%- endmacro %}
+
+{#- Macro to render the comparison links for all releases -#}
+{%- macro render_comparison_links(history) -%}
+{%- set links = [] %}
+{%- set releases = history.released.values() | sort(attribute='version') %}
+{%- if releases %}
+{%- set base_url = (("v" ~ releases[0].version) | compare_url("HEAD")) | replace("compare/v" ~ releases[0].version ~ "...HEAD", "") %}
+{%- if history.unreleased and has_renderable_commits(history.unreleased) %}
+{%- set unreleased_link = "[Unreleased]: " ~ (("v" ~ releases[-1].version) | compare_url("HEAD")) %}
+{%- set _ = links.append(unreleased_link) %}
+{%- endif %}
+{%- for release in releases %}
+{%- if loop.first %}
+{%- set release_link = "[" ~ release.version ~ "]: " ~ (base_url ~ "releases/tag/v" ~ release.version) %}
+{%- else %}
+{%- set release_link = "[" ~ release.version ~ "]: " ~ (("v" ~ loop.previtem.version) | compare_url("v" ~ release.version)) %}
+{%- endif %}
+{%- set _ = links.append(release_link) %}
+{%- endfor %}
+{%- endif %}
+{{ links | join('\n') }}
+{%- endmacro -%}
