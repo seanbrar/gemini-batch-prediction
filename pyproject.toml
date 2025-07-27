@@ -189,29 +189,23 @@ convention = "google"
 # --- Semantic Release ---
 [tool.semantic_release]
 version_toml = ["pyproject.toml:project.version"]
-allow_zero_version = true
 build_command = "python -m build"
-major_on_zero = false
 tag_format = "v{version}"
-upload_to_pypi = false
+allow_zero_version = true
+major_on_zero = false
 
 [tool.semantic_release.branches.main]
-match = "main"
+match = "build/changelog-template"
 prerelease = false
 
 [tool.semantic_release.changelog]
-exclude_commit_patterns = [
-    "^build",
-    "^chore",
-    "^docs",
-    "^ci",
-    "^refactor",
-    "^style",
-    "^test",
-]
+template_dir = "templates"
+mode = "update"
+insertion_flag = "<!-- PSR-INSERT-FLAG -->"
 
-[tool.semantic_release.changelog.default_templates]
-changelog_file = "CHANGELOG.md"
+[tool.semantic_release.changelog.environment]
+lstrip_blocks = true
+trim_blocks = true
 
 [tool.semantic_release.publish]
 dist_glob_patterns = ["dist/*"]

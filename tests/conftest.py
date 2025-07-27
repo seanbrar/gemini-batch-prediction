@@ -2,14 +2,20 @@
 Global test configuration with support for different test types.
 """
 
+from collections.abc import Generator
+from datetime import datetime
 import logging
 import os
+from pathlib import Path
+import subprocess
 from unittest.mock import MagicMock, PropertyMock, patch
 
+from jinja2 import Environment, FileSystemLoader
 from pydantic import BaseModel
 import pytest
 
 from gemini_batch import BatchProcessor, GeminiClient
+from tests.helpers import MockCommit
 
 
 # --- Logging Fixtures ---
@@ -189,11 +195,381 @@ def fs(fs):
     return fs
 
 
+# --- Integration Fixtures ---
+@pytest.fixture
+def initialized_git_repo(tmp_path: Path) -> Generator[Path]:
+    """
+    Creates a temporary, isolated Git repository configured for semantic-release.
+
+    This fixture provides a clean starting point for integration tests
+    that need to run semantic-release commands. It yields the path to the
+    repo, which is automatically cleaned up by pytest.
+    """
+    repo_path = tmp_path / "repo"
+    repo_path.mkdir()
+
+    # --- Create a minimal configuration for semantic-release ---
+    config_content = """
+    [tool.semantic_release]
+    version_source = "file"
+    version_variable = "VERSION"
+    changelog_file = "CHANGELOG.md"
+    """
+    (repo_path / "pyproject.toml").write_text(config_content)
+    (repo_path / "VERSION").write_text("0.1.0")
+
+    # Helper to run commands within the repo
+    def run(command: list[str]) -> subprocess.CompletedProcess[str]:
+        return subprocess.run(  # noqa: S603  # The command is a hardcoded list of strings, not user input.
+            command,
+            cwd=repo_path,
+            check=True,
+            capture_output=True,
+            text=True,
+            shell=False,
+        )
+
+    # Initialize and configure the Git repository
+    run(["git", "init"])
+    run(["git", "remote", "add", "origin", "https://github.com/user/repo.git"])
+    run(["git", "config", "user.name", "Test User"])
+    run(["git", "config", "user.email", "test@example.com"])
+    run(["git", "add", "."])
+    run(["git", "commit", "-m", "initial commit"])
+    run(["git", "tag", "v0.1.0"])  # Tag the first commit
+
+    yield repo_path
+
+
 # --- Pydantic Schema for Structured Tests ---
-
-
 class SimpleSummary(BaseModel):
     """A simple Pydantic schema for structured output tests."""
 
     summary: str
     key_points: list[str]
+
+
+# --- Changelog Fixtures ---
+@pytest.fixture(scope="module")
+def jinja_env():
+    """Provides a configured Jinja2 environment for template tests."""
+    template_path = Path("templates")
+    if not template_path.exists():
+        pytest.skip("Changelog template directory not found.")
+
+    # Create a Jinja environment similar to semantic-release's environment,
+    # matching settings in pyproject.toml
+    env = Environment(  # noqa: S701
+        loader=FileSystemLoader(searchpath=str(template_path)),
+        trim_blocks=True,
+        lstrip_blocks=True,
+    )
+
+    env.filters["commit_hash_url"] = (
+        lambda x: f"https://github.com/USER/REPO/commit/{x}"
+    )
+    env.filters["issue_url"] = (
+        lambda x: f"https://github.com/USER/REPO/issues/{x.lstrip('#')}"
+    )
+    env.filters["compare_url"] = (
+        lambda x, y: f"https://github.com/USER/REPO/compare/{x}...{y}"
+    )
+
+    return env
+
+
+@pytest.fixture
+def macros(jinja_env):
+    """Fixture to load the macros from the template file for direct testing."""
+    # This loads the macros and makes them available as attributes on the 'module' object
+    return jinja_env.get_template(".macros.j2").module
+
+
+@pytest.fixture
+def mock_changelog_context():
+    """
+    Provides a mock context dictionary using a robust Pydantic model.
+    This emulates the data passed by python-semantic-release.
+    """
+    # Create a structure mimicking semantic-release's history using the robust model
+    # See: https://python-semantic-release.readthedocs.io/en/latest/concepts/changelog_templates.html
+    return {
+        "history": {
+            "unreleased": {
+                "features": [
+                    MockCommit(
+                        type="feat",
+                        scope="api",
+                        descriptions=["add exciting new endpoint"],
+                        short_hash="f34t001",
+                        hexsha="f34t001" * 5,
+                        breaking_descriptions=[],
+                    ),
+                    MockCommit(
+                        type="feat",
+                        scope="client",
+                        descriptions=["link to external issues"],
+                        short_hash="f34t002",
+                        hexsha="f34t002" * 5,
+                        linked_issues=["#123", "#456"],
+                    ),
+                ],
+                "bug fixes": [
+                    MockCommit(
+                        type="fix",
+                        scope="client",
+                        descriptions=["resolve critical connection bug"],
+                        short_hash="f18x001",
+                        hexsha="f18x001" * 5,
+                    ),
+                    MockCommit(
+                        type="fix",
+                        scope="",
+                        descriptions=["correct a minor typo in the README"],
+                        short_hash="f18x002",
+                        hexsha="f18x002" * 5,
+                    ),
+                ],
+                "refactoring": [
+                    MockCommit(
+                        type="refactor",
+                        scope="core",
+                        descriptions=["simplify internal logic"],
+                        short_hash="r3f4c70",
+                        hexsha="r3f4c70" * 5,
+                    ),
+                    MockCommit(
+                        type="refactor",
+                        scope="auth",
+                        descriptions=["rework authentication flow"],
+                        short_hash="r3f4c71",
+                        hexsha="r3f4c71" * 5,
+                        breaking_descriptions=[
+                            "A breaking change related to rework authentication flow."
+                        ],
+                    ),
+                ],
+            },
+            "released": {
+                "1.0.0": {
+                    "version": "1.0.0",
+                    "tagged_date": datetime(2024, 7, 1).date(),
+                    "elements": {
+                        "features": [
+                            MockCommit(
+                                type="feat",
+                                scope="core",
+                                descriptions=["implement initial logic"],
+                                short_hash="b4dfeat",
+                                hexsha="b4dfeat" * 5,
+                                breaking_descriptions=[
+                                    "A breaking change related to implement initial logic."
+                                ],
+                            ),
+                        ],
+                        "documentation": [
+                            MockCommit(
+                                type="docs",
+                                scope="",
+                                descriptions=["add README and contributing guide"],
+                                short_hash="d0c5001",
+                                hexsha="d0c5001" * 5,
+                            ),
+                        ],
+                        "build system": [
+                            MockCommit(
+                                type="build",
+                                scope="",
+                                descriptions=["configure pyproject.toml"],
+                                short_hash="b51ld01",
+                                hexsha="b51ld01" * 5,
+                            ),
+                        ],
+                    },
+                }
+            },
+        }
+    }
+
+
+@pytest.fixture
+def mock_changelog_context_no_breaking():
+    """Context with commits but no breaking changes."""
+    return {
+        "history": {
+            "unreleased": {
+                "bug fixes": [
+                    MockCommit(
+                        type="fix",
+                        scope="client",
+                        descriptions=["standardize usage metadata key"],
+                        short_hash="dd7b3e8",
+                        hexsha="dd7b3e8" * 5,
+                        breaking_descriptions=[],  # ← No breaking changes
+                    ),
+                ],
+                "features": [],
+                "refactoring": [],
+            },
+            "released": {
+                "1.0.0": {
+                    "version": "1.0.0",
+                    "tagged_date": datetime(2024, 7, 1).date(),
+                    "elements": {
+                        "features": [
+                            MockCommit(
+                                type="feat",
+                                scope="core",
+                                descriptions=["implement initial logic"],
+                                short_hash="b4dfeat",
+                                hexsha="b4dfeat" * 5,
+                                breaking_descriptions=[
+                                    "A breaking change related to implement initial logic."
+                                ],
+                            ),
+                        ],
+                        "documentation": [
+                            MockCommit(
+                                type="docs",
+                                scope="",
+                                descriptions=["add README and contributing guide"],
+                                short_hash="d0c5001",
+                                hexsha="d0c5001" * 5,
+                            ),
+                        ],
+                        "build system": [
+                            MockCommit(
+                                type="build",
+                                scope="",
+                                descriptions=["configure pyproject.toml"],
+                                short_hash="b51ld01",
+                                hexsha="b51ld01" * 5,
+                            ),
+                        ],
+                    },
+                }
+            },
+        }
+    }
+
+
+@pytest.fixture
+def mock_changelog_context_initial_release():
+    """
+    Context for testing the very first release when there is nothing to compare against.
+    This has only one released version and no 'unreleased' section.
+    """
+    return {
+        "history": {
+            "unreleased": {},  # No unreleased commits
+            "released": {
+                "1.0.0": {
+                    "version": "1.0.0",
+                    "tagged_date": datetime(2024, 7, 1).date(),
+                    "elements": {
+                        "features": [
+                            MockCommit(
+                                type="feat",
+                                scope="core",
+                                descriptions=["implement initial logic"],
+                                short_hash="b4dfeat",
+                                hexsha="b4dfeat" * 5,
+                                breaking_descriptions=[],
+                            ),
+                        ],
+                        "documentation": [
+                            MockCommit(
+                                type="docs",
+                                scope="",
+                                descriptions=["add README and contributing guide"],
+                                short_hash="d0c5001",
+                                hexsha="d0c5001" * 5,
+                            ),
+                        ],
+                    },
+                }
+            },
+        }
+    }
+
+
+@pytest.fixture
+def mock_changelog_context_multiple_releases():
+    """
+    Context for testing multiple releases with comparison links.
+    This has at least two released versions: 1.1.0 and 1.0.0.
+    """
+    return {
+        "history": {
+            "unreleased": {
+                "features": [
+                    MockCommit(
+                        type="feat",
+                        scope="api",
+                        descriptions=["add exciting new endpoint"],
+                        short_hash="f34t001",
+                        hexsha="f34t001" * 5,
+                        breaking_descriptions=[],
+                    ),
+                ],
+                "bug fixes": [],
+                "refactoring": [],
+                "performance improvements": [],
+                "reverts": [],
+                "documentation": [],
+                "build system": [],
+            },
+            "released": {
+                "1.1.0": {
+                    "version": "1.1.0",
+                    "tagged_date": datetime(2024, 8, 1).date(),
+                    "elements": {
+                        "features": [
+                            MockCommit(
+                                type="feat",
+                                scope="client",
+                                descriptions=["add client improvements"],
+                                short_hash="f34t002",
+                                hexsha="f34t002" * 5,
+                                breaking_descriptions=[],
+                            ),
+                        ],
+                        "bug fixes": [
+                            MockCommit(
+                                type="fix",
+                                scope="api",
+                                descriptions=["fix API response format"],
+                                short_hash="f18x003",
+                                hexsha="f18x003" * 5,
+                            ),
+                        ],
+                    },
+                },
+                "1.0.0": {
+                    "version": "1.0.0",
+                    "tagged_date": datetime(2024, 7, 1).date(),
+                    "elements": {
+                        "features": [
+                            MockCommit(
+                                type="feat",
+                                scope="core",
+                                descriptions=["implement initial logic"],
+                                short_hash="b4dfeat",
+                                hexsha="b4dfeat" * 5,
+                                breaking_descriptions=[],
+                            ),
+                        ],
+                        "documentation": [
+                            MockCommit(
+                                type="docs",
+                                scope="",
+                                descriptions=["add README and contributing guide"],
+                                short_hash="d0c5001",
+                                hexsha="d0c5001" * 5,
+                            ),
+                        ],
+                    },
+                },
+            },
+        }
+    }
