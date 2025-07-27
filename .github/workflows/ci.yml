@@ -1,10 +1,11 @@
-# Runs quality checks on feature branches and PRs to main
+# Runs quality checks on branches and PRs to main
 # Uses reusable workflow to avoid duplication with release pipeline
 name: CI
 
 on:
   push:
-    branches: ["feature/*"]  # Only feature branches, not main
+    branches: ["**"]
+  # Run on pull requests that target the main branch
   pull_request:
     branches: [main]
 
@@ -13,3 +14,8 @@ jobs:
     uses: ./.github/workflows/reusable-checks.yml
     with:
       python-version: "3.13"  # Explicit version passed to reusable workflow
+      # Conditionally select the test suite based on the event that triggered the workflow.
+      # On Pushes: Run the fast, default suite.
+      # On Pull Requests: Run the comprehensive suite.
+      # On Main Branch: Run the comprehensive suite.
+      test-command: ${{ (github.event_name == 'pull_request' || github.ref_name == 'main') && 'make test-all && make test-coverage' || 'make test' }}

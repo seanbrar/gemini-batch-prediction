@@ -9,9 +9,12 @@ on:
       python-version:
         required: true
         type: string
+      test-command:
+        required: true
+        type: string
 
 jobs:
-  lint:
+  quality:
     runs-on: ubuntu-latest
     steps:
       # Checkout code and set up Python environment
@@ -21,29 +24,15 @@ jobs:
         with:
           python-version: ${{ inputs.python-version }}
 
-      # Run ruff for formatting and linting checks
-      - name: Install ruff
-        run: pip install ruff
-      - name: Check formatting & lint
-        run: |
-          ruff format --check .
-          ruff check .
-
-  test:
-    runs-on: ubuntu-latest
-    steps:
-      - uses: actions/checkout@v4
-      - name: Set up Python ${{ inputs.python-version }}
-        uses: actions/setup-python@v5
-        with:
-          python-version: ${{ inputs.python-version }}
-
-      # Install package in development mode with test dependencies
       - name: Install dependencies
-        run: |
-          python -m pip install --upgrade pip
-          pip install -e ".[dev]"  # Installs gemini-batch + dev dependencies
+        run: make install-dev
 
-      # Run test suite (API tests skip automatically without GEMINI_API_KEY)
-      - name: Run tests
-        run: pytest -v
+      - name: Lint code
+        run: make lint
+
+      - name: Run Tests
+        env:
+          # Set the Makefile variable based on the PR's draft status.
+          # The 'true' on the end is needed because github.event.pull_request.draft is a boolean.
+          TEST_LOG_LEVEL: ${{ github.event.pull_request.draft == 'true' && 'DEBUG' || 'WARNING' }}
+        run: ${{ inputs.test-command }}
