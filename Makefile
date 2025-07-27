@@ -25,9 +25,9 @@ install-dev: ## 📦 Install all development dependencies
 	pip install -e ".[dev]"
 	@echo "✅ Development environment ready"
 
-test: ## 🎯 Run the default test suite (unit + characterization) without coverage
-	@echo "🎯 Running default test suite (unit + characterization)..."
-	$(PYTEST) $(PYTEST_ARGS) --log-cli-level=$(TEST_LOG_LEVEL) -m "unit or characterization"
+test: ## 🎯 Run the default test suite (unit + golden file regression) without coverage
+	@echo "🎯 Running default test suite (unit + golden file regression)..."
+	$(PYTEST) $(PYTEST_ARGS) --log-cli-level=$(TEST_LOG_LEVEL) -m "unit or golden_test"
 
 test-coverage: ## 📊 Run all tests and generate a coverage report
 	@echo "📊 Running all tests with coverage report..."
@@ -51,15 +51,15 @@ clean: ## 🧹 Clean up all test and build artifacts
 # ------------------------------------------------------------------------------
 # Granular Test Targets
 # ------------------------------------------------------------------------------
-.PHONY: test-unit test-characterization test-integration test-api
+.PHONY: test-unit test-golden-files test-integration test-api
 
 test-unit: ## 🧪 Run all unit tests
 	@echo "🧪 Running unit tests..."
 	$(PYTEST) $(PYTEST_ARGS) --log-cli-level=$(TEST_LOG_LEVEL) -m "unit"
 
-test-characterization: ## 📸 Run characterization (golden file) tests
-	@echo "📸 Running characterization tests..."
-	$(PYTEST) $(PYTEST_ARGS) --log-cli-level=$(TEST_LOG_LEVEL) -m "characterization"
+test-golden-files: ## 📸 Run golden file regression tests
+	@echo "📸 Running golden file regression tests..."
+	$(PYTEST) $(PYTEST_ARGS) --log-cli-level=$(TEST_LOG_LEVEL) -m "golden_test"
 
 test-integration: .check-semantic-release ## 🔗 Run integration tests
 	@echo "🔗 Running integration tests..."
