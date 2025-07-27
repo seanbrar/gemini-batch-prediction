@@ -5,7 +5,8 @@
 # ------------------------------------------------------------------------------
 PYTEST = pytest
 PYTEST_ARGS = -v
-COVERAGE_ARGS = --cov=gemini_batch --cov-report=term-missing --cov-report=html:coverage_html_report --cov-fail-under=40
+COVERAGE_FAIL_UNDER ?= 40
+COVERAGE_ARGS = --cov=gemini_batch --cov-report=term-missing --cov-report=html:coverage_html_report --cov-fail-under=$(COVERAGE_FAIL_UNDER)
 
 # Default log level for pytest's console output. Can be overridden.
 TEST_LOG_LEVEL ?= WARNING
