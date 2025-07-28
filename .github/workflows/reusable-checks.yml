@@ -3,7 +3,7 @@
 # Accepts Python version as input to support version matrix testing
 name: Reusable Python Checks
 
-on:
+"on":
   workflow_call:
     inputs:
       python-version:

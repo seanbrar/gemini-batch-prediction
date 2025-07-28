@@ -1,8 +1,8 @@
 # Runs quality checks on branches and PRs to main
 # Uses reusable workflow to avoid duplication with release pipeline
-name: CI
+name: Continuous Integration
 
-on:
+"on":
   push:
     branches: ["**"]
   # Run on pull requests that target the main branch
@@ -21,6 +21,8 @@ jobs:
         uses: devops-actions/actionlint@v0.1.9
 
   quality-checks:
+    # Ensures workflow linting passes before running application checks
+    needs: lint-workflows
     uses: ./.github/workflows/reusable-checks.yml
     with:
       python-version: "3.13"  # Explicit version passed to reusable workflow
