@@ -10,6 +10,16 @@ on:
     branches: [main]
 
 jobs:
+  lint-workflows:
+    name: Lint Workflow Files
+    runs-on: ubuntu-latest
+    steps:
+      - name: Checkout code
+        uses: actions/checkout@v4
+
+      - name: Lint workflows with actionlint
+        uses: devops-actions/actionlint@v0.1.9
+
   quality-checks:
     uses: ./.github/workflows/reusable-checks.yml
     with:
