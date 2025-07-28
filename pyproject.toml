@@ -102,6 +102,7 @@ markers = [
     "integration: marks tests as integration tests (slow, requires external tools)",
     "api: marks tests as API integration tests (requires API key)",
     "unit: marks tests as fast unit tests",
+    "workflows: marks tests as workflow configuration tests",
 ]
 
 # --- Ruff ---
