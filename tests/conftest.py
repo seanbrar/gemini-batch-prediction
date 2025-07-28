@@ -7,12 +7,15 @@ from datetime import datetime
 import logging
 import os
 from pathlib import Path
+import shutil
 import subprocess
+import tomllib
 from unittest.mock import MagicMock, PropertyMock, patch
 
 from jinja2 import Environment, FileSystemLoader
 from pydantic import BaseModel
 import pytest
+import yaml
 
 from gemini_batch import BatchProcessor, GeminiClient
 from tests.helpers import MockCommit
@@ -573,3 +576,144 @@ def mock_changelog_context_multiple_releases():
             },
         }
     }
+
+
+# --- Workflow Fixtures ---
+@pytest.fixture(scope="session")
+def act_executable() -> str:
+    """
+    Finds the full path to the 'act' executable and skips the test if not found.
+    """
+    path = shutil.which("act")
+    if not path:
+        pytest.skip("The 'act' executable was not found in the system's PATH.")
+    return path
+
+
+@pytest.fixture
+def release_workflow():
+    """Load the release workflow."""
+    with Path(".github/workflows/release.yml").open() as f:
+        data = yaml.safe_load(f)
+
+    assert isinstance(data, dict), "Release workflow must be a dictionary"
+    assert "workflow_dispatch" in data.get("on", {}), "Must be a release workflow"
+    return data
+
+
+@pytest.fixture
+def reusable_checks_workflow():
+    """Load the reusable checks workflow with proper typing."""
+    with Path(".github/workflows/reusable-checks.yml").open() as f:
+        data = yaml.safe_load(f)
+
+    assert isinstance(data, dict), "Reusable checks workflow must be a dictionary"
+    # Runtime validation that this is actually a reusable workflow
+    assert "workflow_call" in data.get("on", {}), "Must be a reusable workflow"
+
+    return data
+
+
+@pytest.fixture
+def ci_workflow():
+    """Load the CI workflow with proper typing."""
+    with Path(".github/workflows/ci.yml").open() as f:
+        data = yaml.safe_load(f)
+
+    assert isinstance(data, dict), "CI workflow must be a dictionary"
+    return data
+
+
+@pytest.fixture
+def semantic_release_config():
+    """Load semantic-release configuration."""
+    with Path("pyproject.toml").open("rb") as f:
+        config = tomllib.load(f)
+
+    assert isinstance(config, dict), "Configuration must be a dictionary"
+    sr_config = config["tool"]["semantic_release"]
+    assert isinstance(sr_config, dict), (
+        "Semantic release configuration must be a dictionary"
+    )
+    return sr_config
+
+
+@pytest.fixture
+def project_config():
+    """Load project configuration with proper typing."""
+    with Path("pyproject.toml").open("rb") as f:
+        config = tomllib.load(f)
+
+    assert isinstance(config, dict), "Project configuration must be a dictionary"
+    project_config = config["project"]
+    assert isinstance(project_config, dict), "Project section must be a dictionary"
+
+    return project_config
+
+
+@pytest.fixture
+def reusable_checks_inputs():
+    """Load required inputs from reusable-checks.yml."""
+    workflow_path = Path(".github/workflows/reusable-checks.yml")
+    with workflow_path.open() as f:
+        workflow = yaml.safe_load(f)
+
+    required_inputs = set()
+    inputs = workflow["on"]["workflow_call"]["inputs"]
+    for input_name, input_def in inputs.items():
+        if input_def.get("required", False):
+            required_inputs.add(input_name)
+
+    return required_inputs
+
+
+@pytest.fixture
+def all_workflows():
+    """Load all workflow files with proper typing."""
+    workflow_dir = Path(".github/workflows")
+    workflows = {}
+
+    for workflow_file in workflow_dir.glob("*.yml"):
+        with workflow_file.open() as f:
+            data = yaml.safe_load(f)
+        assert isinstance(data, dict), f"{workflow_file.name} must be a dictionary"
+        workflows[workflow_file.name] = data
+
+    return workflows
+
+
+@pytest.fixture
+def pyproject_python_version() -> str:
+    """Get the Python version from pyproject.toml."""
+    with Path("pyproject.toml").open("rb") as f:
+        config = tomllib.load(f)
+
+    # Extract minimum Python version from requires-python
+    requires_python = config["project"]["requires-python"]
+    assert isinstance(requires_python, str), "Requires Python must be a string"
+    # Parse ">=3.13" -> "3.13"
+    return requires_python.replace(">=", "").strip()
+
+
+@pytest.fixture
+def makefile_targets() -> set[str]:
+    """Extract available targets from Makefile."""
+    if not Path("Makefile").exists():
+        pytest.skip("Makefile not found")
+
+    with Path("Makefile").open() as f:
+        content = f.read()
+
+    # Simple extraction of .PHONY targets and explicit targets
+    targets = set()
+    for line in content.split("\n"):
+        line = line.strip()
+        if line.startswith(".PHONY:"):
+            phony_targets = line.replace(".PHONY:", "").strip().split()
+            targets.update(phony_targets)
+        elif ":" in line and not line.startswith("\t") and not line.startswith("#"):
+            target = line.split(":")[0].strip()
+            if target and not target.startswith("."):
+                targets.add(target)
+
+    return targets

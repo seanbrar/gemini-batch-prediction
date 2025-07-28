@@ -34,7 +34,7 @@ test-coverage: ## 📊 Run all tests and generate a coverage report
 	$(PYTEST) $(PYTEST_ARGS) $(COVERAGE_ARGS) --log-cli-level=$(TEST_LOG_LEVEL) tests/
 	@echo "✅ Coverage report generated in coverage_html_report/"
 
-test-all: test test-integration ## 🏁 Run all non-API tests
+test-all: test test-integration test-workflows ## 🏁 Run all non-API tests
 	@echo "✅ All non-API tests complete."
 
 lint: ## ✒️ Check formatting and lint code
@@ -51,7 +51,7 @@ clean: ## 🧹 Clean up all test and build artifacts
 # ------------------------------------------------------------------------------
 # Granular Test Targets
 # ------------------------------------------------------------------------------
-.PHONY: test-unit test-golden-files test-integration test-api
+.PHONY: test-unit test-golden-files test-integration test-api test-workflows
 
 test-unit: ## 🧪 Run all unit tests
 	@echo "🧪 Running unit tests..."
@@ -68,6 +68,10 @@ test-integration: .check-semantic-release ## 🔗 Run integration tests
 test-api: .check-api-key ## 🔑 Run API tests (requires GEMINI_API_KEY)
 	@echo "🔑 Running API integration tests..."
 	$(PYTEST) $(PYTEST_ARGS) --log-cli-level=$(TEST_LOG_LEVEL) -m "api"
+
+test-workflows: ## 🔧 Run workflow configuration tests
+	@echo "🔧 Running workflow configuration tests..."
+	$(PYTEST) $(PYTEST_ARGS) --log-cli-level=$(TEST_LOG_LEVEL) -m "workflows"
 
 # ------------------------------------------------------------------------------
 # Prerequisite Checks (Internal)
