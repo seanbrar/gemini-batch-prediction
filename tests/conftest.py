@@ -10,6 +10,7 @@ from pathlib import Path
 import shutil
 import subprocess
 import tomllib
+import typing
 from unittest.mock import MagicMock, PropertyMock, patch
 
 from jinja2 import Environment, FileSystemLoader
@@ -717,3 +718,56 @@ def makefile_targets() -> set[str]:
                 targets.add(target)
 
     return targets
+
+
+@pytest.fixture
+def e2e_git_repo(
+    tmp_path: Path,
+) -> Generator[
+    tuple[Path, typing.Callable[[list[str]], subprocess.CompletedProcess[str]]]
+]:
+    """
+    Creates a temporary, isolated Git repository with a full copy of the
+    project's essential files.
+
+    This provides a high-fidelity environment for end-to-end workflow tests
+    using 'act'. It yields the repository path and a helper function to run
+    commands within that repository.
+    """
+    repo_path = tmp_path / "repo"
+    repo_path.mkdir()
+
+    # --- Copy all essential project files to the isolated environment ---
+    essential_files = ["pyproject.toml", "Makefile", "README.md", "LICENSE"]
+    essential_dirs = [".github", "src", "tests", "templates"]
+
+    for file in essential_files:
+        if Path(file).exists():
+            shutil.copy(file, repo_path)
+
+    for directory in essential_dirs:
+        if Path(directory).is_dir():
+            shutil.copytree(directory, repo_path / directory)
+
+    # --- Helper to run commands within the repo's context ---
+    def run_in_repo(command: list[str]) -> subprocess.CompletedProcess[str]:
+        return subprocess.run(  # noqa: S603
+            command,
+            cwd=repo_path,
+            check=True,
+            capture_output=True,
+            text=True,
+            shell=False,
+        )
+
+    # --- Initialize and configure the Git repository ---
+    run_in_repo(["git", "init", "--initial-branch=main"])
+    run_in_repo(["git", "remote", "add", "origin", "https://github.com/user/repo.git"])
+    run_in_repo(["git", "config", "user.name", "Test User"])
+    run_in_repo(["git", "config", "user.email", "test@example.com"])
+    run_in_repo(["git", "add", "."])
+    # Use a non-conventional-commit message for the initial commit
+    run_in_repo(["git", "commit", "-m", "chore: initial commit of project files"])
+    run_in_repo(["git", "tag", "v0.1.0"])  # Tag the first commit
+
+    yield repo_path, run_in_repo
