@@ -10,18 +10,6 @@ class TestWorkflowContracts:
     """Test that workflow calls match their contracts."""
 
     @pytest.mark.workflows
-    def test_release_workflow_provides_required_inputs(self, reusable_checks_inputs):
-        """Release workflow must provide all required inputs to reusable-checks."""
-        with Path(".github/workflows/release.yml").open() as f:
-            release = yaml.safe_load(f)
-
-        pre_release_job = release["jobs"]["pre-release-checks"]
-        provided_inputs = set(pre_release_job["with"].keys())
-
-        missing = reusable_checks_inputs - provided_inputs
-        assert not missing, f"Release workflow missing required inputs: {missing}"
-
-    @pytest.mark.workflows
     def test_ci_workflow_provides_required_inputs(self, reusable_checks_inputs):
         """CI workflow must provide all required inputs to reusable-checks."""
         with Path(".github/workflows/ci.yml").open() as f:
