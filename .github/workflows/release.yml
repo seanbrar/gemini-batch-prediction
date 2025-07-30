@@ -35,6 +35,9 @@ jobs:
           fetch-depth: 0
           ssh-key: ${{ secrets.RELEASE_WORKFLOW_DEPLOY_KEY }}
 
+      - name: Install build dependencies
+        run: python -m pip install build
+
       - name: Create and Publish Release
         id: release
         uses: python-semantic-release/python-semantic-release@v10.2.0
