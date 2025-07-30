@@ -16,7 +16,7 @@ jobs:
     # Prevents multiple instances of this release job from running at the same time,
     # which avoids race conditions where two releases could be created for the same code.
     concurrency:
-      group: release
+      group: ${{ github.workflow }}-${{ github.ref }}
       cancel-in-progress: false
 
     # Defines the permissions granted to the GITHUB_TOKEN for this job.
@@ -33,179 +33,32 @@ jobs:
           # Fetches the entire Git history, which semantic-release needs
           # to analyze all commits since the last release.
           fetch-depth: 0
-          ssh-key: ${{ secrets.RELEASE_WORKFLOW_DEPLOY_KEY }}
+          ssh-key: ${{ secrets.SEMANTIC_RELEASE_PAT }}
 
-      - name: Set up Python 3.13
-        uses: actions/setup-python@v5
-        with:
-          python-version: "3.13"
-
-      - name: Install dependencies and configure Git
-        run: |
-          # Installs the project's dependencies, including development tools like semantic-release.
-          python -m pip install --upgrade pip
-          pip install -e ".[dev]"
-          # Configures Git with a bot identity for the commits that semantic-release will create.
-          git config user.name "github-actions[bot]"
-          git config user.email "github-actions[bot]@users.noreply.github.com"
-
-      - name: Debug Repository State
-        run: |
-          echo "--- Runner Environment ---"
-          echo "Runner OS: $(uname -a)"
-          echo "Python version: $(python --version)"
-          echo "--- Git State ---"
-          echo "Current branch: $(git branch --show-current)"
-          echo "Last 5 commits:"
-          git log --oneline -5
-          echo "Last 10 version tags:"
-          git tag -l "v*" | sort -V | tail -10
-          echo "--- Configuration ---"
-          echo "pyproject.toml version: $(grep '^version = ' pyproject.toml || echo 'Not Found')"
-          echo "semantic-release config check:"
-          python -c "
-          import tomllib
-          try:
-              with open('pyproject.toml', 'rb') as f:
-                  config = tomllib.load(f)
-                  sr_config = config.get('tool', {}).get('semantic_release', {})
-                  print(f'  Tag format: {sr_config.get(\"tag_format\", \"NOT SET\")}')
-                  print(f'  Allow zero version: {sr_config.get(\"allow_zero_version\", \"NOT SET\")}')
-          except Exception as e:
-              print(f'  Could not parse config: {e}')
-          "
-          echo "---------------------------"
-
-      # Determines if a new release is needed based on commit messages.
-      - name: Determine Next Version
-        # The 'id' allows other steps to access the outputs of this step.
-        id: semver
-        run: |
-          echo "🔍 Analyzing commits to determine if a release is needed..."
-
-          # 'semantic-release version --print' outputs the next version number if a release is warranted.
-          # If no release is needed, it exits with an error, so '|| true' prevents this from failing the workflow.
-          NEXT_VERSION=$(semantic-release version --print 2>/dev/null || true)
-
-          # Checks if the command produced a version number.
-          if [[ -n "$NEXT_VERSION" ]]; then
-            echo "✅ Release needed: v${NEXT_VERSION}"
-            # Sets outputs that can be used by subsequent steps' 'if' conditions.
-            echo "IS_NEW_RELEASE=true" >> "$GITHUB_OUTPUT"
-            echo "VERSION=${NEXT_VERSION}" >> "$GITHUB_OUTPUT"
-          else
-            echo "ℹ️  No release needed - no relevant commits since last release"
-            echo "IS_NEW_RELEASE=false" >> "$GITHUB_OUTPUT"
-          fi
-
-      # If this is a dry run and a new version is pending, this step runs a preview.
-      - name: Preview Release (Dry Run)
-        if: inputs.dry_run == true && steps.semver.outputs.IS_NEW_RELEASE == 'true'
-        env:
-          GH_TOKEN: ${{ secrets.GITHUB_TOKEN }}
-        run: |
-          echo "🛡️ DRY RUN MODE - Previewing what would happen for v${{ steps.semver.outputs.VERSION }}"
-          echo ""
-          # The '--noop' flag tells semantic-release to report what it would do without making any changes.
-          semantic-release --noop -vv version
-
-      # This step performs the actual release, but only if it's not a dry run AND a new version exists.
       - name: Create and Publish Release
-        if: inputs.dry_run == false && steps.semver.outputs.IS_NEW_RELEASE == 'true'
-        env:
-          # semantic-release requires this token to authenticate with the GitHub API.
-          GH_TOKEN: ${{ secrets.GITHUB_TOKEN }}
-          # Necessary for the Git push operation..
-          RELEASE_SSH_KEY: ${{ secrets.RELEASE_WORKFLOW_DEPLOY_KEY }}
-        run: |
-          echo "🚀 Creating and publishing release v${{ steps.semver.outputs.VERSION }}..."
-
-          # 1. Set up the SSH key from the secret into a file.
-          echo "${RELEASE_SSH_KEY}" > release_key.pem
-          chmod 600 release_key.pem
-
-          # 2. Force all subsequent git commands to use this specific key via an SSH wrapper.
-          SSH_KEY_PATH="$(pwd)/release_key.pem"
-          export GIT_SSH_COMMAND="ssh -i ${SSH_KEY_PATH} -o IdentitiesOnly=yes -o StrictHostKeyChecking=no"
-
-          # 3. Explicitly set the git remote URL to use the SSH protocol.
-          #    This prevents semantic-release from trying to use HTTPS.
-          git remote set-url origin "git@github.com:${{ github.repository }}.git"
-
-          # 4. Run the release.
-          #    The `git push` inside this command will now be forced to use the deploy key via SSH.
-          #    The GitHub Release creation will use the separate GH_TOKEN for the API.
-          semantic-release -v publish
-
-      - name: Verify Release Artifacts
-        if: inputs.dry_run == false && steps.semver.outputs.IS_NEW_RELEASE == 'true'
-        run: |
-          echo "🔍 Verifying release artifacts were actually created..."
-
-          # Verify git tag was actually created
-          if ! git tag -l | grep -q "v${{ steps.semver.outputs.VERSION }}"; then
-            echo "❌ FAILURE: Git tag v${{ steps.semver.outputs.VERSION }} was not created!"
-            exit 1
-          fi
-
-          # Verify version was actually updated in pyproject.toml
-          CURRENT_VERSION=$(grep '^version = ' pyproject.toml | cut -d'"' -f2)
-          if [[ "$CURRENT_VERSION" != "${{ steps.semver.outputs.VERSION }}" ]]; then
-            echo "❌ FAILURE: pyproject.toml version not updated! Expected ${{ steps.semver.outputs.VERSION }}, got $CURRENT_VERSION"
-            exit 1
-          fi
-
-          echo "✅ All release artifacts verified successfully"
-
-      # Creates a neat summary in the GitHub Actions UI if a release was successful.
-      - name: Release Summary
-        if: inputs.dry_run == false && steps.semver.outputs.IS_NEW_RELEASE == 'true'
-        run: |
-          {
-            echo "## ✅ Release Successful"
-            echo ""
-            echo "Version **v${{ steps.semver.outputs.VERSION }}** has been successfully published."
-            echo ""
-            echo "### What was done:"
-            echo "- 📝 Version bumped in pyproject.toml"
-            echo "- 📋 CHANGELOG.md updated"
-            echo "- 🏷️ Git tag v${{ steps.semver.outputs.VERSION }} created"
-            echo "- 📦 Distribution packages built"
-            echo "- 🚀 GitHub release published"
-            echo ""
-            echo "🔍 **[View the release on GitHub](https://github.com/${{ github.repository }}/releases/tag/v${{ steps.semver.outputs.VERSION }})**"
-          } >> "$GITHUB_STEP_SUMMARY"
+        id: release
+        uses: python-semantic-release/python-semantic-release@v10.2.0
+        with:
+          # The action also needs to be authenticated with the PAT.
+          github_token: ${{ secrets.SEMANTIC_RELEASE_PAT }}
+          no_operation_mode: ${{ github.event.inputs.dry_run }}
 
       # Dry run summary with next steps
       - name: Dry Run Summary
-        if: inputs.dry_run == true && steps.semver.outputs.IS_NEW_RELEASE == 'true'
+        if: steps.release.outputs.released == 'false' && github.event.inputs.dry_run == true
         run: |
-          {
-            echo "## 🛡️ Dry Run Completed"
-            echo ""
-            echo "A new release **v${{ steps.semver.outputs.VERSION }}** is ready to be published."
-            echo ""
-            echo "### Preview shows these changes would be made:"
-            echo "- 📝 Version bump: **v${{ steps.semver.outputs.VERSION }}**"
-            echo "- 📋 Changelog updates based on recent commits"
-            echo "- 🏷️ Git tag creation and push"
-            echo "- 📦 Package building and GitHub release"
-            echo ""
-            echo "### To publish this release:"
-            echo "Re-run this workflow with **dry_run** set to **false**"
-          } >> "$GITHUB_STEP_SUMMARY"
+            {
+              echo "## 🛡️ Dry Run Completed"
+              echo "A new release **v${{ steps.release.outputs.version }}** is ready to be published."
+              echo "To publish, re-run this workflow with **dry_run** set to **false**."
+            } >> "$GITHUB_STEP_SUMMARY"
 
-      # Informs the user that no action was taken because no relevant changes were found.
-      - name: No Action Summary
-        if: steps.semver.outputs.IS_NEW_RELEASE == 'false'
+      - name: Release Summary
+        if: steps.release.outputs.released == 'true'
         run: |
-          {
-            echo "## ℹ️ No Release Created"
-            echo ""
-            echo "No relevant changes were detected since the last release."
-            echo ""
-            echo "### To trigger a release, ensure commits follow conventional format:"
-            echo "- \`feat:\` for new features (minor version bump)"
-            echo "- \`fix:\` for bug fixes (patch version bump)"
-            echo "- \`feat!:\` or \`BREAKING CHANGE:\` for breaking changes (major version bump)"
-          } >> "$GITHUB_STEP_SUMMARY"
+            {
+              echo "## ✅ Release Successful"
+              echo "Version **${{ steps.release.outputs.tag }}** has been successfully published."
+              echo ""
+              echo "🔍 **[View the release on GitHub](${{ steps.release.outputs.link }})**"
+            } >> "$GITHUB_STEP_SUMMARY"
