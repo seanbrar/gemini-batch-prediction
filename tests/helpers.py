@@ -6,7 +6,6 @@ imported explicitly by test modules.
 """
 
 from dataclasses import dataclass
-import os
 from pathlib import Path
 import subprocess
 
@@ -74,6 +73,7 @@ class ActCommand:
     verbose: bool = False
     inputs: dict[str, str] | None = None
     secrets: dict[str, str] | None = None
+    container_architecture: str | None = None
 
     def __post_init__(self):
         if self.inputs is None:
@@ -115,6 +115,11 @@ class ActCommand:
         self.secrets[key] = value
         return self
 
+    def with_container_architecture(self, architecture: str) -> "ActCommand":
+        """Set container architecture."""
+        self.container_architecture = architecture
+        return self
+
     def build_args(self) -> list[str]:
         """Build the command arguments list."""
         args = [self.executable, self.event]
@@ -130,6 +135,9 @@ class ActCommand:
 
         if self.verbose:
             args.append("-v")
+
+        if self.container_architecture:
+            args.extend(["--container-architecture", self.container_architecture])
 
         if self.inputs:
             for key, value in self.inputs.items():
@@ -228,7 +236,10 @@ class ActTestHelper:
     def run_lint_workflow(self) -> ActResult:
         """Run the lint-workflows job."""
         return (
-            self.create_act_command().with_job("lint-workflows").run(self.git.repo_path)
+            self.create_act_command()
+            .with_job("lint-workflows")
+            .with_container_architecture("linux/amd64")  # Fix for Apple M-series chips
+            .run(self.git.repo_path)
         )
 
     def run_pre_release_checks_dry_run(self) -> ActResult:
@@ -238,17 +249,19 @@ class ActTestHelper:
             .with_job("pre-release-checks")
             .with_dry_run(dry_run=True)
             .with_verbose(verbose=True)
+            .with_container_architecture("linux/amd64")  # Fix for Apple M-series chips
             .run(self.git.repo_path)
         )
 
     def run_release_workflow(
-        self, *, dry_run: bool = False, with_gh_token: bool = False
+        self, *, github_token: str, dry_run: bool = False, with_gh_token: bool = False
     ) -> ActResult:
-        """Run the release workflow with common configuration."""
+        """Run the release workflow with explicit token."""
         cmd = (
             self.create_act_command()
             .with_job("release")
             .with_workflow(".github/workflows/release.yml")
+            .with_container_architecture("linux/amd64")  # Fix for Apple M-series chips
         )
 
         if dry_run:
@@ -256,10 +269,8 @@ class ActTestHelper:
         else:
             cmd.with_input("dry_run", "false")
 
-        # Always add GITHUB_TOKEN for act to work
-        act_token = os.getenv("GITHUB_TOKEN_FOR_ACT")
-        if act_token:
-            cmd.with_secret("GITHUB_TOKEN", act_token)
+        # Use the provided github_token instead of environment lookup
+        cmd.with_secret("GITHUB_TOKEN", github_token)
 
         # Conditionally add GH_TOKEN for semantic-release
         if with_gh_token:
