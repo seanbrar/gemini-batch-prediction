@@ -33,7 +33,7 @@ jobs:
           # Fetches the entire Git history, which semantic-release needs
           # to analyze all commits since the last release.
           fetch-depth: 0
-          ssh-key: ${{ secrets.SEMANTIC_RELEASE_PAT }}
+          ssh-key: ${{ secrets.RELEASE_WORKFLOW_DEPLOY_KEY }}
 
       - name: Create and Publish Release
         id: release
