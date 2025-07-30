@@ -253,6 +253,19 @@ class ActTestHelper:
             .run(self.git.repo_path)
         )
 
+    def run_release_workflow_dry_run(self) -> ActResult:
+        """Run release workflow in dry run mode for testing."""
+        return (
+            self.create_act_command()
+            .with_job("release")
+            .with_workflow(".github/workflows/release.yml")
+            .with_input("dry_run", "true")
+            .with_dry_run(dry_run=True)
+            .with_verbose(verbose=True)
+            .with_container_architecture("linux/amd64")  # Fix for Apple M-series chips
+            .run(self.git.repo_path)
+        )
+
     def run_release_workflow(
         self, *, github_token: str, dry_run: bool = False, with_gh_token: bool = False
     ) -> ActResult:
