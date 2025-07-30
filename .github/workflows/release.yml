@@ -33,6 +33,7 @@ jobs:
           # Fetches the entire Git history, which semantic-release needs
           # to analyze all commits since the last release.
           fetch-depth: 0
+          ssh-key: ${{ secrets.RELEASE_WORKFLOW_DEPLOY_KEY }}
 
       - name: Set up Python 3.13
         uses: actions/setup-python@v5
@@ -112,30 +113,12 @@ jobs:
       - name: Create and Publish Release
         if: inputs.dry_run == false && steps.semver.outputs.IS_NEW_RELEASE == 'true'
         env:
-          # Provide the token for the GitHub API calls (creating the release page).
+          # semantic-release requires this token to authenticate with the GitHub API.
           GH_TOKEN: ${{ secrets.GITHUB_TOKEN }}
-          # Provide the deploy key for the Git push operation.
-          DEPLOY_KEY: ${{ secrets.DEPLOY_KEY }}
         run: |
           echo "🚀 Creating and publishing release v${{ steps.semver.outputs.VERSION }}..."
-
-          # 1. Set up the SSH key from the secret
-          #    This creates a key file that git can use.
-          echo "${DEPLOY_KEY}" > deploy_key
-          chmod 600 deploy_key
-
-          # 2. Force all subsequent git commands to use this specific key.
-          #    This overrides any git defaults and prevents confusion.
-          SSH_KEY_PATH="$(pwd)/deploy_key"
-          export GIT_SSH_COMMAND="ssh -i ${SSH_KEY_PATH} -o IdentitiesOnly=yes -o StrictHostKeyChecking=no"
-
-          # 3. Re-configure the git remote URL to use SSH.
-          #    The default checkout uses https; we must switch to the ssh protocol.
-          git remote set-url origin "git@github.com:${{ github.repository }}.git"
-
-          # 4. Run the release.
-          #    - The `git push` inside this command will now be forced to use the deploy key.
-          #    - The GitHub Release creation will use the GH_TOKEN.
+          # The 'publish' command automatically handles all release tasks: bumping the version,
+          # updating the changelog, creating a Git tag, and publishing a GitHub Release.
           semantic-release -v publish
 
       - name: Verify Release Artifacts
