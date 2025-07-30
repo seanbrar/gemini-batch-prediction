@@ -177,12 +177,17 @@ class TestWorkflowSecurity:
         """Steps that use commands requiring secrets must declare them in their env block."""
         workflow_dir = Path(".github/workflows")
 
-        # Define a map of commands that require specific secrets.
-        # The value should be the expected ${{ secrets.SECRET_NAME }} syntax.
-        secret_requirements = {
-            "semantic-release -v publish": "GITHUB_TOKEN",
-            "semantic-release publish": "GITHUB_TOKEN",
-            "reviewdog": "GITHUB_TOKEN",
+        # Define a map of commands that require specific environment variables.
+        # The value is the expected environment variable name.
+        command_requirements = {
+            "semantic-release -v publish": "GH_TOKEN",
+            "semantic-release publish": "GH_TOKEN",
+        }
+
+        # Map environment variable names to their expected secret sources.
+        # This ensures we validate that env vars reference the correct secrets.
+        secret_mapping = {
+            "GH_TOKEN": "GITHUB_TOKEN",  # semantic-release expects GH_TOKEN but uses GITHUB_TOKEN secret
         }
 
         for workflow_file in workflow_dir.glob("*.yml"):
@@ -203,20 +208,23 @@ class TestWorkflowSecurity:
                     # Merge step env for final scope
                     step_env = {**job_env, **step.get("env", {})}
 
-                    for command, secret_name in secret_requirements.items():
+                    for command, env_var_name in command_requirements.items():
                         if command in step["run"]:
-                            # 1. Check if the secret key is defined in the effective environment
-                            assert secret_name in step_env, (
+                            # 1. Check if the required environment variable is defined
+                            assert env_var_name in step_env, (
                                 f"{workflow_file.name} -> {job_name} -> step '{step.get('name')}' "
-                                f"uses '{command}' but is missing required secret '{secret_name}' in env."
+                                f"uses '{command}' but is missing required env var '{env_var_name}' in env."
                             )
 
-                            # 2. Check if the secret is referenced correctly
-                            expected_value = f"${{{{ secrets.{secret_name} }}}}"
-                            actual_value = step_env.get(secret_name)
+                            # 2. Check if the environment variable references the correct secret
+                            expected_secret = secret_mapping.get(
+                                env_var_name, env_var_name
+                            )
+                            expected_value = f"${{{{ secrets.{expected_secret} }}}}"
+                            actual_value = step_env.get(env_var_name)
                             assert actual_value == expected_value, (
                                 f"{workflow_file.name} -> {job_name} -> step '{step.get('name')}' "
-                                f"has secret '{secret_name}', but its value is incorrect. "
+                                f"has env var '{env_var_name}', but its value is incorrect. "
                                 f"Expected '{expected_value}', got '{actual_value}'."
                             )
 

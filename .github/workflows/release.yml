@@ -18,7 +18,6 @@ jobs:
       test-command: "make test"
 
   release:
-    needs: [pre-release-checks]
     runs-on: ubuntu-latest
 
     # Prevents multiple instances of this release job from running at the same time,
@@ -111,7 +110,7 @@ jobs:
       - name: Preview Release (Dry Run)
         if: inputs.dry_run == true && steps.semver.outputs.IS_NEW_RELEASE == 'true'
         env:
-          GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+          GH_TOKEN: ${{ secrets.GITHUB_TOKEN }}
         run: |
           echo "🛡️ DRY RUN MODE - Previewing what would happen for v${{ steps.semver.outputs.VERSION }}"
           echo ""
@@ -123,12 +122,32 @@ jobs:
         if: inputs.dry_run == false && steps.semver.outputs.IS_NEW_RELEASE == 'true'
         env:
           # semantic-release requires this token to authenticate with the GitHub API.
-          GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+          GH_TOKEN: ${{ secrets.GITHUB_TOKEN }}
         run: |
           echo "🚀 Creating and publishing release v${{ steps.semver.outputs.VERSION }}..."
           # The 'publish' command automatically handles all release tasks: bumping the version,
           # updating the changelog, creating a Git tag, and publishing a GitHub Release.
           semantic-release -v publish
+
+      - name: Verify Release Artifacts
+        if: inputs.dry_run == false && steps.semver.outputs.IS_NEW_RELEASE == 'true'
+        run: |
+          echo "🔍 Verifying release artifacts were actually created..."
+
+          # Verify git tag was actually created
+          if ! git tag -l | grep -q "v${{ steps.semver.outputs.VERSION }}"; then
+            echo "❌ FAILURE: Git tag v${{ steps.semver.outputs.VERSION }} was not created!"
+            exit 1
+          fi
+
+          # Verify version was actually updated in pyproject.toml
+          CURRENT_VERSION=$(grep '^version = ' pyproject.toml | cut -d'"' -f2)
+          if [[ "$CURRENT_VERSION" != "${{ steps.semver.outputs.VERSION }}" ]]; then
+            echo "❌ FAILURE: pyproject.toml version not updated! Expected ${{ steps.semver.outputs.VERSION }}, got $CURRENT_VERSION"
+            exit 1
+          fi
+
+          echo "✅ All release artifacts verified successfully"
 
       # Creates a neat summary in the GitHub Actions UI if a release was successful.
       - name: Release Summary

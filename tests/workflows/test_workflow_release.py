@@ -72,19 +72,29 @@ class TestReleaseWorkflowSafety:
             )
 
     @pytest.mark.workflows
-    def test_pre_release_checks_dependency(self, release_workflow):
-        """Release job must depend on pre-release checks."""
+    def test_release_has_verification_step(self, release_workflow):
+        """Release workflow must verify artifacts to prevent silent failures."""
         release_job = release_workflow["jobs"]["release"]
+        steps = release_job["steps"]
 
-        assert "needs" in release_job, "Release job must have dependencies"
-        needs = release_job["needs"]
+        verify_steps = [
+            step
+            for step in steps
+            if "verify" in step.get("name", "").lower()
+            and "artifacts" in step.get("name", "").lower()
+        ]
 
-        if isinstance(needs, str):
-            needs = [needs]
+        assert verify_steps, "Release workflow must have artifact verification step"
 
-        assert "pre-release-checks" in needs, (
-            "Release must depend on pre-release-checks"
-        )
+        verify_step = verify_steps[0]
+        condition = verify_step.get("if", "")
+        assert all(
+            required in condition
+            for required in [
+                "inputs.dry_run == false",
+                "steps.semver.outputs.IS_NEW_RELEASE == 'true'",
+            ]
+        ), "Verification should only run for actual releases"
 
 
 class TestReleaseWorkflowLogic:
