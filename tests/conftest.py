@@ -19,7 +19,7 @@ import pytest
 import yaml
 
 from gemini_batch import BatchProcessor, GeminiClient
-from tests.helpers import MockCommit
+from tests.helpers import ActTestHelper, GitHelper, MockCommit
 
 
 # --- Logging Fixtures ---
@@ -720,19 +720,57 @@ def makefile_targets() -> set[str]:
     return targets
 
 
+@pytest.fixture(scope="session")
+def git_executable() -> str:
+    """
+    Finds the git executable and skips tests if not found.
+    """
+    path = shutil.which("git")
+    if not path:
+        pytest.skip("The 'git' executable was not found in the system's PATH.")
+    return path
+
+
+@pytest.fixture
+def git_helper(
+    git_executable: str,
+    e2e_git_repo: tuple[
+        Path, typing.Callable[[list[str]], subprocess.CompletedProcess[str]]
+    ],
+) -> "GitHelper":
+    """Provides a GitHelper for the test repository."""
+
+    repo_path, _ = e2e_git_repo
+    return GitHelper(git_executable, repo_path)
+
+
+@pytest.fixture
+def act_helper(act_executable: str, git_helper: "GitHelper") -> "ActTestHelper":
+    """Provides a high-level ActTestHelper."""
+
+    return ActTestHelper(act_executable, git_helper)
+
+
+@pytest.fixture
+def github_token_for_act() -> str:
+    """Get GitHub token for act, skipping test if not available."""
+    token = os.getenv("GITHUB_TOKEN_FOR_ACT")
+    if not token:
+        pytest.skip("Set GITHUB_TOKEN_FOR_ACT environment variable to run this test")
+    return token
+
+
 @pytest.fixture
 def e2e_git_repo(
     tmp_path: Path,
-) -> Generator[
-    tuple[Path, typing.Callable[[list[str]], subprocess.CompletedProcess[str]]]
-]:
+    git_executable: str,
+) -> Generator[tuple[Path, "GitHelper"]]:
     """
     Creates a temporary, isolated Git repository with a full copy of the
     project's essential files.
 
     This provides a high-fidelity environment for end-to-end workflow tests
-    using 'act'. It yields the repository path and a helper function to run
-    commands within that repository.
+    using 'act'. It yields a GitHelper instance.
     """
     repo_path = tmp_path / "repo"
     repo_path.mkdir()
@@ -749,25 +787,16 @@ def e2e_git_repo(
         if Path(directory).is_dir():
             shutil.copytree(directory, repo_path / directory)
 
-    # --- Helper to run commands within the repo's context ---
-    def run_in_repo(command: list[str]) -> subprocess.CompletedProcess[str]:
-        return subprocess.run(  # noqa: S603
-            command,
-            cwd=repo_path,
-            check=True,
-            capture_output=True,
-            text=True,
-            shell=False,
-        )
+    # --- Create GitHelper and use it for setup ---
+    git_helper = GitHelper(git_executable, repo_path)
 
     # --- Initialize and configure the Git repository ---
-    run_in_repo(["git", "init", "--initial-branch=main"])
-    run_in_repo(["git", "remote", "add", "origin", "https://github.com/user/repo.git"])
-    run_in_repo(["git", "config", "user.name", "Test User"])
-    run_in_repo(["git", "config", "user.email", "test@example.com"])
-    run_in_repo(["git", "add", "."])
-    # Use a non-conventional-commit message for the initial commit
-    run_in_repo(["git", "commit", "-m", "chore: initial commit of project files"])
-    run_in_repo(["git", "tag", "v0.1.0"])  # Tag the first commit
+    git_helper.run(["init", "--initial-branch=main"])
+    git_helper.run(["remote", "add", "origin", "https://github.com/user/repo.git"])
+    git_helper.run(["config", "user.name", "Test User"])
+    git_helper.run(["config", "user.email", "test@example.com"])
+    git_helper.run(["add", "."])
+    git_helper.run(["commit", "-m", "chore: initial commit of project files"])
+    git_helper.run(["tag", "v0.1.0"])
 
-    yield repo_path, run_in_repo
+    yield repo_path, git_helper
