@@ -115,10 +115,26 @@ jobs:
         env:
           # semantic-release requires this token to authenticate with the GitHub API.
           GH_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+          # Necessary for the Git push operation..
+          RELEASE_SSH_KEY: ${{ secrets.RELEASE_WORKFLOW_DEPLOY_KEY }}
         run: |
           echo "🚀 Creating and publishing release v${{ steps.semver.outputs.VERSION }}..."
-          # The 'publish' command automatically handles all release tasks: bumping the version,
-          # updating the changelog, creating a Git tag, and publishing a GitHub Release.
+
+          # 1. Set up the SSH key from the secret into a file.
+          echo "${RELEASE_SSH_KEY}" > release_key.pem
+          chmod 600 release_key.pem
+
+          # 2. Force all subsequent git commands to use this specific key via an SSH wrapper.
+          SSH_KEY_PATH="$(pwd)/release_key.pem"
+          export GIT_SSH_COMMAND="ssh -i ${SSH_KEY_PATH} -o IdentitiesOnly=yes -o StrictHostKeyChecking=no"
+
+          # 3. Explicitly set the git remote URL to use the SSH protocol.
+          #    This prevents semantic-release from trying to use HTTPS.
+          git remote set-url origin "git@github.com:${{ github.repository }}.git"
+
+          # 4. Run the release.
+          #    The `git push` inside this command will now be forced to use the deploy key via SSH.
+          #    The GitHub Release creation will use the separate GH_TOKEN for the API.
           semantic-release -v publish
 
       - name: Verify Release Artifacts
