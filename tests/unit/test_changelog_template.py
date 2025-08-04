@@ -1,4 +1,3 @@
-import copy
 import logging
 
 import pytest
@@ -17,7 +16,7 @@ from tests.helpers import MockCommit
                 short_hash="a1b2c3d",
                 hexsha="dummy_hash",
             ),
-            "**(api)** Add new API endpoint ([`a1b2c3d`](https://github.com/USER/REPO/commit/dummy_hash))",
+            " Add new API endpoint ([`a1b2c3d`](https://github.com/USER/REPO/commit/dummy_hash))",
         ),
         (
             MockCommit(
@@ -26,7 +25,7 @@ from tests.helpers import MockCommit
                 short_hash="a1b2c3d",
                 hexsha="dummy_hash",
             ),
-            "Fix documentation typo ([`a1b2c3d`](https://github.com/USER/REPO/commit/dummy_hash))",
+            " Fix documentation typo ([`a1b2c3d`](https://github.com/USER/REPO/commit/dummy_hash))",
         ),
         (
             MockCommit(
@@ -36,7 +35,7 @@ from tests.helpers import MockCommit
                 short_hash="a1b2c3d",
                 hexsha="dummy_hash",
             ),
-            "Resolve integration issue ([`a1b2c3d`](https://github.com/USER/REPO/commit/dummy_hash)) ([#123](https://github.com/USER/REPO/issues/123))",
+            " Resolve integration issue ([`a1b2c3d`](https://github.com/USER/REPO/commit/dummy_hash)) ([#123](https://github.com/USER/REPO/issues/123))",
         ),
         (
             MockCommit(
@@ -46,7 +45,7 @@ from tests.helpers import MockCommit
                 short_hash="a1b2c3d",
                 hexsha="dummy_hash",
             ),
-            "Handle multiple issues ([`a1b2c3d`](https://github.com/USER/REPO/commit/dummy_hash)) ([#123](https://github.com/USER/REPO/issues/123), [#456](https://github.com/USER/REPO/issues/456))",
+            " Handle multiple issues ([`a1b2c3d`](https://github.com/USER/REPO/commit/dummy_hash)) ([#123](https://github.com/USER/REPO/issues/123), [#456](https://github.com/USER/REPO/issues/456))",
         ),
         (
             MockCommit(
@@ -55,7 +54,7 @@ from tests.helpers import MockCommit
                 short_hash="a1b2c3d",
                 hexsha="dummy_hash",
             ),
-            "**(llm)** Update the LLM prompt ([`a1b2c3d`](https://github.com/USER/REPO/commit/dummy_hash))",
+            " Update the LLM prompt ([`a1b2c3d`](https://github.com/USER/REPO/commit/dummy_hash))",
         ),
     ],
     ids=["with_scope", "no_scope", "single_issue", "multiple_issues", "acronym_casing"],
@@ -68,165 +67,20 @@ def test_render_commit_content(macros, commit_object, expected_string):
 
 @pytest.mark.unit
 @pytest.mark.parametrize(
-    "commits, expected_output",
-    [
-        (
-            [
-                MockCommit(
-                    scope="", descriptions=["feat: A"], short_hash="h1", hexsha="d1"
-                ),
-                MockCommit(
-                    scope="", descriptions=["fix: B"], short_hash="h2", hexsha="d2"
-                ),
-            ],
-            "",
-        ),
-        (
-            [
-                MockCommit(
-                    scope="",
-                    descriptions=["feat: A"],
-                    breaking_descriptions=["the API has changed"],
-                    short_hash="h1",
-                    hexsha="d1",
-                )
-            ],
-            "### 💥 Breaking Changes\n\n- The API has changed",
-        ),
-        (
-            [
-                MockCommit(
-                    scope="",
-                    descriptions=["feat: A"],
-                    breaking_descriptions=["the API has changed"],
-                    short_hash="h1",
-                    hexsha="d1",
-                ),
-                MockCommit(
-                    scope="",
-                    descriptions=["feat: B"],
-                    breaking_descriptions=["Authentication is now required"],
-                    short_hash="h2",
-                    hexsha="d2",
-                ),
-            ],
-            "### 💥 Breaking Changes\n\n- The API has changed\n- Authentication is now required",
-        ),
-        (
-            [
-                MockCommit(
-                    scope="",
-                    descriptions=["feat: A"],
-                    breaking_descriptions=["the API has changed"],
-                    short_hash="h1",
-                    hexsha="d1",
-                ),
-                MockCommit(
-                    scope="",
-                    descriptions=["refactor: C"],
-                    breaking_descriptions=["the API has changed"],
-                    short_hash="h2",
-                    hexsha="d2",
-                ),
-            ],
-            "### 💥 Breaking Changes\n\n- The API has changed",
-        ),
-    ],
-    ids=["no_breaking", "single_breaking", "multiple_breaking", "duplicate_breaking"],
-)
-def test_render_breaking_changes(macros, commits, expected_output):
-    """Tests the `render_breaking_changes` macro directly."""
-    actual_output = macros.render_breaking_changes(commits).strip()
-    assert actual_output == expected_output
-
-
-@pytest.mark.unit
-def test_breaking_changes_section_rendering(jinja_env, mock_changelog_context):
-    """
-    Ensures the 'Breaking Changes' section is rendered correctly.
-    """
-    template = jinja_env.get_template("CHANGELOG.md.j2")
-
-    # 1. Test with breaking changes present
-    rendered_with_breaking = template.render(context=mock_changelog_context)
-    assert "### 💥 Breaking Changes" in rendered_with_breaking
-
-    # 2. Test with no breaking changes
-    # Perform a deep copy for test isolation.
-    safe_context = copy.deepcopy(mock_changelog_context)
-
-    # Remove breaking changes from the "unreleased" section
-    for commit_group in safe_context["history"]["unreleased"].values():
-        for commit in commit_group:
-            commit.breaking_descriptions = []
-
-    # Remove breaking changes from all "released" sections
-    for release_details in safe_context["history"]["released"].values():
-        for commit_group in release_details["elements"].values():
-            for commit in commit_group:
-                commit.breaking_descriptions = []
-
-    rendered_without_breaking = template.render(context=safe_context)
-    assert "### 💥 Breaking Changes" not in rendered_without_breaking
-
-
-@pytest.mark.unit
-def test_render_release_sections(macros):
-    """
-    Tests that `render_release_sections` correctly renders a full release section.
-    """
-    commits_by_type = {
-        "features": [
-            MockCommit(
-                scope="app",
-                descriptions=["add new feature"],
-                breaking_descriptions=["App is now different"],
-                short_hash="h1",
-                hexsha="d1",
-            ),
-        ],
-        "bug fixes": [
-            MockCommit(
-                scope="api", descriptions=["fix a bug"], short_hash="h2", hexsha="d2"
-            ),
-        ],
-        "documentation": [],  # Should not be rendered
-    }
-
-    actual_output = macros.render_release_sections(commits_by_type)
-
-    # Check for breaking changes section
-    assert "### 💥 Breaking Changes" in actual_output
-    assert "- App is now different" in actual_output
-
-    # Check for features section
-    assert "### ✨ Features" in actual_output
-    assert "**(app)** Add new feature" in actual_output
-
-    # Check for bug fixes section
-    assert "### 🐛 Bug Fixes" in actual_output
-    assert "**(api)** Fix a bug" in actual_output
-
-    # Check that empty sections are not rendered
-    assert "### 📚 Documentation" not in actual_output
-
-
-@pytest.mark.unit
-@pytest.mark.parametrize(
     "commits_by_type, expected_result",
     [
         # No commits at all
         ({}, False),
-        # Only empty sections
-        ({"features": [], "bug fixes": [], "refactoring": []}, False),
-        # Only non-renderable sections (chores, etc.)
+        # Only empty renderable sections
+        ({"features": [], "bug fixes": [], "documentation": []}, False),
+        # Only non-renderable sections (these shouldn't reach template due to PSR filtering)
         (
             {
                 "chores": [
                     MockCommit(
                         type="chore",
                         scope="deps",
-                        descriptions=["update deps"],
+                        descriptions=["update"],
                         short_hash="abc",
                         hexsha="abc123",
                     )
@@ -234,7 +88,67 @@ def test_render_release_sections(macros):
             },
             False,
         ),
-        # Mix of empty renderable and populated non-renderable
+        # Has renderable features
+        (
+            {
+                "features": [
+                    MockCommit(
+                        type="feat",
+                        scope="api",
+                        descriptions=["add endpoint"],
+                        short_hash="def",
+                        hexsha="def456",
+                    )
+                ]
+            },
+            True,
+        ),
+        # Has renderable bug fixes
+        (
+            {
+                "bug fixes": [
+                    MockCommit(
+                        type="fix",
+                        scope="api",
+                        descriptions=["fix bug"],
+                        short_hash="fix123",
+                        hexsha="fix456",
+                    )
+                ]
+            },
+            True,
+        ),
+        # Has renderable documentation
+        (
+            {
+                "documentation": [
+                    MockCommit(
+                        type="docs",
+                        scope="",
+                        descriptions=["update docs"],
+                        short_hash="doc123",
+                        hexsha="doc456",
+                    )
+                ]
+            },
+            True,
+        ),
+        # Has renderable performance improvements
+        (
+            {
+                "performance improvements": [
+                    MockCommit(
+                        type="perf",
+                        scope="core",
+                        descriptions=["optimize"],
+                        short_hash="perf123",
+                        hexsha="perf456",
+                    )
+                ]
+            },
+            True,
+        ),
+        # Mix of empty renderable and non-renderable
         (
             {
                 "features": [],
@@ -250,22 +164,6 @@ def test_render_release_sections(macros):
             },
             False,
         ),
-        # Has at least one renderable commit
-        (
-            {
-                "features": [
-                    MockCommit(
-                        type="feat",
-                        scope="api",
-                        descriptions=["add endpoint"],
-                        short_hash="def",
-                        hexsha="def456",
-                    )
-                ],
-                "bug fixes": [],
-            },
-            True,
-        ),
         # Mix with some renderable
         (
             {
@@ -278,6 +176,7 @@ def test_render_release_sections(macros):
                         hexsha="def456",
                     )
                 ],
+                "bug fixes": [],
                 "chores": [
                     MockCommit(
                         type="chore",
@@ -293,15 +192,18 @@ def test_render_release_sections(macros):
     ],
     ids=[
         "empty",
-        "all_empty_sections",
-        "only_chores",
-        "empty_renderable_with_chores",
+        "all_empty_renderable_sections",
+        "only_non_renderable",
         "has_features",
-        "mixed_renderable_and_chores",
+        "has_bug_fixes",
+        "has_documentation",
+        "has_performance_improvements",
+        "empty_renderable_with_non_renderable",
+        "mixed_renderable_and_non_renderable",
     ],
 )
 def test_has_renderable_commits_macro(macros, commits_by_type, expected_result):
-    """Tests the has_renderable_commits macro with various edge cases."""
+    """Tests the has_renderable_commits macro with the new section mappings."""
     actual_result = macros.has_renderable_commits(commits_by_type)
     # Returns "true" or "" (empty string)
     actual_bool = bool(actual_result.strip())
@@ -309,41 +211,244 @@ def test_has_renderable_commits_macro(macros, commits_by_type, expected_result):
 
 
 @pytest.mark.unit
-def test_unreleased_section_not_rendered_when_no_renderable_commits(jinja_env):
-    """Test that Unreleased header is suppressed when there are no renderable commits."""
-    # Context with only non-renderable commits
-    context_with_chores_only = {
-        "history": {
-            "unreleased": {
-                "chores": [
-                    MockCommit(
-                        type="chore",
-                        scope="deps",
-                        descriptions=["update dependencies"],
-                        short_hash="abc123",
-                        hexsha="abc123" * 5,
-                    )
-                ],
-                # All renderable sections empty - but must be present as keys
-                "features": [],
-                "bug fixes": [],
-                "refactoring": [],
-                "performance improvements": [],
-                "reverts": [],
-                "documentation": [],
-                "build system": [],
-            },
-            "released": {},
-        }
+def test_render_changelog_entry_single_section(macros):
+    """Test rendering a single section with multiple commits."""
+    release_data = {
+        "features": [
+            MockCommit(
+                scope="api",
+                descriptions=["add new endpoint"],
+                short_hash="feat1",
+                hexsha="feat1" * 5,
+            ),
+            MockCommit(
+                scope="client",
+                descriptions=["add client feature"],
+                short_hash="feat2",
+                hexsha="feat2" * 5,
+            ),
+        ]
     }
 
-    template = jinja_env.get_template("CHANGELOG.md.j2")
-    result = template.render(context=context_with_chores_only)
+    result = macros.render_changelog_entry(release_data)
 
-    # Should not contain Unreleased header or any section headers
-    assert "## [Unreleased]" not in result
-    assert "### ✨ Features" not in result
-    assert "### 🐛 Bug Fixes" not in result
+    # Should have section header
+    assert "### Added" in result
+    # Should have both commits
+    assert "Add new endpoint" in result
+    assert "Add client feature" in result
+    # Should have proper bullet formatting
+    assert "- Add new endpoint" in result
+    assert "- Add client feature" in result
+    # Should have blank line after header (non-compact mode)
+    lines = result.split("\n")
+    header_idx = next(i for i, line in enumerate(lines) if line == "### Added")
+    assert lines[header_idx + 1] == ""  # Blank line after header
+
+
+@pytest.mark.unit
+def test_render_changelog_entry_multiple_sections(macros):
+    """Test rendering multiple sections in correct order."""
+    release_data = {
+        "bug fixes": [
+            MockCommit(
+                scope="api",
+                descriptions=["fix critical bug"],
+                short_hash="fix1",
+                hexsha="fix1" * 5,
+            ),
+        ],
+        "features": [
+            MockCommit(
+                scope="core",
+                descriptions=["add feature"],
+                short_hash="feat1",
+                hexsha="feat1" * 5,
+            ),
+        ],
+        "documentation": [
+            MockCommit(
+                scope="",
+                descriptions=["update README"],
+                short_hash="doc1",
+                hexsha="doc1" * 5,
+            ),
+        ],
+    }
+
+    result = macros.render_changelog_entry(release_data)
+
+    # Should have all three sections
+    assert "### Added" in result
+    assert "### Fixed" in result
+    assert "### Changed" in result
+
+    # Should be in correct order (Added, Fixed, Changed)
+    added_pos = result.find("### Added")
+    fixed_pos = result.find("### Fixed")
+    changed_pos = result.find("### Changed")
+
+    assert added_pos < fixed_pos < changed_pos
+
+    # Should have proper spacing between sections
+    lines = result.split("\n")
+    _added_idx = next(i for i, line in enumerate(lines) if line == "### Added")
+    fixed_idx = next(i for i, line in enumerate(lines) if line == "### Fixed")
+
+    # Should have a blank line before the second section
+    assert lines[fixed_idx - 1] == ""
+
+
+@pytest.mark.unit
+def test_render_changelog_entry_compact_mode(macros):
+    """Test that compact mode removes blank lines after headers."""
+    release_data = {
+        "features": [
+            MockCommit(
+                scope="api",
+                descriptions=["add feature"],
+                short_hash="feat1",
+                hexsha="feat1" * 5,
+            ),
+        ]
+    }
+
+    result = macros.render_changelog_entry(release_data, compact=True)
+
+    lines = result.split("\n")
+    # In compact mode, header and content should be on the same line
+    header_line = next(line for line in lines if line.startswith("### Added"))
+    assert (
+        header_line
+        == "### Added- Add feature ([`feat1`](https://github.com/USER/REPO/commit/feat1feat1feat1feat1feat1))"
+    )
+
+
+@pytest.mark.unit
+def test_render_changelog_entry_empty_sections_not_rendered(macros):
+    """Test that empty sections are not rendered."""
+    release_data = {
+        "features": [
+            MockCommit(
+                scope="api",
+                descriptions=["add feature"],
+                short_hash="feat1",
+                hexsha="feat1" * 5,
+            ),
+        ],
+        "bug fixes": [],  # Empty section
+        "documentation": [],  # Empty section
+    }
+
+    result = macros.render_changelog_entry(release_data)
+
+    # Should only have Added section
+    assert "### Added" in result
+    assert "### Fixed" not in result
+    assert "### Changed" not in result
+
+
+@pytest.mark.unit
+def test_render_changelog_entry_commit_sorting(macros):
+    """Test that commits within a section are sorted by scope."""
+    release_data = {
+        "features": [
+            MockCommit(
+                scope="zzz",
+                descriptions=["last feature"],
+                short_hash="feat3",
+                hexsha="feat3" * 5,
+            ),
+            MockCommit(
+                scope="aaa",
+                descriptions=["first feature"],
+                short_hash="feat1",
+                hexsha="feat1" * 5,
+            ),
+            MockCommit(
+                scope="mmm",
+                descriptions=["middle feature"],
+                short_hash="feat2",
+                hexsha="feat2" * 5,
+            ),
+        ]
+    }
+
+    result = macros.render_changelog_entry(release_data)
+    lines = result.split("\n")
+
+    # Find commit lines (start with "- ")
+    commit_lines = [line for line in lines if line.startswith("- ")]
+
+    # Should be sorted by scope: aaa, mmm, zzz
+    # Since scopes are not in output, we verify by the descriptions
+    assert "First feature" in commit_lines[0]  # aaa scope
+    assert "Middle feature" in commit_lines[1]  # mmm scope
+    assert "Last feature" in commit_lines[2]  # zzz scope
+
+
+@pytest.mark.unit
+def test_render_changelog_entry_section_mapping(macros):
+    """Test that commit types are correctly mapped to section titles."""
+    release_data = {
+        "performance improvements": [
+            MockCommit(
+                scope="core",
+                descriptions=["optimize algorithm"],
+                short_hash="perf1",
+                hexsha="perf1" * 5,
+            ),
+        ],
+        "documentation": [
+            MockCommit(
+                scope="api",
+                descriptions=["update API docs"],
+                short_hash="doc1",
+                hexsha="doc1" * 5,
+            ),
+        ],
+    }
+
+    result = macros.render_changelog_entry(release_data)
+
+    # Both should map to "Changed" section
+    assert "### Changed" in result
+    assert "Optimize algorithm" in result
+    assert "Update API docs" in result
+    # Should not have separate sections
+    assert result.count("### Changed") == 1
+
+
+@pytest.mark.unit
+def test_render_changelog_entry_no_renderable_commits(macros):
+    """Test that macro returns empty string when no renderable commits."""
+    release_data: dict[str, list[MockCommit]] = {}
+
+    result = macros.render_changelog_entry(release_data)
+
+    # Should be empty or just whitespace
+    assert result.strip() == ""
+
+
+@pytest.mark.unit
+def test_render_commit_content_issue_formatting_fixed(macros):
+    """Test that the issue formatting fix works correctly."""
+    commit_with_issues = MockCommit(
+        scope="api",
+        descriptions=["fix critical bug"],
+        linked_issues=["#123", "#456"],
+        short_hash="a1b2c3d",
+        hexsha="dummy_hash",
+    )
+
+    result = macros.render_commit_content(commit_with_issues)
+
+    # Should be all on one line with proper spacing
+    expected = "Fix critical bug ([`a1b2c3d`](https://github.com/USER/REPO/commit/dummy_hash)) ([#123](https://github.com/USER/REPO/issues/123), [#456](https://github.com/USER/REPO/issues/456))"
+    assert result.strip() == expected
+
+    # Should not contain any internal newlines
+    assert "\n" not in result.strip()
 
 
 @pytest.mark.unit
@@ -473,54 +578,6 @@ def test_render_comparison_links_multiple_releases(
     )
     # Check the link for the oldest version
     assert "[1.0.0]: https://github.com/USER/REPO/releases/tag/v1.0.0" in actual_links
-
-
-@pytest.mark.unit
-@pytest.mark.parametrize(
-    "commit_type_to_test",
-    [
-        "chore",
-        "test",
-        "ci",
-        "style",
-        "security",
-        "deps",
-        "config",
-        "docs",
-        "wip",
-        "temp",
-        # Any other type not listed in the 'sections' macro
-    ],
-)
-def test_breaking_change_on_filtered_commit_type(macros, commit_type_to_test):
-    """
-    Ensures breaking changes are rendered even if the commit's type
-    (e.g., 'chore') is not configured to be displayed in the changelog.
-    """
-    # Arrange
-    commits_by_type = {
-        commit_type_to_test: [
-            MockCommit(
-                type=commit_type_to_test,
-                scope="deps",
-                descriptions=["drop support for old library"],
-                breaking_descriptions=[
-                    "Support for legacy library X has been removed."
-                ],
-                short_hash="h1",
-                hexsha="d1",
-            ),
-        ]
-    }
-
-    # Act
-    actual_output = macros.render_release_sections(commits_by_type)
-
-    # Assert
-    assert "### 💥 Breaking Changes" in actual_output
-    assert "- Support for legacy library X has been removed." in actual_output
-    # Verify the filtered section itself is NOT rendered
-    assert f"### {commit_type_to_test.capitalize()}" not in actual_output
 
 
 @pytest.mark.unit

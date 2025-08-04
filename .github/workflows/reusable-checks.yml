@@ -34,5 +34,5 @@ jobs:
         env:
           # Set the Makefile variable based on the PR's draft status.
           # The 'true' on the end is needed because github.event.pull_request.draft is a boolean.
-          TEST_LOG_LEVEL: ${{ github.event.pull_request.draft == 'true' && 'DEBUG' || 'WARNING' }}
+          TEST_LOG_LEVEL: ${{ github.event_name == 'pull_request' && github.event.pull_request.draft == true && 'DEBUG' || 'WARNING' }}
         run: ${{ inputs.test-command }}
