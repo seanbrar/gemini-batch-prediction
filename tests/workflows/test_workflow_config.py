@@ -239,7 +239,8 @@ class TestWorkflowSecurity:
             "Release job must have explicit permissions"
         )
 
-        required_permissions = ["contents", "issues", "pull-requests"]
+        # PSR action only needs contents permission
+        required_permissions = ["contents"]
         permissions = release_job["permissions"]
 
         for perm in required_permissions:

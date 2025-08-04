@@ -1,29 +1,56 @@
+{#-
+This changelog uses Keep a Changelog format with categories mapped from
+conventional commit types. Categories like "Deprecated", "Removed", and
+"Security" would require manual entries since they don't map to standard
+commit types.
+-#}
+
+{#-
+This dictionary maps the commit types from the parser to the
+human-readable section titles in the changelog.
+-#}
 {%- set sections = {
-"features": "✨ Features",
-"bug fixes": "🐛 Bug Fixes",
-"performance improvements": "⚡ Performance Improvements",
-"reverts": "Reverts",
-"refactoring": "♻️ Refactoring",
-"documentation": "📚 Documentation",
-"build system": "📦 Build System & Dependencies"
+"features": "Added",
+"bug fixes": "Fixed",
+"performance improvements": "Changed",
+"documentation": "Changed"
 } -%}
 
-{#- Macro to check if there are any commits that will actually be rendered -#}
+{#-
+This dictionary groups commit types by their section title.
+e.g., {"Added": ["features"], "Changed": ["performance improvements", "documentation"], ...}
+-#}
+{%- set sections_by_title = {} -%}
+{%- for section_key, section_title in sections.items() -%}
+{%- if section_title not in sections_by_title -%}
+{%- set _ = sections_by_title.update({section_title: [section_key]}) -%}
+{%- else -%}
+{%- set current_list = sections_by_title[section_title] + [section_key] -%}
+{%- set _ = sections_by_title.update({section_title: current_list}) -%}
+{%- endif -%}
+{%- endfor -%}
+
+{#-
+This list defines the order in which sections should appear in the changelog.
+-#}
+{%- set section_order = ["Added", "Fixed", "Changed"] -%}
+
+{#-
+Macro to check if there are any commits that will actually be rendered.
+-#}
 {%- macro has_renderable_commits(commits_by_type) -%}
 {%- set ns = namespace(found=false) -%}
 {%- for section_key in sections.keys() -%}
-{%- if commits_by_type.get(section_key) -%}
+{%- if commits_by_type.get(section_key) and not ns.found -%}
 {%- set ns.found = true -%}
 {%- endif -%}
 {%- endfor -%}
 {%- if ns.found -%}true{%- endif -%}
 {%- endmacro -%}
 
-{#- Macro to render the content of a single commit line -#}
+{#- Macro to render the content of a single commit line. -#}
 {%- macro render_commit_content(commit) -%}
-{%- if commit.scope -%}
-**({{ commit.scope }})** {{- " " -}}
-{%- endif -%}
+{{ " " }}
 {%- if commit.descriptions and commit.descriptions[0] -%}
 {{- commit.descriptions[0][0] | upper ~ commit.descriptions[0][1:] -}}
 {%- endif -%}
@@ -38,67 +65,79 @@
 {%- endif -%}
 {%- endmacro -%}
 
-{#- Macro to render breaking changes from a list of commits -#}
-{%- macro render_breaking_changes(commits) -%}
-{# First, collect all breaking change descriptions into a single list #}
-{% set all_descriptions = [] %}
-{% for commit in commits %}
-{% if commit.breaking_descriptions %}
-{% set _ = all_descriptions.extend(commit.breaking_descriptions) %}
-{% endif %}
-{% endfor %}
+{#-
+Iterates through the defined sections and renders the commits for each.
+Accepts a 'compact' boolean to control spacing for different contexts.
+-#}
+{%- macro render_changelog_entry(release_data, compact=False) -%}
+{#- Use a namespace to track if we've output a section yet for newline handling -#}
+{%- set ns = namespace(has_output=false) -%}
 
-{# Then, use the |unique filter to de-duplicate the list #}
-{%- set changes = all_descriptions | unique | list -%}
+{#- Single pass over the sections in their defined order -#}
+{%- for section_title in section_order -%}
+{%- if sections_by_title.get(section_title) -%}
 
-{%- if changes %}
-### 💥 Breaking Changes
+{#- Collect all commits for this section title into a single list using a namespace -#}
+{%- set commits_for_section = namespace(items=[]) -%}
+{%- for section_key in sections_by_title[section_title] -%}
+{%- if release_data.get(section_key) -%}
+{%- set commits_for_section.items = commits_for_section.items + release_data[section_key] -%}
+{%- endif -%}
+{%- endfor -%}
 
-{% for desc in changes %}
-- {% if desc %}{{ (desc[0] | upper) + desc[1:] }}{% endif %}{% if not loop.last %}{{ '\n' }}{% endif %}
-{% endfor %}
+{#- If the collected list of commits is not empty, render the section -#}
+{%- if commits_for_section.items -%}
 
-{% endif %}
-{%- endmacro %}
+{#- Print a newline before this section if it's not the first one rendered -#}
+{%- if ns.has_output %}
 
-{#- Renders all sections for a given release -#}
-{%- macro render_release_sections(commits_by_type) %}
-{%- set breaking_content = render_breaking_changes(commits_by_type.values() | sum(start=[])) -%}
-{{- breaking_content -}}
-{%- set has_prior_content = breaking_content | trim | length > 0 -%}
-{% for section_key, section_title in sections.items() -%}
-{%- if commits_by_type[section_key] -%}
-{%- if has_prior_content %}
-
-{% endif %}
+{% endif -%}
 ### {{ section_title }}
+{#- In non-compact mode (the default), add a blank line for Keep a Changelog standard formatting. -#}
+{% if not compact %}
 
-{% for commit in commits_by_type[section_key] | sort(attribute='scope') -%}
-- {{ render_commit_content(commit) }}
+
+{% endif %}
+{% for commit in commits_for_section.items | sort(attribute='scope') %}
+-{{ render_commit_content(commit) }}
 {% endfor %}
-{%- set has_prior_content = true -%}
-{%- endif %}
-{%- endfor %}
+
+{#- Mark that we have now output a section -#}
+{%- set ns.has_output = true -%}
+{%- endif -%}
+{%- endif -%}
+{%- endfor -%}
+{#- Add a final newline if any sections were rendered at all -#}
+{%- if ns.has_output %}
+
+{% endif %}
 {%- endmacro %}
 
-{#- Macro to render the comparison links for all releases -#}
+{#- Macro to render the comparison links for all releases. -#}
 {%- macro render_comparison_links(history) -%}
 {%- set links = [] %}
-{%- set releases = history.released.values() | sort(attribute='version') %}
+{%- set releases = history.released.values() | list | sort(attribute='version', reverse=true) %}
 {%- if releases %}
-{%- set base_url = (("v" ~ releases[0].version) | compare_url("HEAD")) | replace("compare/v" ~ releases[0].version ~ "...HEAD", "") %}
+{#- Generate the base URL for creating links -#}
+{%- set base_url = (("v" ~ releases[-1].version) | compare_url("HEAD")) | replace("compare/v" ~ releases[-1].version ~
+"...HEAD", "") %}
+{#- Link for unreleased changes, comparing the latest release to HEAD -#}
 {%- if history.unreleased and has_renderable_commits(history.unreleased) %}
-{%- set unreleased_link = "[Unreleased]: " ~ (("v" ~ releases[-1].version) | compare_url("HEAD")) %}
-{%- set _ = links.append(unreleased_link) %}
+{%- set unreleased_link = "[Unreleased]: " ~ (("v" ~ releases[0].version) | compare_url("HEAD")) %}
+{%- set _ = links.append(unreleased_link) -%}
 {%- endif %}
+{#- Links for each versioned release -#}
 {%- for release in releases %}
-{%- if loop.first %}
+{%- if loop.last %}
+{#- The oldest release links to its tag from the beginning of history -#}
 {%- set release_link = "[" ~ release.version ~ "]: " ~ (base_url ~ "releases/tag/v" ~ release.version) %}
 {%- else %}
-{%- set release_link = "[" ~ release.version ~ "]: " ~ (("v" ~ loop.previtem.version) | compare_url("v" ~ release.version)) %}
+{#- Subsequent releases link to the comparison between it and the previous one -#}
+{%- set release_link = "[" ~ release.version ~ "]: " ~ (("v" ~ loop.nextitem.version) | compare_url("v" ~
+release.version)) %}
 {%- endif %}
 {%- set _ = links.append(release_link) %}
 {%- endfor %}
 {%- endif %}
-{{ links | join('\n') }}
+{{ links | join('\n') -}}
 {%- endmacro -%}

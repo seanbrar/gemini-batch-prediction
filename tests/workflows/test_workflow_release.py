@@ -60,10 +60,9 @@ class TestReleaseWorkflowSafety:
         )
         permissions = release_job["permissions"]
 
+        # PSR action only needs contents: write permission
         required_permissions = {
             "contents": "write",
-            "issues": "write",
-            "pull-requests": "write",
         }
 
         for perm, level in required_permissions.items():
@@ -152,8 +151,8 @@ class TestReleaseWorkflowLogic:
             "Should fetch full history for semantic-release"
         )
 
-        # Should have SSH key for authentication
-        assert "ssh-key" in with_config, "Should have SSH key for authentication"
+        # Should have token for authentication (using PAT instead of SSH key)
+        assert "token" in with_config, "Should have token for authentication"
 
 
 class TestSemanticReleaseConfiguration:
