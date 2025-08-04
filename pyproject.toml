@@ -7,7 +7,7 @@ build-backend = "setuptools.build_meta"
 [project]
 # Core Metadata
 name = "gemini-batch"
-version = "0.7.0"
+version = "0.8.0"
 description = "A framework for batch processing with Google's Gemini API"
 readme = "README.md"
 authors = [{ name = "Sean Brar", email = "hello@seanbrar.com" }]
