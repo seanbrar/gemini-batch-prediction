@@ -14,14 +14,14 @@ Key principles applied here:
 """
 
 import json
+from typing import Any
 
 import pytest
 
-from gemini_batch import BatchProcessor
 from tests.conftest import SimpleSummary
 
 
-def _remove_timing_fields(output_dict):
+def _remove_timing_fields(output_dict: dict[str, Any]) -> dict[str, Any]:
     """Remove timing-sensitive fields from output for consistent golden test comparisons."""
     # Remove processing_time from top level
     output_dict.pop("processing_time", None)
@@ -40,7 +40,7 @@ def _remove_timing_fields(output_dict):
 
 
 @pytest.mark.golden_test("golden_files/test_batch_processor_basic.yml")
-def test_batch_processor_basic_behavior(golden, mock_gemini_client):
+def test_batch_processor_basic_behavior(golden, mock_gemini_client, batch_processor):
     """
     Characterizes the output of BatchProcessor.process_questions for a basic
     text-based query.
@@ -62,7 +62,8 @@ def test_batch_processor_basic_behavior(golden, mock_gemini_client):
     }
 
     # Act
-    processor = BatchProcessor(_client=mock_gemini_client)
+    # Use the batch_processor fixture which now returns our test adapter
+    processor = batch_processor  # This comes from the fixture
     actual_output = processor.process_questions(content, questions, return_usage=True)
 
     # Clean the output for deterministic comparison
@@ -73,7 +74,7 @@ def test_batch_processor_basic_behavior(golden, mock_gemini_client):
 
 
 @pytest.mark.golden_test("golden_files/test_batch_processor_structured.yml")
-def test_batch_processor_structured_output(golden, mock_gemini_client):
+def test_batch_processor_structured_output(golden, mock_gemini_client, batch_processor):
     """
     Characterizes the output of BatchProcessor when using a response_schema
     to get structured data.
@@ -97,7 +98,8 @@ def test_batch_processor_structured_output(golden, mock_gemini_client):
     }
 
     # Act
-    processor = BatchProcessor(_client=mock_gemini_client)
+    # Use the batch_processor fixture which now returns our test adapter
+    processor = batch_processor  # This comes from the fixture
     actual_output = processor.process_questions(
         content,
         questions,
