@@ -158,9 +158,12 @@ pyproject-hooks==1.2.0
 pytest==8.4.1
     # via
     #   gemini-batch
+    #   pytest-asyncio
     #   pytest-cov
     #   pytest-golden
     #   pytest-mock
+pytest-asyncio==1.1.0
+    # via gemini-batch
 pytest-cov==6.2.1
     # via gemini-batch
 pytest-golden==0.2.2
