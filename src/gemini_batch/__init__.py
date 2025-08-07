@@ -1,29 +1,52 @@
-"""Gemini Batch Processing Framework"""  # noqa: D415
+"""Core components for the Gemini Batch Pipeline."""
 
 import importlib.metadata
 import logging
-from typing import Any, List, Unpack  # noqa: UP035
 
-from .analysis.schema_analyzer import SchemaAnalyzer
-from .batch_processor import BatchProcessor
-from .config import (
-    ConversationConfig,
-    GeminiConfig,
-    config_scope,
-    debug_config,
-    get_config,
-    get_effective_config,
+# Core pipeline architecture imports
+from .core.exceptions import (
+    ConfigurationError,
+    FileError,
+    GeminiBatchError,
+    PipelineError,
+    SourceError,
+    UnsupportedContentError,
+    ValidationError,
 )
-from .conversation import (
-    ConversationSession,
-    ConversationTurn,  # Keep for type hinting
-    create_conversation,
-    load_conversation,
+from .core.models import (
+    APITier,
+    CachingCapabilities,
+    ModelCapabilities,
+    RateLimits,
+    can_use_caching,
+    get_model_capabilities,
+    get_rate_limits,
 )
-from .exceptions import APIError, GeminiBatchError, MissingKeyError, NetworkError
-from .files import FileType
-from .gemini_client import GeminiClient
-from .telemetry import TelemetryContext, TelemetryReporter
+from .core.types import (
+    APICall,
+    ConversationTurn,
+    ExecutionPlan,
+    Failure,
+    FinalizedCommand,
+    InitialCommand,
+    PlannedCommand,
+    ResolvedCommand,
+    Result,
+    Source,
+    Success,
+)
+from .executor import GeminiExecutor, create_executor
+from .extensions.conversation import (
+    BasePersistenceHandler,
+    ConversationManager,
+    JSONPersistenceHandler,
+)
+from .extensions.visualization import (
+    create_efficiency_visualizations,
+    create_focused_efficiency_visualization,
+    run_efficiency_experiment,
+    visualize_scaling_results,
+)
 
 # Version handling
 try:
@@ -35,44 +58,46 @@ except importlib.metadata.PackageNotFoundError:
 # This prevents 'No handler found' errors if the consuming app has no logging configured.
 logging.getLogger(__name__).addHandler(logging.NullHandler())
 
-
-def process_questions(
-    content: Any,
-    questions: list[str],
-    **config: Unpack[GeminiConfig],
-) -> dict:
-    """Process questions against content in a single call. Perfect for scripts and notebooks."""
-    processor = BatchProcessor(**config)
-    return processor.process_questions(content, questions)
-
-
 # Public API
 __all__ = [  # noqa: RUF022
-    # Core Classes
-    "GeminiClient",
-    "BatchProcessor",
-    "ConversationSession",
-    # Factory Functions
-    "create_conversation",
-    "load_conversation",
-    # One-shot function
-    "process_questions",
-    # Configuration
-    "config_scope",
-    "get_config",
-    "get_effective_config",
-    "debug_config",
-    "GeminiConfig",
-    "ConversationConfig",
-    # Supporting Types & Exceptions
+    # Core Executor
+    "GeminiExecutor",
+    "create_executor",
+    # Conversation Management
+    "ConversationManager",
+    "BasePersistenceHandler",
+    "JSONPersistenceHandler",
+    # Core Types & Data Models
     "ConversationTurn",
-    "FileType",
+    "InitialCommand",
+    "ResolvedCommand",
+    "PlannedCommand",
+    "FinalizedCommand",
+    "APICall",
+    "ExecutionPlan",
+    "Source",
+    "Result",
+    "Success",
+    "Failure",
+    # Model Capabilities
+    "ModelCapabilities",
+    "CachingCapabilities",
+    "RateLimits",
+    "APITier",
+    "get_model_capabilities",
+    "get_rate_limits",
+    "can_use_caching",
+    # Exceptions
     "GeminiBatchError",
-    "APIError",
-    "MissingKeyError",
-    "NetworkError",
-    "SchemaAnalyzer",
-    # Telemetry
-    "TelemetryContext",
-    "TelemetryReporter",
+    "PipelineError",
+    "ConfigurationError",
+    "SourceError",
+    "FileError",
+    "ValidationError",
+    "UnsupportedContentError",
+    # Visualization Extensions
+    "create_efficiency_visualizations",
+    "create_focused_efficiency_visualization",
+    "run_efficiency_experiment",
+    "visualize_scaling_results",
 ]

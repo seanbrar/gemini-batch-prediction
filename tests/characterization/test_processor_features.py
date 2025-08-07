@@ -7,14 +7,14 @@ core features are stable and reliable.
 """
 
 import json
+from typing import Any
 
 import pytest
 
-from gemini_batch import BatchProcessor
 from gemini_batch.exceptions import BatchProcessingError
 
 
-def _remove_timing_fields(output_dict):
+def _remove_timing_fields(output_dict: dict[str, Any]) -> dict[str, Any]:
     """Remove timing-sensitive fields from output for consistent golden test comparisons."""
     # Remove processing_time from top level
     output_dict.pop("processing_time", None)
@@ -33,7 +33,7 @@ def _remove_timing_fields(output_dict):
 
 
 @pytest.mark.golden_test("golden_files/test_processor_fallback.yml")
-def test_batch_processor_fallback_behavior(golden, mock_gemini_client):
+def test_batch_processor_fallback_behavior(golden, mock_gemini_client, batch_processor):
     """
     Characterizes the behavior of the BatchProcessor when a batch API call
     fails and it must gracefully fall back to individual API calls.
@@ -63,8 +63,10 @@ def test_batch_processor_fallback_behavior(golden, mock_gemini_client):
     ]
 
     # Act
-    processor = BatchProcessor(_client=mock_gemini_client)
-    actual_output = processor.process_questions(content, questions, return_usage=True)
+    # Use the batch_processor fixture which now returns the test adapter
+    actual_output = batch_processor.process_questions(
+        content, questions, return_usage=True
+    )
 
     # Clean the output for deterministic comparison
     actual_output = _remove_timing_fields(actual_output)
@@ -74,7 +76,7 @@ def test_batch_processor_fallback_behavior(golden, mock_gemini_client):
 
 
 @pytest.mark.golden_test("golden_files/test_processor_comparison.yml")
-def test_batch_processor_comparison_mode(golden, mock_gemini_client):
+def test_batch_processor_comparison_mode(golden, mock_gemini_client, batch_processor):
     """
     Characterizes the behavior of the BatchProcessor when `compare_methods=True`.
     This should result in both a batch call and individual calls being made.
@@ -111,8 +113,8 @@ def test_batch_processor_comparison_mode(golden, mock_gemini_client):
     ]
 
     # Act
-    processor = BatchProcessor(_client=mock_gemini_client)
-    actual_output = processor.process_questions(
+    # Use the batch_processor fixture which now returns the test adapter
+    actual_output = batch_processor.process_questions(
         content,
         questions,
         compare_methods=True,
