@@ -101,10 +101,13 @@ log_cli_format = "%(name)-40s - %(levelname)-8s - %(message)s"
 log_cli_date_format = "%Y-%m-%d %H:%M:%S"
 
 markers = [
-    "integration: marks tests as integration tests (slow, requires external tools)",
-    "api: marks tests as API integration tests (requires API key)",
-    "unit: marks tests as fast unit tests",
-    "workflows: marks tests as workflow configuration tests",
+    "contract: Architectural contract tests (fast)",
+    "unit: Unit tests (fast)",
+    "integration: Cross-component integration tests (may be slow)",
+    "characterization: Golden file/snapshot tests (fast)",
+    "workflows: CI/CD workflow tests (fast)",
+    "slow: Tests that take > 1s (subset of integration)",
+    "api: Tests requiring external API (slow)",
 ]
 
 # --- Ruff ---
