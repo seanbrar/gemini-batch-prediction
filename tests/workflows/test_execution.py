@@ -11,6 +11,7 @@ from tests.helpers import ActTestHelper
 
 
 @pytest.mark.integration
+@pytest.mark.slow
 def test_ci_lint_job_executes(act_helper: ActTestHelper) -> None:
     """
     Test that the 'lint-workflows' job in ci.yml can execute successfully.
@@ -21,6 +22,7 @@ def test_ci_lint_job_executes(act_helper: ActTestHelper) -> None:
 
 
 @pytest.mark.integration
+@pytest.mark.slow
 def test_release_pre_checks_job_runs_tests(act_helper: ActTestHelper) -> None:
     """
     Test that the 'release' job in release.yml can execute successfully.
@@ -37,6 +39,7 @@ def test_release_pre_checks_job_runs_tests(act_helper: ActTestHelper) -> None:
 
 
 @pytest.mark.integration
+@pytest.mark.slow
 def test_release_job_executes_setup_steps(
     act_helper: ActTestHelper,
     github_token_for_act: str,
@@ -62,6 +65,7 @@ def test_release_job_executes_setup_steps(
 
 
 @pytest.mark.integration
+@pytest.mark.slow
 def test_release_job_triggers_on_new_feature_commit(
     act_helper: ActTestHelper,
     github_token_for_act: str,
@@ -111,6 +115,7 @@ def test_release_job_triggers_on_new_feature_commit(
 
 
 @pytest.mark.integration
+@pytest.mark.slow
 def test_release_prevents_silent_failures(
     act_helper: ActTestHelper,
     github_token_for_act: str,
