@@ -1,5 +1,7 @@
 # Source Handling Guide
 
+> Note: This page describes the current API. For the upcoming architecture, see Explanation → Command Pipeline.
+
 The `gemini_batch` package can process multiple types of content sources efficiently in a single API call.
 
 ## Supported Source Types

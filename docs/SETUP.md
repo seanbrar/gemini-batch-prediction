@@ -1,5 +1,7 @@
 # Gemini Batch API Setup Guide
 
+> Note: This page describes the current API. For the upcoming architecture, see Explanation → Command Pipeline.
+
 Quick setup guide for the `gemini_batch` package - initialization methods and basic usage.
 
 ## Installation & Setup

@@ -14,7 +14,7 @@ TEST_LOG_LEVEL ?= WARNING
 # ------------------------------------------------------------------------------
 # Main Commands
 # ------------------------------------------------------------------------------
-.PHONY: help test test-all test-coverage install-dev clean
+.PHONY: help test test-all test-coverage install-dev clean docs-build docs-serve
 
 help: ## ✨ Show this help message
 	@grep -E '^[a-zA-Z_-]+:.*?## .*$$' $(MAKEFILE_LIST) | \
@@ -24,6 +24,23 @@ install-dev: ## 📦 Install all development dependencies
 	@echo "📦 Installing development dependencies..."
 	pip install -e ".[dev]"
 	@echo "✅ Development environment ready"
+
+docs-build: ## 📚 Build the documentation site
+	@echo "📚 Building documentation..."
+	@if ! command -v mkdocs >/dev/null 2>&1; then \
+		echo "❌ mkdocs is not installed. Install dev deps: make install-dev"; \
+		exit 1; \
+	fi
+	mkdocs build
+	@echo "✅ Site built in site/"
+
+docs-serve: ## 🚀 Serve docs locally at http://127.0.0.1:8000
+	@echo "🚀 Serving documentation... (Ctrl+C to stop)"
+	@if ! command -v mkdocs >/dev/null 2>&1; then \
+		echo "❌ mkdocs is not installed. Install dev deps: make install-dev"; \
+		exit 1; \
+	fi
+	mkdocs serve -a 127.0.0.1:8000
 
 test: ## 🎯 Run the default test suite (unit + golden file regression) without coverage
 	@echo "🎯 Running default test suite (unit + golden file regression)..."

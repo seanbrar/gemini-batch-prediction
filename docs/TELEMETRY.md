@@ -1,8 +1,10 @@
 # Telemetry Integration
 
+> Note: This page describes the current API. For the upcoming architecture, see Explanation → Command Pipeline.
+
 The library includes a `TelemetryContext` for advanced metrics collection. You can integrate it with your own monitoring systems (e.g., Prometheus, DataDog) by creating a custom reporter.
 
-This feature is designed for production environments where detailed telemetry is required. For internal debugging tools and design philosophy, see the [Developer Guide](../dev/telemetry_internals.md).
+This feature is designed for production environments where detailed telemetry is required. For internal debugging tools and design philosophy, see the Developer Guide in `dev/telemetry_internals.md` (in the repository).
 
 -----
 

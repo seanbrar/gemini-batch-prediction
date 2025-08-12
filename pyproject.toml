@@ -44,6 +44,9 @@ dev = [
     "python-semantic-release==10.2.0",
     "ruff>=0.12.2",
     "vulture>=2.14",
+    # Docs tooling
+    "mkdocs>=1.6.0",
+    "mkdocs-material>=9.6.0",
 ]
 viz = ["matplotlib~=3.10", "pandas~=2.3", "seaborn~=0.13"]
 all = ["gemini-batch[dev,viz]"]
