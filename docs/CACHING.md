@@ -1,5 +1,7 @@
 # Context Caching Guide
 
+> Note: This page describes the current API. For the upcoming architecture, see Explanation → Command Pipeline.
+
 The Gemini Batch Framework supports both implicit and explicit context caching to reduce API costs and improve performance for repeated content analysis.
 
 ## Quick Start

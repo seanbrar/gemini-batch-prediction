@@ -1,5 +1,7 @@
 # Enabling Library Logging
 
+> Note: This page describes the current API. For the upcoming architecture, see Explanation → Command Pipeline.
+
 Enable detailed internal logging for troubleshooting API issues, understanding caching behavior, and diagnosing unexpected results.
 
 ## Quick Start
