@@ -34,6 +34,7 @@ from gemini_batch.core.types import (
     Result,
     Source,
     Success,
+    TokenEstimate,
 )
 from gemini_batch.executor import GeminiExecutor, create_executor
 from gemini_batch.extensions.conversation import (
@@ -79,6 +80,8 @@ __all__ = [  # noqa: RUF022
     "Result",
     "Success",
     "Failure",
+    # Token estimation
+    "TokenEstimate",
     # Model Capabilities
     "ModelCapabilities",
     "CachingCapabilities",

@@ -65,7 +65,7 @@ test-progressive: ## 📈 Progressive tests with fail-fast (contracts → unit �
 	@echo "  2️⃣ Unit tests..."
 	@$(PYTEST) $(PYTEST_ARGS) -x --log-cli-level=$(TEST_LOG_LEVEL) -m "unit" || exit 1
 	@echo "  3️⃣ Characterization tests..."
-	@$(PYTEST) $(PYTEST_ARGS) -x --log-cli-level=$(TEST_LOG_LEVEL) -m "characterization" || exit 1
+	@$(PYTEST) $(PYTEST_ARGS) -x --log-cli-level=$(TEST_LOG_LEVEL) -m "characterization" || { ec=$$?; if [ $$ec -eq 5 ]; then echo "ℹ️  No characterization tests collected. Skipping step."; else exit $$ec; fi; }
 	@echo "✅ Progressive test suite passed"
 
 test-pr: test-progressive test-integration test-workflows ## 🔍 Pull Request suite (no slow tests)
