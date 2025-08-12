@@ -112,7 +112,7 @@ def batch_processor(mock_gemini_client):  # noqa: ARG001
     """
     # Return our test adapter instead of the old BatchProcessor
     # The adapter will handle the translation to the new architecture
-    return TestAdapterBatchProcessor(api_key="mock_api_key_for_tests")
+    return TestAdapterBatchProcessor(api_key="mock_api_key_for_tests")  # type: ignore[no-untyped-call]
 
 
 # --- Advanced Fixtures for Client Behavior Testing ---
@@ -127,7 +127,7 @@ def mocked_internal_genai_client():
     low-level API calls it attempts to make, without any real network activity.
     """
     # We patch the class that our client will instantiate.
-    with patch("gemini_batch.gemini_client.genai.Client") as mock_genai:
+    with patch("google.genai.Client") as mock_genai:
         # Create an instance of the mock to be used by our client
         mock_instance = mock_genai.return_value
 

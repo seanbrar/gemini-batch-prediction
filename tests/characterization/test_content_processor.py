@@ -118,7 +118,10 @@ def test_url_arxiv_processing_behavior(golden, mock_httpx_client, batch_processo
 
 @pytest.mark.golden_test("golden_files/test_content_processor_local_image.yml")
 def test_local_multimodal_file_behavior(
-    golden, fs, _mock_get_mime_type, batch_processor
+    golden,
+    fs,
+    mock_get_mime_type,  # noqa: ARG001
+    batch_processor,
 ):
     """
     Characterizes processing of a local, non-text file (an image) through the new architecture.
@@ -138,7 +141,7 @@ def test_local_multimodal_file_behavior(
 
 
 @pytest.mark.golden_test("golden_files/test_content_processor_mixed_list.yml")
-def test_mixed_content_list_behavior(golden, fs, _mock_get_mime_type, batch_processor):
+def test_mixed_content_list_behavior(golden, fs, mock_get_mime_type, batch_processor):  # noqa: ARG001
     """
     Characterizes processing of a list containing mixed content types through the new architecture.
     """
