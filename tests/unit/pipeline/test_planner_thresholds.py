@@ -1,0 +1,37 @@
+import pytest
+
+from gemini_batch.config import GeminiConfig
+from gemini_batch.core.types import InitialCommand, ResolvedCommand, Source
+from gemini_batch.pipeline.planner import ExecutionPlanner
+
+pytestmark = pytest.mark.unit
+
+
+@pytest.mark.asyncio
+async def test_planner_uses_model_thresholds_from_core_models():
+    # Model exists in core.models with explicit_minimum_tokens=4096
+    model_name = "gemini-2.0-flash"
+    planner = ExecutionPlanner()
+
+    # Create a large source so that estimate.max_tokens is above threshold
+    big = Source(
+        source_type="file",
+        identifier="big.bin",
+        mime_type="application/octet-stream",
+        size_bytes=10_000_000,
+        content_loader=lambda: b"",
+    )
+    initial = InitialCommand(
+        sources=("ignored",),
+        prompts=("p",),
+        config=GeminiConfig(api_key="k", model=model_name),
+    )
+    resolved = ResolvedCommand(initial=initial, resolved_sources=(big,))
+
+    result = await planner.handle(resolved)
+    # let test fail naturally if not success
+    planned = result.value  # type: ignore[union-attr]
+
+    # When threshold is applied, a cache name should be present
+    cache_name = planned.execution_plan.primary_call.cache_name_to_use
+    assert cache_name and cache_name.startswith("cache_")
