@@ -4,7 +4,7 @@ import importlib.metadata
 import logging
 
 # Core pipeline architecture imports
-from .core.exceptions import (
+from gemini_batch.core.exceptions import (
     ConfigurationError,
     FileError,
     GeminiBatchError,
@@ -13,7 +13,7 @@ from .core.exceptions import (
     UnsupportedContentError,
     ValidationError,
 )
-from .core.models import (
+from gemini_batch.core.models import (
     APITier,
     CachingCapabilities,
     ModelCapabilities,
@@ -22,7 +22,7 @@ from .core.models import (
     get_model_capabilities,
     get_rate_limits,
 )
-from .core.types import (
+from gemini_batch.core.types import (
     APICall,
     ConversationTurn,
     ExecutionPlan,
@@ -35,13 +35,13 @@ from .core.types import (
     Source,
     Success,
 )
-from .executor import GeminiExecutor, create_executor
-from .extensions.conversation import (
+from gemini_batch.executor import GeminiExecutor, create_executor
+from gemini_batch.extensions.conversation import (
     BasePersistenceHandler,
     ConversationManager,
     JSONPersistenceHandler,
 )
-from .extensions.visualization import (
+from gemini_batch.extensions.visualization import (
     create_efficiency_visualizations,
     create_focused_efficiency_visualization,
     run_efficiency_experiment,

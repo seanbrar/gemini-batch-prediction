@@ -41,7 +41,9 @@ class TestSourceHandlerContracts:
         # 2. Obvious contract: The `handle` method signature must be explicit.
         sig = inspect.signature(handler.handle)
         assert "command" in sig.parameters
-        assert sig.parameters["command"].annotation == InitialCommand
+        # Accept forward-ref string annotations equally to avoid brittle failures
+        param_ann = sig.parameters["command"].annotation
+        assert param_ann == InitialCommand or str(param_ann) == "InitialCommand"
         # The return type is Union[Success[ResolvedCommand], Failure[Failure]]
         return_type_str = str(sig.return_annotation)
         assert "Success" in return_type_str and "ResolvedCommand" in return_type_str

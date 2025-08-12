@@ -1,11 +1,23 @@
 """The primary user-facing entry point for the pipeline."""
 
-from typing import Any
+from contextlib import suppress
+from time import perf_counter
+from typing import Any, cast
 
 from gemini_batch.config import GeminiConfig, get_ambient_config
-from gemini_batch.core.exceptions import GeminiBatchError
-from gemini_batch.core.types import InitialCommand
+from gemini_batch.core.exceptions import GeminiBatchError, PipelineError
+from gemini_batch.core.types import (
+    Failure,
+    FinalizedCommand,
+    InitialCommand,
+    Result,
+)
+from gemini_batch.pipeline.api_handler import APIHandler
 from gemini_batch.pipeline.base import BaseAsyncHandler
+from gemini_batch.pipeline.planner import ExecutionPlanner
+from gemini_batch.pipeline.result_builder import ResultBuilder
+from gemini_batch.pipeline.source_handler import SourceHandler
+from gemini_batch.telemetry import TelemetryContext
 
 
 class GeminiExecutor:
@@ -34,17 +46,8 @@ class GeminiExecutor:
         self, _config: GeminiConfig
     ) -> list[BaseAsyncHandler[Any, Any, GeminiBatchError]]:
         """Build the default pipeline of handlers."""
-        # TODO: Implement concrete handler classes
-        # For now, return empty list to avoid abstract class instantiation
-        return []
-        # The APIHandler is the only one that needs specific config (the API key).
-        # Others are stateless and require no initialization.
-        # return [
-        #     SourceHandler(),  # noqa: ERA001
-        #     ExecutionPlanner(),  # noqa: ERA001
-        #     APIHandler(),  # TODO: Add proper initialization  # noqa: ERA001
-        #     ResultBuilder(),  # noqa: ERA001
-        # ]  # noqa: ERA001, RUF100
+        handlers = [SourceHandler(), ExecutionPlanner(), APIHandler(), ResultBuilder()]
+        return cast("list[BaseAsyncHandler[Any, Any, GeminiBatchError]]", handlers)
 
     async def execute(self, _command: InitialCommand) -> dict[str, Any]:
         """Execute a command through the pipeline.
@@ -58,11 +61,46 @@ class GeminiExecutor:
         Raises:
             PipelineError: If any stage in the pipeline fails.
         """
-        # TODO: Implement pipeline execution
-        # For now, return a placeholder result
+        # Sequentially run through the pipeline with explicit Result handling
+        current: Any = _command
+        last_stage_name = None
+        stage_durations: dict[str, float] = {}
+        ctx = TelemetryContext()  # no-op unless enabled with reporters/env
+
+        for handler in self._pipeline:
+            last_stage_name = handler.__class__.__name__
+            with ctx("pipeline.stage", stage=last_stage_name):
+                start = perf_counter()
+                result: Result[Any, GeminiBatchError] = await handler.handle(current)
+                duration = perf_counter() - start
+            stage_durations[last_stage_name] = duration
+
+            if isinstance(result, Failure):
+                raise PipelineError(
+                    str(result.error), handler.__class__.__name__, result.error
+                )
+            current = result.value
+
+            # Attach telemetry durations to FinalizedCommand so ResultBuilder can surface metrics
+            if isinstance(current, FinalizedCommand):
+                with suppress(Exception):
+                    current.telemetry_data.setdefault("durations", {}).update(
+                        stage_durations
+                    )
+
+        # At this point, current should be the final result dict returned by ResultBuilder
+        if isinstance(current, dict):
+            # Ensure stage durations are surfaced even after the final stage
+            current.setdefault("metrics", {})
+            current["metrics"].setdefault("durations", {}).update(stage_durations)
+            return current
+        # Defensive fallback to avoid leaking internals
         return {
-            "status": "not_implemented",
-            "message": "Pipeline execution not yet implemented",
+            "success": False,
+            "answers": [],
+            "metrics": {},
+            "error": "Unexpected pipeline state",
+            "stage": last_stage_name,
         }
 
 
