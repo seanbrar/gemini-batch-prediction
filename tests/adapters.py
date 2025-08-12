@@ -8,7 +8,6 @@ without requiring changes to the test code or golden files.
 import asyncio
 from typing import Any
 
-from gemini_batch.config import GeminiConfig
 from gemini_batch.core.types import InitialCommand
 from gemini_batch.executor import GeminiExecutor
 
@@ -38,8 +37,19 @@ class TestAdapterBatchProcessor:
         # Add any additional config overrides
         config_dict.update(config_overrides)
 
-        self.config = GeminiConfig(**config_dict)
-        self.executor = GeminiExecutor(config=self.config)
+        # Build a config dictionary compatible with the library (runtime-typed)
+        config_typed: dict[str, Any] = {
+            "api_key": config_dict.get("api_key", "mock_api_key_for_tests"),
+            "model": config_dict.get("model", "gemini-2.0-flash"),
+            "enable_caching": config_dict.get("enable_caching", False),
+        }
+        if "tier" in config_dict:
+            # Preserve optional tier when present; typing relaxed in tests
+            config_typed["tier"] = config_dict["tier"]
+
+        # Cast to the library's expected TypedDict (acceptable in test adapter)
+        self.config = config_typed
+        self.executor = GeminiExecutor(config=self.config)  # type: ignore[arg-type]
 
     def process_questions(
         self,
@@ -48,7 +58,7 @@ class TestAdapterBatchProcessor:
         _compare_methods: bool = False,  # noqa: FBT001, FBT002
         _response_schema: Any | None = None,
         _return_usage: bool = False,  # noqa: FBT001, FBT002
-        **_kwargs,
+        **_kwargs: Any,
     ) -> dict[str, Any]:
         """
         Mimics the old BatchProcessor.process_questions method signature.
@@ -74,7 +84,7 @@ class TestAdapterBatchProcessor:
         command = InitialCommand(
             sources=sources,
             prompts=prompts,
-            config=self.config,
+            config=self.config,  # type: ignore[arg-type]
         )
 
         # Execute using the new async executor
@@ -98,7 +108,7 @@ class TestAdapterBatchProcessor:
         sources: list[str | list[str]],
         questions: list[str],
         response_schema: Any | None = None,
-        **kwargs,
+        **kwargs: Any,
     ) -> dict[str, Any]:
         """
         Mimics the old BatchProcessor.process_questions_multi_source method.

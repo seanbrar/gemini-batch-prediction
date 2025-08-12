@@ -10,7 +10,7 @@ import contextvars
 import os
 from typing import TypedDict
 
-from .core.models import APITier
+from gemini_batch.core.models import APITier
 
 # --- Type-Safe Configuration Definition ---
 
