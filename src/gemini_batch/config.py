@@ -26,6 +26,11 @@ class GeminiConfig(TypedDict, total=False):
     model: str
     tier: str | APITier
     enable_caching: bool
+    # Library-owned optional settings
+    # When true, the API handler uses the real provider adapter instead of the mock
+    use_real_api: bool
+    # Desired TTL (seconds) for provider-side cached contents when caching is enabled
+    ttl_seconds: int
 
 
 # --- Ambient Configuration Resolution ---

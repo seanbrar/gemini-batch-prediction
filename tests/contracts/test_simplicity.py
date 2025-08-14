@@ -1,8 +1,12 @@
 import inspect
+from typing import TYPE_CHECKING, Any
 
 import pytest
 
 from gemini_batch.core import exceptions, models, types
+
+if TYPE_CHECKING:
+    from collections.abc import Callable
 
 
 class TestSimplicityCompliance:
@@ -40,12 +44,11 @@ class TestSimplicityCompliance:
             models.CachingCapabilities,
             models.ModelCapabilities,
         ]
-
         for cls in dataclasses:
-            sig = inspect.signature(cls.__init__)
+            sig = inspect.signature(cls)
 
             # Should have reasonable number of parameters (not too complex)
-            param_count = len(sig.parameters) - 1  # Exclude self
+            param_count = len(sig.parameters)
             assert param_count <= 6, (
                 f"{cls.__name__} has too many parameters: {param_count}"
             )
@@ -54,12 +57,11 @@ class TestSimplicityCompliance:
     @pytest.mark.contract
     def test_functions_have_simple_signatures(self):
         """Functions should have simple, clear signatures."""
-        functions = [
+        functions: list[Callable[..., Any]] = [
             models.get_model_capabilities,
             models.get_rate_limits,
             models.can_use_caching,
         ]
-
         for func in functions:
             sig = inspect.signature(func)
 
