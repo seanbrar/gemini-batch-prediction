@@ -156,6 +156,28 @@ class APICall:
 
 
 @dataclass(frozen=True)
+class RateConstraint:
+    """Immutable rate limit specification (per minute).
+
+    Implements safe defaults to avoid invalid constraints.
+    """
+
+    requests_per_minute: int
+    tokens_per_minute: int | None = None
+    min_interval_ms: int = 0
+    burst_factor: float = 1.0
+
+    def __post_init__(self) -> None:
+        """Clamp invalid values to safe defaults."""
+        if self.requests_per_minute <= 0:
+            object.__setattr__(self, "requests_per_minute", 1)
+        if self.tokens_per_minute is not None and self.tokens_per_minute <= 0:
+            object.__setattr__(self, "tokens_per_minute", None)
+        if self.burst_factor < 1.0:
+            object.__setattr__(self, "burst_factor", 1.0)
+
+
+@dataclass(frozen=True)
 class ExecutionPlan:
     """Instructions for executing API calls.
 
@@ -165,6 +187,8 @@ class ExecutionPlan:
 
     primary_call: APICall
     fallback_call: APICall | None = None  # For when batching fails
+    # Optional rate limiting constraint (enforced by middleware)
+    rate_constraint: RateConstraint | None = None
 
 
 @dataclass(frozen=True)

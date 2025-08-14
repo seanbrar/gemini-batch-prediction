@@ -1,6 +1,5 @@
 """The primary user-facing entry point for the pipeline."""
 
-from contextlib import suppress
 from time import perf_counter
 from typing import Any, cast
 
@@ -15,6 +14,8 @@ from gemini_batch.core.types import (
 from gemini_batch.pipeline.api_handler import APIHandler
 from gemini_batch.pipeline.base import BaseAsyncHandler
 from gemini_batch.pipeline.planner import ExecutionPlanner
+from gemini_batch.pipeline.rate_limit_handler import RateLimitHandler
+from gemini_batch.pipeline.registries import CacheRegistry, FileRegistry
 from gemini_batch.pipeline.result_builder import ResultBuilder
 from gemini_batch.pipeline.source_handler import SourceHandler
 from gemini_batch.telemetry import TelemetryContext
@@ -40,26 +41,60 @@ class GeminiExecutor:
             pipeline_handlers: Optional list of handlers to override the default pipeline.
         """
         self.config = config
+        self._cache_registry = CacheRegistry()
+        self._file_registry = FileRegistry()
         self._pipeline = pipeline_handlers or self._build_default_pipeline(config)
 
     def _build_default_pipeline(
         self, _config: GeminiConfig
     ) -> list[BaseAsyncHandler[Any, Any, GeminiBatchError]]:
-        """Build the default pipeline of handlers."""
-        handlers = [SourceHandler(), ExecutionPlanner(), APIHandler(), ResultBuilder()]
+        """Build the default pipeline of handlers.
+
+        Returns:
+            The list of handlers that comprise the default pipeline.
+        """
+        # Optional real adapter factory when explicitly requested
+        adapter_factory = None
+        try:
+            use_real = bool(cast("dict[str, Any]", self.config).get("use_real_api"))
+        except Exception:
+            use_real = False
+        if use_real:
+
+            def _factory(api_key: str) -> Any:  # defer import until needed
+                from gemini_batch.pipeline.adapters.gemini import GoogleGenAIAdapter
+
+                return GoogleGenAIAdapter(api_key)
+
+            adapter_factory = _factory
+
+        handlers = [
+            SourceHandler(),
+            ExecutionPlanner(),
+            RateLimitHandler(),
+            APIHandler(
+                telemetry=None,
+                registries={
+                    "cache": self._cache_registry,
+                    "files": self._file_registry,
+                },
+                adapter_factory=adapter_factory,
+            ),
+            ResultBuilder(),
+        ]
         return cast("list[BaseAsyncHandler[Any, Any, GeminiBatchError]]", handlers)
 
     async def execute(self, _command: InitialCommand) -> dict[str, Any]:
         """Execute a command through the pipeline.
 
         Args:
-            command: The command to execute.
+            _command: The initial command to execute (sources, prompts, config).
 
         Returns:
-            A dictionary containing the final result.
+            A minimal result dictionary produced by the `ResultBuilder` stage.
 
         Raises:
-            PipelineError: If any stage in the pipeline fails.
+            PipelineError: If any stage returns a failure result.
         """
         # Sequentially run through the pipeline with explicit Result handling
         current: Any = _command
@@ -83,18 +118,25 @@ class GeminiExecutor:
 
             # Attach telemetry durations to FinalizedCommand so ResultBuilder can surface metrics
             if isinstance(current, FinalizedCommand):
-                with suppress(Exception):
-                    current.telemetry_data.setdefault("durations", {}).update(
-                        stage_durations
-                    )
+                # Avoid setdefault chaining to satisfy typing and be resilient to bad shapes
+                existing = current.telemetry_data.get("durations")
+                if isinstance(existing, dict):
+                    existing.update(stage_durations)
+                else:
+                    current.telemetry_data["durations"] = dict(stage_durations)
 
-        # At this point, current should be the final result dict returned by ResultBuilder
+        # ResultBuilder returns the final result dict
         if isinstance(current, dict):
-            # Ensure stage durations are surfaced even after the final stage
-            current.setdefault("metrics", {})
-            current["metrics"].setdefault("durations", {}).update(stage_durations)
+            # Ensure stage durations (including ResultBuilder) are surfaced
+            metrics_container = current.setdefault("metrics", {})
+            if isinstance(metrics_container, dict):
+                existing_durations = metrics_container.get("durations")
+                if isinstance(existing_durations, dict):
+                    existing_durations.update(stage_durations)
+                else:
+                    metrics_container["durations"] = dict(stage_durations)
             return current
-        # Defensive fallback to avoid leaking internals
+        # Defensive fallback to avoid leaking internals; keep a uniform return shape.
         return {
             "success": False,
             "answers": [],
@@ -117,5 +159,15 @@ def create_executor(config: GeminiConfig | None = None) -> GeminiExecutor:
         An instance of GeminiExecutor.
     """
     # This is the only place where ambient configuration is resolved.
-    final_config = config or get_ambient_config()
+    if config is not None:
+        final_config = config
+    else:
+        try:
+            final_config = get_ambient_config()
+        except Exception:
+            # DX-friendly fallback: operate in mock mode without an API key
+            final_config = GeminiConfig(
+                model="gemini-2.0-flash",  # default model
+                use_real_api=False,
+            )
     return GeminiExecutor(final_config)
