@@ -12,6 +12,7 @@ from gemini_batch.core.types import (
     Success,
     TextPart,
 )
+from gemini_batch.pipeline.adapters.base import GenerationAdapter
 from gemini_batch.pipeline.api_handler import APIHandler
 
 
@@ -22,7 +23,7 @@ def make_planned(prompts: tuple[str, ...]) -> PlannedCommand:
     resolved = ResolvedCommand(initial=initial, resolved_sources=())
     call = APICall(
         model_name="gemini-2.0-flash",
-        api_parts=[TextPart(text="\n\n".join(prompts))],
+        api_parts=(TextPart(text="\n\n".join(prompts)),),
         api_config={},
     )
     plan = ExecutionPlan(primary_call=call)
@@ -48,9 +49,31 @@ async def test_api_handler_fails_on_empty_parts():
         sources=("s",), prompts=("p",), config=GeminiConfig(api_key="k")
     )
     resolved = ResolvedCommand(initial=initial, resolved_sources=())
-    empty_call = APICall(model_name="gemini-2.0-flash", api_parts=[], api_config={})
+    empty_call = APICall(model_name="gemini-2.0-flash", api_parts=(), api_config={})
     plan = ExecutionPlan(primary_call=empty_call)
     planned = PlannedCommand(resolved=resolved, execution_plan=plan)
 
     result = await handler.handle(planned)
     assert isinstance(result, Failure)
+
+
+@pytest.mark.asyncio
+async def test_factory_requires_api_key_and_fails_explicitly():
+    # Factory provided but no api_key in config should trigger explicit Failure
+    def _factory(
+        _api_key: str,
+    ) -> GenerationAdapter:  # pragma: no cover - not called in this test
+        raise AssertionError("Factory should not be invoked without api_key")
+
+    handler = APIHandler(adapter_factory=_factory)
+    initial = InitialCommand(sources=("s",), prompts=("p",), config=GeminiConfig())
+    resolved = ResolvedCommand(initial=initial, resolved_sources=())
+    call = APICall(
+        model_name="gemini-2.0-flash", api_parts=(TextPart("p"),), api_config={}
+    )
+    plan = ExecutionPlan(primary_call=call)
+    planned = PlannedCommand(resolved=resolved, execution_plan=plan)
+
+    result = await handler.handle(planned)
+    assert isinstance(result, Failure)
+    assert "api_key" in str(result.error).lower()

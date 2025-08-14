@@ -140,6 +140,25 @@ class TextPart:
     text: str
 
 
+@dataclass(frozen=True)
+class FileRefPart:
+    """Provider-agnostic reference to uploaded content."""
+
+    uri: str
+    mime_type: str | None = None
+
+
+@dataclass(frozen=True)
+class FilePlaceholder:
+    """Placeholder for a local file to be uploaded by the provider.
+
+    Handlers replace this with a `FileRefPart` when uploads are supported.
+    """
+
+    local_path: Path
+    mime_type: str | None = None
+
+
 # For the minimal slice, a generation config is simply a mapping. We keep it
 # library-owned and translate to provider-specific types at the API seam.
 GenerationConfigDict = dict[str, object]
@@ -150,9 +169,31 @@ class APICall:
     """A description of a single API call to be made."""
 
     model_name: str
-    api_parts: list[TextPart]
+    api_parts: tuple[Any, ...]
     api_config: GenerationConfigDict
     cache_name_to_use: str | None = None
+
+
+@dataclass(frozen=True)
+class UploadTask:
+    """Instruction to upload a local file and substitute an API part."""
+
+    part_index: int
+    local_path: Path
+    mime_type: str | None = None
+    required: bool = True
+
+
+@dataclass(frozen=True)
+class ExplicitCachePlan:
+    """Instruction to create/use explicit cached content for context."""
+
+    create: bool = False
+    cache_name: str | None = None
+    contents_part_indexes: tuple[int, ...] = ()
+    include_system_instruction: bool = True
+    ttl_seconds: int | None = None
+    deterministic_key: str | None = None
 
 
 @dataclass(frozen=True)
@@ -189,6 +230,9 @@ class ExecutionPlan:
     fallback_call: APICall | None = None  # For when batching fails
     # Optional rate limiting constraint (enforced by middleware)
     rate_constraint: RateConstraint | None = None
+    # Optional pre-generation actions
+    upload_tasks: tuple[UploadTask, ...] = ()
+    explicit_cache: ExplicitCachePlan | None = None
 
 
 @dataclass(frozen=True)
@@ -209,4 +253,4 @@ class FinalizedCommand:
     # This will be populated by a future Telemetry handler/context.
     # Note: This field is intentionally mutable to collect metrics and is not
     # part of the immutability guarantees of the surrounding dataclass.
-    telemetry_data: dict = field(default_factory=dict)  # type: ignore
+    telemetry_data: dict[str, object] = field(default_factory=dict)

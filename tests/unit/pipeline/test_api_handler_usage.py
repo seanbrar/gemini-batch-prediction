@@ -23,7 +23,7 @@ def make_planned_with_estimate(prompt_text: str, expected: int) -> PlannedComman
     resolved = ResolvedCommand(initial=initial, resolved_sources=())
     call = APICall(
         model_name="gemini-2.0-flash",
-        api_parts=[TextPart(text=prompt_text)],
+        api_parts=(TextPart(text=prompt_text),),
         api_config={},
     )
     plan = ExecutionPlan(primary_call=call)
