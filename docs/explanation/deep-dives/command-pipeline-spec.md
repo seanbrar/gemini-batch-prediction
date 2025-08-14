@@ -73,11 +73,16 @@ Explicit instructions for API execution:
 - Decides payload construction (inline vs. file upload)
 - Assembles prompt
 
+### Rate Limit Handler
+
+- Enforces `RateConstraint` prior to API execution
+- Emits structured telemetry for wait times
+
 ### API Handler
 
-- Executes `ExecutionPlan` via Gemini API
-- Manages async rate limiting
-- Handles uploads
+- Executes `ExecutionPlan` via provider SDKs
+- Handles uploads and caching when supported
+- Retries (limited) and single fallback execution
 - Wraps API errors with context
 
 ### Result Builder
