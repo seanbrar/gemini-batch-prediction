@@ -265,3 +265,30 @@ class FinalizedCommand:
     # Note: This field is intentionally mutable to collect metrics and is not
     # part of the immutability guarantees of the surrounding dataclass.
     telemetry_data: dict[str, object] = dataclasses.field(default_factory=dict)
+
+
+# --- Result Types ---
+# User-facing result structures returned by the pipeline.
+
+
+class ResultEnvelope(typing.TypedDict, total=False):
+    """Stable result shape for all extractions.
+
+    This type ensures consistent structure regardless of extraction method.
+    The 'total=False' allows optional fields while maintaining type safety.
+
+    This is the main result structure that users receive from the pipeline.
+    """
+
+    # Core fields (always present)
+    success: bool  # Always True (extraction never fails)
+    answers: list[str]  # Always present, padded if needed
+    extraction_method: str  # Which transform/fallback succeeded
+    confidence: float  # 0.0-1.0 extraction confidence
+
+    # Optional fields
+    structured_data: typing.Any  # Original structured data if available
+    metrics: dict[str, typing.Any]  # Telemetry metrics
+    usage: dict[str, typing.Any]  # Token usage data
+    diagnostics: dict[str, typing.Any]  # When diagnostics enabled
+    validation_warnings: tuple[str, ...]  # Schema/contract violations

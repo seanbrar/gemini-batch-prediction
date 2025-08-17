@@ -22,6 +22,25 @@ class TestRobustnessCompliance:
             models.ModelCapabilities,
         ]
 
+        # Add Result Builder extraction types (internal - not in core.types)
+        from gemini_batch.pipeline.results.extraction import (
+            ExtractionContext,
+            ExtractionContract,
+            ExtractionResult,
+            TransformSpec,
+            Violation,
+        )
+
+        extraction_dataclasses = [
+            TransformSpec,
+            ExtractionContext,
+            ExtractionContract,
+            ExtractionResult,
+            Violation,
+        ]
+
+        dataclasses.extend(extraction_dataclasses)
+
         for cls in dataclasses:
             # Check if dataclass is frozen by looking at __dataclass_params__
             if hasattr(cls, "__dataclass_params__"):

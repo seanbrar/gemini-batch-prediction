@@ -4,7 +4,6 @@ from gemini_batch.config import GeminiConfig
 from gemini_batch.core.types import (
     APICall,
     ExecutionPlan,
-    Failure,
     FinalizedCommand,
     InitialCommand,
     PlannedCommand,
@@ -22,7 +21,7 @@ def make_finalized_with_raw(raw: object) -> FinalizedCommand:
     )
     resolved = ResolvedCommand(initial=initial, resolved_sources=())
     api_call = APICall(
-        model_name="gemini-2.0-flash", api_parts=[TextPart(text="p")], api_config={}
+        model_name="gemini-2.0-flash", api_parts=(TextPart(text="p"),), api_config={}
     )
     plan = ExecutionPlan(primary_call=api_call)
     planned = PlannedCommand(resolved=resolved, execution_plan=plan)
@@ -63,4 +62,8 @@ async def test_extractor_fails_when_text_missing():
     handler = ResultBuilder()
     cmd = make_finalized_with_raw({"nope": ""})
     result = await handler.handle(cmd)
-    assert isinstance(result, Failure)
+    # Extraction is infallible by design (MinimalProjection fallback), so
+    # we expect a Success carrying a stringified representation of the raw
+    # input when no recognized text keys are present.
+    assert isinstance(result, Success)
+    assert result.value["answers"][0] == "{'nope': ''}"
