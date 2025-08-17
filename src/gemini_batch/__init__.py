@@ -32,6 +32,7 @@ from gemini_batch.core.types import (
     PlannedCommand,
     ResolvedCommand,
     Result,
+    ResultEnvelope,
     Source,
     Success,
     TokenEstimate,
@@ -42,12 +43,21 @@ from gemini_batch.extensions.conversation import (
     ConversationManager,
     JSONPersistenceHandler,
 )
-from gemini_batch.extensions.visualization import (
-    create_efficiency_visualizations,
-    create_focused_efficiency_visualization,
-    run_efficiency_experiment,
-    visualize_scaling_results,
+
+# User-facing extraction types for customization
+from gemini_batch.pipeline.results.extraction import (
+    ExtractionContract,
+    TransformSpec,
+    Violation,
 )
+
+# Visualization imports temporarily disabled due to legacy coupling
+# from gemini_batch.extensions.visualization import (
+#     create_efficiency_visualizations,
+#     create_focused_efficiency_visualization,
+#     run_efficiency_experiment,
+#     visualize_scaling_results,
+# )  noqa: ERA001
 
 # Version handling
 try:
@@ -82,6 +92,12 @@ __all__ = [  # noqa: RUF022
     "Failure",
     # Token estimation
     "TokenEstimate",
+    # Result types
+    "ResultEnvelope",
+    # User-facing extraction customization
+    "TransformSpec",
+    "Violation",
+    "ExtractionContract",
     # Model Capabilities
     "ModelCapabilities",
     "CachingCapabilities",
@@ -98,9 +114,9 @@ __all__ = [  # noqa: RUF022
     "FileError",
     "ValidationError",
     "UnsupportedContentError",
-    # Visualization Extensions
-    "create_efficiency_visualizations",
-    "create_focused_efficiency_visualization",
-    "run_efficiency_experiment",
-    "visualize_scaling_results",
+    # Visualization Extensions (temporarily disabled)
+    # "create_efficiency_visualizations",
+    # "create_focused_efficiency_visualization",
+    # "run_efficiency_experiment",
+    # "visualize_scaling_results",
 ]
