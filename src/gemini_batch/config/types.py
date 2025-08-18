@@ -108,7 +108,10 @@ class ResolvedConfig(NamedTuple):
 
                 # Redact sensitive fields
                 if field == "api_key":
-                    if origin == "env":
+                    actual_value = getattr(self, field)
+                    if actual_value is None:
+                        value_display = f"{origin}:None"
+                    elif origin == "env":
                         value_display = "env:GEMINI_API_KEY"
                     elif origin == "file":
                         value_display = "file:<redacted>"
@@ -120,7 +123,7 @@ class ResolvedConfig(NamedTuple):
                     # Non-sensitive fields show actual values
                     actual_value = getattr(self, field)
                     if origin == "env":
-                        value_display = f"env:GEMINI_{field.upper()}"
+                        value_display = f"env:GEMINI_{field.upper()}={actual_value}"
                     elif origin == "file":
                         value_display = f"file:{actual_value}"
                     else:

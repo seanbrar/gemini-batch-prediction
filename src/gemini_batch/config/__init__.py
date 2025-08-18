@@ -22,7 +22,18 @@ from typing import TypedDict
 
 from gemini_batch.core.models import APITier
 
+from .api import (
+    check_environment,
+    get_effective_profile,
+    list_available_profiles,
+    print_config_audit,
+    print_effective_config,
+    resolve_config,
+    validate_profile,
+)
 from .audit import SourceTracker, generate_redacted_audit, generate_telemetry_summary
+from .file_loader import ConfigFileError, FileConfigLoader
+from .resolver import ConfigResolver
 from .schema import GeminiSettings
 from .types import ConfigOrigin, FrozenConfig, ResolvedConfig, SourceMap
 
@@ -74,12 +85,24 @@ def config_scope(config: GeminiConfig) -> Generator[None]:
 
 
 __all__ = [  # noqa: RUF022
-    # New system
+    # New system - main API
+    "resolve_config",
+    "list_available_profiles",
+    "get_effective_profile",
+    "validate_profile",
+    "print_config_audit",
+    "print_effective_config",
+    "check_environment",
+    # Core types
     "ResolvedConfig",
     "FrozenConfig",
     "SourceMap",
     "ConfigOrigin",
+    # Advanced usage
     "GeminiSettings",
+    "ConfigResolver",
+    "FileConfigLoader",
+    "ConfigFileError",
     "SourceTracker",
     "generate_redacted_audit",
     "generate_telemetry_summary",
