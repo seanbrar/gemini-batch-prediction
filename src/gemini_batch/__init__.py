@@ -50,6 +50,7 @@ from gemini_batch.pipeline.results.extraction import (
     TransformSpec,
     Violation,
 )
+from gemini_batch.telemetry import TelemetryContext, TelemetryReporter
 
 # Visualization imports temporarily disabled due to legacy coupling
 # from gemini_batch.extensions.visualization import (
@@ -74,6 +75,9 @@ __all__ = [  # noqa: RUF022
     # Core Executor
     "GeminiExecutor",
     "create_executor",
+    # Telemetry (extension points)
+    "TelemetryContext",
+    "TelemetryReporter",
     # Conversation Management
     "ConversationManager",
     "BasePersistenceHandler",

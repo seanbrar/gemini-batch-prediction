@@ -11,9 +11,10 @@ from contextvars import ContextVar
 from dataclasses import dataclass
 import logging
 import os
+import re
 import time
 from types import TracebackType
-from typing import Any, Protocol, Self, runtime_checkable
+from typing import Any, Final, Protocol, Self, TypedDict, runtime_checkable
 from warnings import deprecated
 
 log = logging.getLogger(__name__)
@@ -27,6 +28,29 @@ _call_count_var: ContextVar[int] = ContextVar("call_count", default=0)
 
 # Minimal-overhead optimization - evaluated once at import time
 _TELEMETRY_ENABLED = os.getenv("GEMINI_TELEMETRY") == "1" or os.getenv("DEBUG") == "1"
+_STRICT_SCOPES = os.getenv("GEMINI_TELEMETRY_STRICT_SCOPES") == "1"
+
+# Built-in metadata keys (exported for clarity & resilience)
+DEPTH: Final[str] = "depth"
+PARENT_SCOPE: Final[str] = "parent_scope"
+CALL_COUNT: Final[str] = "call_count"
+METRIC_TYPE: Final[str] = "metric_type"
+START_MONOTONIC_S: Final[str] = "start_monotonic_s"  # High-precision monotonic seconds
+END_MONOTONIC_S: Final[str] = "end_monotonic_s"
+START_WALL_TIME_S: Final[str] = "start_wall_time_s"  # Epoch seconds (correlation)
+END_WALL_TIME_S: Final[str] = "end_wall_time_s"
+
+_SCOPE_NAME_PATTERN = re.compile(r"^[a-z][a-z0-9_]*(?:\.[a-z][a-z0-9_]*)*$")
+
+
+class _TelemetryMetadata(TypedDict, total=False):
+    depth: int
+    call_count: int
+    parent_scope: str | None
+    start_monotonic_s: float
+    end_monotonic_s: float
+    start_wall_time_s: float
+    end_wall_time_s: float
 
 
 @runtime_checkable
@@ -54,6 +78,10 @@ class _NoOpTelemetryContext:
         exc_tb: TracebackType | None,
     ) -> bool | None:
         return None
+
+    @property
+    def is_enabled(self) -> bool:
+        return False
 
     def metric(self, name: str, value: Any, **metadata: Any) -> None:
         pass
@@ -88,11 +116,17 @@ class _EnabledTelemetryContext:
         """The actual scope implementation when enabled."""
         if not name or not isinstance(name, str):
             raise ValueError("Scope name must be a non-empty string")
+        if _STRICT_SCOPES and not _SCOPE_NAME_PATTERN.fullmatch(name):
+            raise ValueError(
+                "Invalid scope name. Use lowercase letters, digits, and underscores; "
+                "segments separated by dots.",
+            )
 
         scope_stack = _scope_stack_var.get()
         call_count = _call_count_var.get()
         scope_path = ".".join((*scope_stack, name))
-        start_time = time.perf_counter()
+        start_monotonic_s = time.perf_counter()
+        start_wall_time_s = time.time()
 
         scope_token = _scope_stack_var.set((*scope_stack, name))
         count_token = _call_count_var.set(call_count + 1)
@@ -100,19 +134,25 @@ class _EnabledTelemetryContext:
         try:
             yield self  # Return self so chained methods work
         finally:
-            duration = time.perf_counter() - start_time
+            end_monotonic_s = time.perf_counter()
+            duration = end_monotonic_s - start_monotonic_s
+            end_wall_time_s = start_wall_time_s + duration
             _scope_stack_var.reset(scope_token)
             _call_count_var.reset(count_token)
 
             final_stack = _scope_stack_var.get()
             final_count = _call_count_var.get()
 
-            enhanced_metadata = {
+            built: _TelemetryMetadata = {
                 "depth": len(final_stack),
                 "call_count": final_count,
                 "parent_scope": ".".join(final_stack) if final_stack else None,
-                **metadata,
+                "start_monotonic_s": start_monotonic_s,
+                "end_monotonic_s": end_monotonic_s,
+                "start_wall_time_s": start_wall_time_s,
+                "end_wall_time_s": end_wall_time_s,
             }
+            enhanced_metadata: dict[str, Any] = {**built, **metadata}
 
             for reporter in self.reporters:
                 try:
@@ -129,11 +169,11 @@ class _EnabledTelemetryContext:
         """Record a metric within current scope context."""
         scope_stack = _scope_stack_var.get()
         scope_path = ".".join((*scope_stack, name))
-        enhanced_metadata = {
+        built: _TelemetryMetadata = {
             "depth": len(scope_stack),
             "parent_scope": ".".join(scope_stack) if scope_stack else None,
-            **metadata,
         }
+        enhanced_metadata: dict[str, Any] = {**built, **metadata}
         for reporter in self.reporters:
             try:
                 reporter.record_metric(scope_path, value, **enhanced_metadata)
@@ -159,6 +199,10 @@ class _EnabledTelemetryContext:
     def gauge(self, name: str, value: float, **metadata: Any) -> None:
         """Record a gauge metric."""
         self.metric(name, value, metric_type="gauge", **metadata)
+
+    @property
+    def is_enabled(self) -> bool:
+        return True
 
 
 _NO_OP_SINGLETON = _NoOpTelemetryContext()
@@ -214,6 +258,18 @@ class _SimpleReporter:
         """Prints the report to stdout if any data was collected."""
         if self.timings or self.metrics:
             print(self.get_report())  # noqa: T201
+
+    def reset(self) -> None:
+        """Clear all collected telemetry (testing convenience)."""
+        self.timings.clear()
+        self.metrics.clear()
+
+    def as_dict(self) -> dict[str, Any]:
+        """Return a JSON-serializable snapshot of collected data (testing)."""
+        return {
+            "timings": {key: list(values) for key, values in self.timings.items()},
+            "metrics": {key: list(values) for key, values in self.metrics.items()},
+        }
 
     def get_report(self) -> str:
         """Generate hierarchical telemetry report."""
