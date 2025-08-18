@@ -14,7 +14,6 @@ from gemini_batch.constants import (
     VIZ_FIGURE_SIZE,
     VIZ_SCALING_FIGURE_SIZE,
 )
-from gemini_batch.response import calculate_quality_score
 
 # Constants for consistent styling
 COLORS = VIZ_COLORS
@@ -410,17 +409,9 @@ def run_efficiency_experiment(
 
     _format_metrics_table(metrics_data)
 
-    # Target and quality analysis
+    # Target analysis
     target_met = "✅ YES" if efficiency["meets_target"] else "❌ NO"
     print(f"{'Meets 3x Target':<25} {target_met}")  # noqa: T201
-
-    # Quality analysis
-    individual_answers = results.get("individual_answers", [])
-    batch_answers = results.get("answers", [])
-
-    quality_score = calculate_quality_score(individual_answers, batch_answers)
-    if quality_score is not None:
-        print(f"{'Quality Score':<25} {quality_score * 100:.1f}%")  # noqa: T201
 
     return results
 

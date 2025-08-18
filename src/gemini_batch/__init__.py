@@ -44,6 +44,14 @@ from gemini_batch.extensions.conversation import (
     JSONPersistenceHandler,
 )
 
+# Visualization imports (now decoupled from legacy)
+from gemini_batch.extensions.visualization import (
+    create_efficiency_visualizations,
+    create_focused_efficiency_visualization,
+    run_efficiency_experiment,
+    visualize_scaling_results,
+)
+
 # User-facing extraction types for customization
 from gemini_batch.pipeline.results.extraction import (
     ExtractionContract,
@@ -51,14 +59,6 @@ from gemini_batch.pipeline.results.extraction import (
     Violation,
 )
 from gemini_batch.telemetry import TelemetryContext, TelemetryReporter
-
-# Visualization imports temporarily disabled due to legacy coupling
-# from gemini_batch.extensions.visualization import (
-#     create_efficiency_visualizations,
-#     create_focused_efficiency_visualization,
-#     run_efficiency_experiment,
-#     visualize_scaling_results,
-# )  noqa: ERA001
 
 # Version handling
 try:
@@ -118,9 +118,9 @@ __all__ = [  # noqa: RUF022
     "FileError",
     "ValidationError",
     "UnsupportedContentError",
-    # Visualization Extensions (temporarily disabled)
-    # "create_efficiency_visualizations",
-    # "create_focused_efficiency_visualization",
-    # "run_efficiency_experiment",
-    # "visualize_scaling_results",
+    # Visualization Extensions
+    "create_efficiency_visualizations",
+    "create_focused_efficiency_visualization",
+    "run_efficiency_experiment",
+    "visualize_scaling_results",
 ]
