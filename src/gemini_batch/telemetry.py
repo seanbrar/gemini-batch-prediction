@@ -1,54 +1,98 @@
-from collections import deque  # noqa: D100
-from contextlib import contextmanager
+"""Telemetry context and reporter interfaces.
+
+Provides ultra-low overhead no-op behavior when disabled and rich, contextual
+metrics when enabled via environment flags.
+"""
+
+from collections import deque
+from collections.abc import Iterator
+from contextlib import AbstractContextManager, contextmanager
 from contextvars import ContextVar
 from dataclasses import dataclass
 import logging
 import os
+import re
 import time
-from typing import Any, Protocol, TypeAlias, runtime_checkable
+from types import TracebackType
+from typing import Any, Final, Protocol, Self, TypedDict, runtime_checkable
 from warnings import deprecated
 
 log = logging.getLogger(__name__)
 
 # Context-aware state for thread/async safety
-_scope_stack_var: ContextVar[list[str]] = ContextVar("scope_stack", default=None)
+_scope_stack_var: ContextVar[tuple[str, ...]] = ContextVar(
+    "scope_stack",
+    default=(),
+)
 _call_count_var: ContextVar[int] = ContextVar("call_count", default=0)
 
 # Minimal-overhead optimization - evaluated once at import time
 _TELEMETRY_ENABLED = os.getenv("GEMINI_TELEMETRY") == "1" or os.getenv("DEBUG") == "1"
+_STRICT_SCOPES = os.getenv("GEMINI_TELEMETRY_STRICT_SCOPES") == "1"
+
+# Built-in metadata keys (exported for clarity & resilience)
+DEPTH: Final[str] = "depth"
+PARENT_SCOPE: Final[str] = "parent_scope"
+CALL_COUNT: Final[str] = "call_count"
+METRIC_TYPE: Final[str] = "metric_type"
+START_MONOTONIC_S: Final[str] = "start_monotonic_s"  # High-precision monotonic seconds
+END_MONOTONIC_S: Final[str] = "end_monotonic_s"
+START_WALL_TIME_S: Final[str] = "start_wall_time_s"  # Epoch seconds (correlation)
+END_WALL_TIME_S: Final[str] = "end_wall_time_s"
+
+_SCOPE_NAME_PATTERN = re.compile(r"^[a-z][a-z0-9_]*(?:\.[a-z][a-z0-9_]*)*$")
+
+
+class _TelemetryMetadata(TypedDict, total=False):
+    depth: int
+    call_count: int
+    parent_scope: str | None
+    start_monotonic_s: float
+    end_monotonic_s: float
+    start_wall_time_s: float
+    end_wall_time_s: float
 
 
 @runtime_checkable
 class TelemetryReporter(Protocol):
     """Duck-typed protocol for telemetry reporters."""
 
-    def record_timing(self, scope: str, duration: float, **metadata) -> None: ...  # noqa: D102
-    def record_metric(self, scope: str, value: Any, **metadata) -> None: ...  # noqa: D102
+    def record_timing(self, scope: str, duration: float, **metadata: Any) -> None: ...  # noqa: D102
+    def record_metric(self, scope: str, value: Any, **metadata: Any) -> None: ...  # noqa: D102
 
 
 @dataclass(frozen=True, slots=True)
 class _NoOpTelemetryContext:
     """An immutable and stateless no-op context, optimized for negligible overhead."""
 
-    def __call__(self, name: str, **metadata):  # noqa: ARG002
+    def __call__(self, name: str, **metadata: Any) -> Self:  # noqa: ARG002
         return self  # Self is already a context manager
 
-    def __enter__(self):
+    def __enter__(self) -> Self:
         return self
 
-    def __exit__(self, exc_type, exc_val, exc_tb):
+    def __exit__(
+        self,
+        exc_type: type[BaseException] | None,
+        exc_value: BaseException | None,
+        exc_tb: TracebackType | None,
+    ) -> bool | None:
         return None
 
-    def metric(self, name: str, value: Any, **metadata):
+    @property
+    def is_enabled(self) -> bool:
+        return False
+
+    def metric(self, name: str, value: Any, **metadata: Any) -> None:
         pass
 
-    def time(self, name: str, **metadata):  # noqa: ARG002
+    def time(self, name: str, **metadata: Any) -> Self:  # noqa: ARG002
         return self
 
-    def count(self, name: str, increment: int = 1, **metadata):
+    def count(self, name: str, increment: int = 1, **metadata: Any) -> None:
         pass
 
-    def gauge(self, name: str, value: float, **metadata):
+    def gauge(self, name: str, value: float, **metadata: Any) -> None:
         pass
 
 
@@ -60,39 +104,55 @@ class _EnabledTelemetryContext:
     def __init__(self, *reporters: TelemetryReporter):
         self.reporters = reporters
 
-    def __call__(self, name: str, **metadata):
+    def __call__(
+        self, name: str, **metadata: Any
+    ) -> AbstractContextManager["_EnabledTelemetryContext"]:
         return self._create_scope(name, **metadata)
 
     @contextmanager
-    def _create_scope(self, name: str, **metadata):
+    def _create_scope(
+        self, name: str, **metadata: Any
+    ) -> Iterator["_EnabledTelemetryContext"]:
         """The actual scope implementation when enabled."""
         if not name or not isinstance(name, str):
             raise ValueError("Scope name must be a non-empty string")
+        if _STRICT_SCOPES and not _SCOPE_NAME_PATTERN.fullmatch(name):
+            raise ValueError(
+                "Invalid scope name. Use lowercase letters, digits, and underscores; "
+                "segments separated by dots.",
+            )
 
-        scope_stack = _scope_stack_var.get() or []
+        scope_stack = _scope_stack_var.get()
         call_count = _call_count_var.get()
-        scope_path = ".".join(scope_stack + [name])  # noqa: RUF005
-        start_time = time.perf_counter()
+        scope_path = ".".join((*scope_stack, name))
+        start_monotonic_s = time.perf_counter()
+        start_wall_time_s = time.time()
 
-        scope_token = _scope_stack_var.set(scope_stack + [name])  # noqa: RUF005
+        scope_token = _scope_stack_var.set((*scope_stack, name))
         count_token = _call_count_var.set(call_count + 1)
 
         try:
             yield self  # Return self so chained methods work
         finally:
-            duration = time.perf_counter() - start_time
+            end_monotonic_s = time.perf_counter()
+            duration = end_monotonic_s - start_monotonic_s
+            end_wall_time_s = start_wall_time_s + duration
             _scope_stack_var.reset(scope_token)
             _call_count_var.reset(count_token)
 
-            final_stack = _scope_stack_var.get() or []
+            final_stack = _scope_stack_var.get()
             final_count = _call_count_var.get()
 
-            enhanced_metadata = {
+            built: _TelemetryMetadata = {
                 "depth": len(final_stack),
                 "call_count": final_count,
                 "parent_scope": ".".join(final_stack) if final_stack else None,
-                **metadata,
+                "start_monotonic_s": start_monotonic_s,
+                "end_monotonic_s": end_monotonic_s,
+                "start_wall_time_s": start_wall_time_s,
+                "end_wall_time_s": end_wall_time_s,
             }
+            enhanced_metadata: dict[str, Any] = {**built, **metadata}
 
             for reporter in self.reporters:
                 try:
@@ -105,15 +165,15 @@ class _EnabledTelemetryContext:
                         exc_info=True,
                     )
 
-    def metric(self, name: str, value: Any, **metadata):
-        """Record a metric within current scope context"""  # noqa: D415
-        scope_stack = _scope_stack_var.get() or []
-        scope_path = ".".join(scope_stack + [name])  # noqa: RUF005
-        enhanced_metadata = {
+    def metric(self, name: str, value: Any, **metadata: Any) -> None:
+        """Record a metric within current scope context."""
+        scope_stack = _scope_stack_var.get()
+        scope_path = ".".join((*scope_stack, name))
+        built: _TelemetryMetadata = {
             "depth": len(scope_stack),
             "parent_scope": ".".join(scope_stack) if scope_stack else None,
-            **metadata,
         }
+        enhanced_metadata: dict[str, Any] = {**built, **metadata}
         for reporter in self.reporters:
             try:
                 reporter.record_metric(scope_path, value, **enhanced_metadata)
@@ -126,28 +186,36 @@ class _EnabledTelemetryContext:
                 )
 
     # Convenience methods for chaining
-    def time(self, name: str, **metadata):
-        """Alias for scope() - more intuitive for timing operations"""  # noqa: D415
+    def time(
+        self, name: str, **metadata: Any
+    ) -> AbstractContextManager["_EnabledTelemetryContext"]:
+        """Alias for scope() - more intuitive for timing operations."""
         return self(name, **metadata)
 
-    def count(self, name: str, increment: int = 1, **metadata):
-        """Record a counter metric"""  # noqa: D415
+    def count(self, name: str, increment: int = 1, **metadata: Any) -> None:
+        """Record a counter metric."""
         self.metric(name, increment, metric_type="counter", **metadata)
 
-    def gauge(self, name: str, value: float, **metadata):
-        """Record a gauge metric"""  # noqa: D415
+    def gauge(self, name: str, value: float, **metadata: Any) -> None:
+        """Record a gauge metric."""
         self.metric(name, value, metric_type="gauge", **metadata)
+
+    @property
+    def is_enabled(self) -> bool:
+        return True
 
 
 _NO_OP_SINGLETON = _NoOpTelemetryContext()
 
-TelemetryContextProtocol: TypeAlias = _EnabledTelemetryContext | _NoOpTelemetryContext  # noqa: UP040
+type TelemetryContextProtocol = _EnabledTelemetryContext | _NoOpTelemetryContext
 
 
 def TelemetryContext(*reporters: TelemetryReporter) -> TelemetryContextProtocol:  # noqa: N802
-    """Factory that returns either a full-featured telemetry context or a
-    single, shared, no-op instance for maximum performance when disabled.
-    """  # noqa: D205
+    """Return a telemetry context.
+
+    Factory returns either a full-featured context or a shared no-op instance
+    for maximum performance when disabled.
+    """
     if _TELEMETRY_ENABLED and reporters:
         return _EnabledTelemetryContext(*reporters)
     # Always return the same, pre-existing no-op instance.
@@ -155,7 +223,12 @@ def TelemetryContext(*reporters: TelemetryReporter) -> TelemetryContextProtocol:
 
 
 @deprecated("Use ctx(name, **metadata) instead")
-def tele_scope(ctx: TelemetryContextProtocol, name: str, **metadata):  # noqa: D103
+def tele_scope(
+    ctx: TelemetryContextProtocol,
+    name: str,
+    **metadata: Any,
+) -> AbstractContextManager["_EnabledTelemetryContext"] | _NoOpTelemetryContext:
+    """Deprecated wrapper that forwards to the context callable."""
     return ctx(name, **metadata)
 
 
@@ -168,26 +241,38 @@ class _SimpleReporter:
 
     def __init__(self, max_entries_per_scope: int = 1000):
         self.max_entries = max_entries_per_scope
-        self.timings = {}
-        self.metrics = {}
+        self.timings: dict[str, deque[tuple[float, dict[str, Any]]]] = {}
+        self.metrics: dict[str, deque[tuple[Any, dict[str, Any]]]] = {}
 
-    def record_timing(self, scope: str, duration: float, **metadata):
+    def record_timing(self, scope: str, duration: float, **metadata: Any) -> None:
         if scope not in self.timings:
             self.timings[scope] = deque(maxlen=self.max_entries)
         self.timings[scope].append((duration, metadata))
 
-    def record_metric(self, scope: str, value: Any, **metadata):
+    def record_metric(self, scope: str, value: Any, **metadata: Any) -> None:
         if scope not in self.metrics:
             self.metrics[scope] = deque(maxlen=self.max_entries)
         self.metrics[scope].append((value, metadata))
 
-    def print_report(self):
+    def print_report(self) -> None:
         """Prints the report to stdout if any data was collected."""
         if self.timings or self.metrics:
             print(self.get_report())  # noqa: T201
 
+    def reset(self) -> None:
+        """Clear all collected telemetry (testing convenience)."""
+        self.timings.clear()
+        self.metrics.clear()
+
+    def as_dict(self) -> dict[str, Any]:
+        """Return a JSON-serializable snapshot of collected data (testing)."""
+        return {
+            "timings": {key: list(values) for key, values in self.timings.items()},
+            "metrics": {key: list(values) for key, values in self.metrics.items()},
+        }
+
     def get_report(self) -> str:
-        """Generate hierarchical telemetry report"""  # noqa: D415
+        """Generate hierarchical telemetry report."""
         lines = ["=== Telemetry Report ===\n"]
 
         # Group by hierarchy
@@ -197,16 +282,19 @@ class _SimpleReporter:
         if self.metrics:
             lines.append("\n--- Metrics ---")
             for scope, values in sorted(self.metrics.items()):
-                total = sum(v[0] for v in values if isinstance(v[0], (int, float)))  # noqa: UP038
+                total = sum(v[0] for v in values if isinstance(v[0], int | float))
                 lines.append(
                     f"{scope:<40} | Count: {len(values):<4} | Total: {total:,.0f}",
                 )
 
         return "\n".join(lines)
 
-    def _build_hierarchy(self, data):
-        """Build tree structure from dot-separated scope names"""  # noqa: D415
-        tree = {}
+    def _build_hierarchy(
+        self,
+        data: dict[str, deque[tuple[float, dict[str, Any]]]],
+    ) -> dict[str, Any]:
+        """Build tree structure from dot-separated scope names."""
+        tree: dict[str, Any] = {}
         for scope, values in data.items():
             parts = scope.split(".")
             current = tree
@@ -215,8 +303,14 @@ class _SimpleReporter:
             current[parts[-1]] = values
         return tree
 
-    def _format_tree(self, tree, lines, title, depth=0):
-        """Format hierarchical tree with indentation"""  # noqa: D415
+    def _format_tree(
+        self,
+        tree: dict[str, Any],
+        lines: list[str],
+        title: str,
+        depth: int = 0,
+    ) -> None:
+        """Format hierarchical tree with indentation."""
         if depth == 0:
             lines.append(f"\n--- {title} ---")
 

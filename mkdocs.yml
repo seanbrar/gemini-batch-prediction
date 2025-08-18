@@ -1,43 +1,46 @@
 site_name: Gemini Batch Documentation
 repo_url: https://github.com/seanbrar/gemini-batch-prediction
 theme:
-    name: material
-    features:
-        - navigation.tabs
-        - navigation.sections
-        - content.code.copy
-        - toc.integrate
+      name: material
+      features:
+            - navigation.tabs
+            - navigation.sections
+            - content.code.copy
+            - toc.integrate
 markdown_extensions:
-    - admonition
-    - toc:
-          permalink: true
-    - tables
-    - pymdownx.details
-    - pymdownx.superfences
+      - admonition
+      - toc:
+              permalink: true
+      - tables
+      - pymdownx.details
+      - pymdownx.superfences
 nav:
-    - Home: index.md
-    - Tutorials:
-          - Quickstart: tutorials/quickstart.md
-    - How-to guides:
-          - Testing: how-to/testing.md
-          - Custom Transforms: how-to/custom-transforms.md
-          - (coming soon) Caching with the pipeline: how-to/caching.md
-    - Explanation:
-          - Architecture at a Glance: explanation/architecture.md
-          - Concepts:
-                - Command Pipeline: explanation/concepts/command-pipeline.md
-                - Contract-First Testing: explanation/concepts/contract-first-testing.md
-                - Token Counting & Estimation: explanation/concepts/token-counting.md
-          - Deep Dives:
-                - Command Pipeline Spec: explanation/deep-dives/command-pipeline-spec.md
-                - Contract-First Testing Patterns: explanation/deep-dives/contract-first-testing-patterns.md
-          - Decisions (ADRs):
-                - ADR-0001 Command Pipeline: explanation/decisions/ADR-0001-command-pipeline.md
-                - ADR-0002 Token Counting Model: explanation/decisions/ADR-0002-token-counting-model.md
-          - Architecture Rubric: explanation/architecture-rubric.md
-          - Glossary: explanation/glossary.md
-    - Reference:
-          - Caching: CACHING.md
-          - Telemetry: TELEMETRY.md
-          - Logging: LOGGING.md
-          - Source Handling: SOURCE_HANDLING.md
+      - Home: index.md
+      - Tutorials:
+              - Quickstart: tutorials/quickstart.md
+      - How-to guides:
+              - Testing: how-to/testing.md
+              - Custom Transforms: how-to/custom-transforms.md
+              - (coming soon) Caching with the pipeline: how-to/caching.md
+      - Explanation:
+              - Architecture at a Glance: explanation/architecture.md
+              - Concepts:
+                      - Command Pipeline: explanation/concepts/command-pipeline.md
+                      - Telemetry: explanation/concepts/telemetry.md
+                      - Contract-First Testing: explanation/concepts/contract-first-testing.md
+                      - Token Counting & Estimation: explanation/concepts/token-counting.md
+              - Deep Dives:
+                      - Command Pipeline Spec: explanation/deep-dives/command-pipeline-spec.md
+                      - Telemetry Spec: explanation/deep-dives/telemetry-spec.md
+                      - Contract-First Testing Patterns: explanation/deep-dives/contract-first-testing-patterns.md
+              - Decisions (ADRs):
+                      - ADR-0001 Command Pipeline: explanation/decisions/ADR-0001-command-pipeline.md
+                      - ADR-0002 Token Counting Model: explanation/decisions/ADR-0002-token-counting-model.md
+                      - ADR-0006 Telemetry: explanation/decisions/ADR-0006-telemetry.md
+              - Architecture Rubric: explanation/architecture-rubric.md
+              - Glossary: explanation/glossary.md
+      - Reference:
+              - Caching: CACHING.md
+              - Telemetry: TELEMETRY.md
+              - Logging: LOGGING.md
+              - Source Handling: SOURCE_HANDLING.md
