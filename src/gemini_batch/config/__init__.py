@@ -9,6 +9,8 @@ Key components:
 - SourceMap: Audit tracking of configuration value origins
 """
 
+# ruff: noqa: I001
+
 # --- New Configuration System ---
 from collections.abc import Generator
 from contextlib import contextmanager
@@ -31,11 +33,38 @@ from .api import (
     resolve_config,
     validate_profile,
 )
+from .scope import config_override, config_scope, get_ambient_resolved_config
 from .audit import SourceTracker, generate_redacted_audit, generate_telemetry_summary
 from .file_loader import ConfigFileError, FileConfigLoader
+from .providers import (
+    GeminiConfigBuilder,
+    GeminiProviderConfig,
+    ProviderConfigBuilder,
+    ProviderConfigRegistry,
+    build_provider_config,
+    get_provider_registry,
+    list_registered_providers,
+    register_provider,
+)
 from .resolver import ConfigResolver
 from .schema import GeminiSettings
+from .telemetry import (
+    ConfigTelemetryMixin,
+    get_config_telemetry_summary,
+    record_config_file_load,
+    record_config_provider_build,
+    record_config_resolution,
+    record_config_scope_usage,
+    record_config_validation_error,
+)
 from .types import ConfigOrigin, FrozenConfig, ResolvedConfig, SourceMap
+from .validation import (
+    ConfigValidationError,
+    check_config_security,
+    suggest_config_improvements,
+    validate_config_dict,
+    validate_resolved_config,
+)
 
 
 # Legacy GeminiConfig type (from the old config.py)
@@ -75,13 +104,22 @@ def get_ambient_config() -> GeminiConfig:
 
 
 @contextmanager
-def config_scope(config: GeminiConfig) -> Generator[None]:
-    """Legacy config scope for backward compatibility."""
+def legacy_config_scope(config: GeminiConfig) -> Generator[None]:
+    """Legacy config scope for backward compatibility.
+
+    DEPRECATED: Use the new config_scope() with ResolvedConfig instead.
+    This function is kept for backward compatibility during migration.
+    """
     token = _ambient_config_var.set(config)
     try:
         yield
     finally:
         _ambient_config_var.reset(token)
+
+
+# For backward compatibility, alias the legacy function to config_scope
+# This allows existing code to continue working during migration
+_legacy_config_scope = legacy_config_scope
 
 
 __all__ = [  # noqa: RUF022
@@ -93,6 +131,10 @@ __all__ = [  # noqa: RUF022
     "print_config_audit",
     "print_effective_config",
     "check_environment",
+    # Scoping
+    "config_scope",
+    "config_override",
+    "get_ambient_resolved_config",
     # Core types
     "ResolvedConfig",
     "FrozenConfig",
@@ -106,8 +148,31 @@ __all__ = [  # noqa: RUF022
     "SourceTracker",
     "generate_redacted_audit",
     "generate_telemetry_summary",
+    # Providers
+    "ProviderConfigBuilder",
+    "ProviderConfigRegistry",
+    "register_provider",
+    "build_provider_config",
+    "get_provider_registry",
+    "list_registered_providers",
+    "GeminiProviderConfig",
+    "GeminiConfigBuilder",
+    # Telemetry
+    "record_config_resolution",
+    "record_config_validation_error",
+    "record_config_scope_usage",
+    "record_config_file_load",
+    "record_config_provider_build",
+    "ConfigTelemetryMixin",
+    "get_config_telemetry_summary",
+    # Validation
+    "validate_resolved_config",
+    "validate_config_dict",
+    "ConfigValidationError",
+    "check_config_security",
+    "suggest_config_improvements",
     # Legacy compatibility
     "GeminiConfig",
     "get_ambient_config",
-    "config_scope",
+    "legacy_config_scope",
 ]

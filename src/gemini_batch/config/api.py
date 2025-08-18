@@ -4,6 +4,7 @@ This module provides the main entry points for configuration resolution,
 including the resolve_config() function and profile management utilities.
 """
 
+import contextvars  # noqa: F401
 from pathlib import Path
 from typing import Any
 
@@ -63,12 +64,27 @@ def resolve_config(
         # With .env file
         config = resolve_config(use_env_file=".env.local")
     """
-    return _resolver.resolve(
-        programmatic=programmatic,
-        profile=profile,
-        use_env_file=use_env_file,
-        project_root=project_root,
-    )
+    # Check if we're in a config_scope with ambient configuration
+    try:
+        # Try to get the ambient config context variable
+        # Import here to avoid circular imports
+        from .scope import _ambient_resolved_config
+
+        ambient_config = _ambient_resolved_config.get()
+
+        # If we have ambient config, apply programmatic overrides to it
+        if programmatic:
+            return ambient_config.with_overrides(**programmatic)
+        return ambient_config
+
+    except (LookupError, ImportError):
+        # No ambient config or import error, do normal resolution
+        return _resolver.resolve(
+            programmatic=programmatic,
+            profile=profile,
+            use_env_file=use_env_file,
+            project_root=project_root,
+        )
 
 
 def list_available_profiles(project_root: Path | None = None) -> dict[str, list[str]]:
