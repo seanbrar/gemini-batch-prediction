@@ -9,9 +9,9 @@ from unittest.mock import patch
 
 import pytest
 
-from src.gemini_batch.config import resolve_config
-from src.gemini_batch.config.types import FrozenConfig
-from src.gemini_batch.core.models import APITier
+from gemini_batch.config import resolve_config
+from gemini_batch.config.types import FrozenConfig
+from gemini_batch.core.models import APITier
 
 
 class TestConfigurationArchitecturalInvariants:
@@ -29,19 +29,19 @@ class TestConfigurationArchitecturalInvariants:
             )
 
             # Programmatic should win
-            assert result.frozen.api_key == "prog_key"
-            assert result.frozen.model == "prog_model"
+            assert result.to_frozen().api_key == "prog_key"
+            assert result.to_frozen().model == "prog_model"
 
             # Source map should reflect precedence
-            assert result.source_map["api_key"] == "programmatic"
-            assert result.source_map["model"] == "programmatic"
+            assert result.origin["api_key"] == "programmatic"
+            assert result.origin["model"] == "programmatic"
 
     @pytest.mark.contract
     def test_resolve_once_freeze_then_flow_invariant(self):
         """Invariant: Configuration must be resolved once and then flow immutably."""
         with patch.dict(os.environ, {"GEMINI_API_KEY": "test_key"}):
             resolved = resolve_config()
-            frozen = resolved.frozen
+            frozen = resolved.to_frozen()
 
             # Frozen config must be immutable
             assert isinstance(frozen, FrozenConfig)
@@ -73,10 +73,8 @@ class TestConfigurationArchitecturalInvariants:
             }
 
             for field in frozen_fields:
-                assert field in result.source_map, (
-                    f"Field {field} missing from source_map"
-                )
-                assert isinstance(result.source_map[field], str), (
+                assert field in result.origin, f"Field {field} missing from origin"
+                assert isinstance(result.origin[field], str), (
                     f"Source for {field} must be string"
                 )
 
@@ -87,11 +85,11 @@ class TestConfigurationArchitecturalInvariants:
             result = resolve_config()
 
             # Secret should not appear in redacted representation
-            assert "secret_api_key_12345" not in result.redacted_repr
-            assert "***" in result.redacted_repr or "[REDACTED]" in result.redacted_repr
+            assert "secret_api_key_12345" not in result.audit()
+            assert "***" in result.audit() or "[REDACTED]" in result.audit()
 
             # Secret should not appear in string representation of source map
-            source_map_str = str(result.source_map)
+            source_map_str = str(result.origin)
             assert "secret_api_key_12345" not in source_map_str
 
     @pytest.mark.contract
@@ -126,16 +124,16 @@ class TestConfigurationArchitecturalInvariants:
             result = resolve_config()
 
             # String values should be properly coerced to booleans
-            assert result.frozen.enable_caching is True
-            assert result.frozen.use_real_api is False
+            assert result.to_frozen().enable_caching is True
+            assert result.to_frozen().use_real_api is False
 
         # Test integer coercion
         with patch.dict(
             os.environ, {"GEMINI_API_KEY": "test", "GEMINI_TTL_SECONDS": "7200"}
         ):
             result = resolve_config()
-            assert result.frozen.ttl_seconds == 7200
-            assert isinstance(result.frozen.ttl_seconds, int)
+            assert result.to_frozen().ttl_seconds == 7200
+            assert isinstance(result.to_frozen().ttl_seconds, int)
 
     @pytest.mark.contract
     def test_tier_consistency_invariant(self):
@@ -146,13 +144,13 @@ class TestConfigurationArchitecturalInvariants:
         ):
             result = resolve_config()
 
-            assert isinstance(result.frozen.tier, APITier)
-            assert result.frozen.tier == APITier.TIER_1
+            assert isinstance(result.to_frozen().tier, APITier)
+            assert result.to_frozen().tier == APITier.TIER_1
 
         # Test default tier
         with patch.dict(os.environ, {"GEMINI_API_KEY": "test"}, clear=True):
             result = resolve_config()
-            assert isinstance(result.frozen.tier, APITier)
+            assert isinstance(result.to_frozen().tier, APITier)
 
     @pytest.mark.contract
     def test_profile_isolation_invariant(self):
@@ -165,8 +163,8 @@ class TestConfigurationArchitecturalInvariants:
             )  # Should not affect anything
             config_after = resolve_config()
 
-            assert config_before.frozen == config_after.frozen
-            assert config_with_profile.frozen == config_after.frozen
+            assert config_before.to_frozen() == config_after.to_frozen()
+            assert config_with_profile.to_frozen() == config_after.to_frozen()
 
     @pytest.mark.contract
     def test_environment_isolation_invariant(self):
@@ -191,16 +189,18 @@ class TestConfigurationArchitecturalInvariants:
             result2 = resolve_config()
 
             # Default values should be identical across calls
-            assert result1.frozen.model == result2.frozen.model
-            assert result1.frozen.tier == result2.frozen.tier
-            assert result1.frozen.enable_caching == result2.frozen.enable_caching
-            assert result1.frozen.use_real_api == result2.frozen.use_real_api
-            assert result1.frozen.ttl_seconds == result2.frozen.ttl_seconds
+            assert result1.to_frozen().model == result2.to_frozen().model
+            assert result1.to_frozen().tier == result2.to_frozen().tier
+            assert (
+                result1.to_frozen().enable_caching == result2.to_frozen().enable_caching
+            )
+            assert result1.to_frozen().use_real_api == result2.to_frozen().use_real_api
+            assert result1.to_frozen().ttl_seconds == result2.to_frozen().ttl_seconds
 
     @pytest.mark.contract
     def test_compatibility_shim_transparency_invariant(self):
         """Invariant: Compatibility shim must provide transparent access to both config types."""
-        from src.gemini_batch.config.compatibility import ConfigCompatibilityShim
+        from gemini_batch.config.compatibility import ConfigCompatibilityShim
 
         # Create both config types with same values
         frozen = FrozenConfig(

@@ -8,14 +8,14 @@ from unittest.mock import patch
 
 import pytest
 
-from src.gemini_batch.config import resolve_config
-from src.gemini_batch.config.compatibility import (
+from gemini_batch.config import resolve_config
+from gemini_batch.config.compatibility import (
     ConfigCompatibilityShim,
     ensure_frozen_config,
 )
-from src.gemini_batch.config.types import FrozenConfig, ResolvedConfig
-from src.gemini_batch.core.models import APITier
-from src.gemini_batch.executor import create_executor
+from gemini_batch.config.types import FrozenConfig, ResolvedConfig
+from gemini_batch.core.models import APITier
+from gemini_batch.executor import create_executor
 
 
 class TestEssentialConfigurationContracts:

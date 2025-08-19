@@ -40,6 +40,20 @@ class ResolvedConfig(NamedTuple):
     # Audit metadata - tracks where each field value came from
     origin: SourceMap
 
+    def __str__(self) -> str:
+        """String representation with redacted API key for safe logging."""
+        api_key_display = "[REDACTED]" if self.api_key else None
+        return (
+            f"ResolvedConfig(api_key={api_key_display!r}, model={self.model!r}, "
+            f"tier={self.tier!r}, enable_caching={self.enable_caching!r}, "
+            f"use_real_api={self.use_real_api!r}, ttl_seconds={self.ttl_seconds!r}, "
+            f"origin={dict(self.origin)!r})"
+        )
+
+    def __repr__(self) -> str:
+        """Repr with redacted API key for safe debugging."""
+        return self.__str__()
+
     def to_frozen(self) -> "FrozenConfig":
         """Convert to the immutable configuration used in the pipeline.
 
@@ -112,7 +126,7 @@ class ResolvedConfig(NamedTuple):
                     if actual_value is None:
                         value_display = f"{origin}:None"
                     elif origin == "env":
-                        value_display = "env:GEMINI_API_KEY"
+                        value_display = "env:[REDACTED]"
                     elif origin == "file":
                         value_display = "file:<redacted>"
                     elif origin == "programmatic":

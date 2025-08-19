@@ -9,12 +9,12 @@ from unittest.mock import patch
 
 import pytest
 
-from src.gemini_batch.config import resolve_config
-from src.gemini_batch.config.compatibility import ConfigCompatibilityShim
-from src.gemini_batch.config.types import FrozenConfig
-from src.gemini_batch.core.types import InitialCommand
-from src.gemini_batch.executor import GeminiExecutor, create_executor
-from src.gemini_batch.extensions.conversation import ConversationManager
+from gemini_batch.config import resolve_config
+from gemini_batch.config.compatibility import ConfigCompatibilityShim
+from gemini_batch.config.types import FrozenConfig
+from gemini_batch.core.types import InitialCommand
+from gemini_batch.executor import GeminiExecutor, create_executor
+from gemini_batch.extensions.conversation import ConversationManager
 
 
 class TestConfigurationIntegrationBehavior:

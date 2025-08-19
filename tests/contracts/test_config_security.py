@@ -10,9 +10,9 @@ from unittest.mock import patch
 
 import pytest
 
-from src.gemini_batch.config import resolve_config
-from src.gemini_batch.config.types import FrozenConfig
-from src.gemini_batch.core.models import APITier
+from gemini_batch.config import resolve_config
+from gemini_batch.config.types import FrozenConfig
+from gemini_batch.core.models import APITier
 
 
 class TestConfigurationSecurityContracts:
@@ -30,8 +30,8 @@ class TestConfigurationSecurityContracts:
             # Check various string representations
             resolved_str = str(resolved)
             resolved_repr = repr(resolved)
-            frozen_str = str(resolved.frozen)
-            frozen_repr = repr(resolved.frozen)
+            frozen_str = str(resolved.to_frozen())
+            frozen_repr = repr(resolved.to_frozen())
 
             # Secret should not appear in any string representation
             assert secret_key not in resolved_str
@@ -49,10 +49,10 @@ class TestConfigurationSecurityContracts:
             resolved = resolve_config()
 
             # Redacted representation should not contain secret
-            assert secret_key not in resolved.redacted_repr
+            assert secret_key not in resolved.audit()
 
             # Should contain redaction indicator
-            redacted_repr_lower = resolved.redacted_repr.lower()
+            redacted_repr_lower = resolved.audit().lower()
             assert any(
                 indicator in redacted_repr_lower
                 for indicator in ["***", "[redacted]", "hidden", "secret"]
@@ -68,15 +68,15 @@ class TestConfigurationSecurityContracts:
             resolved = resolve_config()
 
             # Convert source map to string for searching
-            source_map_str = str(resolved.source_map)
-            source_map_repr = repr(resolved.source_map)
+            source_map_str = str(resolved.origin)
+            source_map_repr = repr(resolved.origin)
 
             # Secret should not appear anywhere in source map
             assert secret_key not in source_map_str
             assert secret_key not in source_map_repr
 
             # Source map should still track the field
-            assert "api_key" in resolved.source_map
+            assert "api_key" in resolved.origin
 
     @pytest.mark.contract
     @pytest.mark.security
@@ -138,11 +138,11 @@ class TestConfigurationSecurityContracts:
             logging_representations = [
                 str(resolved),
                 repr(resolved),
-                str(resolved.frozen),
-                repr(resolved.frozen),
-                resolved.redacted_repr,
+                str(resolved.to_frozen()),
+                repr(resolved.to_frozen()),
+                resolved.audit(),
                 f"Config: {resolved}",
-                f"Frozen: {resolved.frozen}",
+                f"Frozen: {resolved.to_frozen()}",
             ]
 
             for representation in logging_representations:
@@ -183,7 +183,7 @@ class TestConfigurationSecurityContracts:
         assert unsafe_dict["api_key"] == secret_key
 
         # But our safe representations should still work
-        from src.gemini_batch.config.compatibility import ConfigCompatibilityShim
+        from gemini_batch.config.compatibility import ConfigCompatibilityShim
 
         shim = ConfigCompatibilityShim(unsafe_dict)
 
@@ -202,12 +202,12 @@ class TestConfigurationSecurityContracts:
 
             # Simulate telemetry data collection
             telemetry_safe_config = {
-                "model": resolved.frozen.model,
-                "tier": resolved.frozen.tier.value,
-                "enable_caching": resolved.frozen.enable_caching,
-                "use_real_api": resolved.frozen.use_real_api,
-                "ttl_seconds": resolved.frozen.ttl_seconds,
-                "config_sources": list(resolved.source_map.values()),
+                "model": resolved.to_frozen().model,
+                "tier": resolved.to_frozen().tier.value,
+                "enable_caching": resolved.to_frozen().enable_caching,
+                "use_real_api": resolved.to_frozen().use_real_api,
+                "ttl_seconds": resolved.to_frozen().ttl_seconds,
+                "config_sources": list(resolved.origin.values()),
             }
 
             # Serialize for telemetry
@@ -227,16 +227,16 @@ class TestConfigurationSecurityContracts:
             resolved = resolve_config()
 
             # Source map can contain env var names (not sensitive)
-            assert "environment" in resolved.source_map["api_key"]
+            assert "env" in resolved.origin["api_key"]
 
             # But not the actual secret value
-            assert secret_key not in str(resolved.source_map)
+            assert secret_key not in str(resolved.origin)
 
     @pytest.mark.contract
     @pytest.mark.security
     def test_compatibility_shim_preserves_security(self):
         """Security: Compatibility shim must maintain security properties."""
-        from src.gemini_batch.config.compatibility import ConfigCompatibilityShim
+        from gemini_batch.config.compatibility import ConfigCompatibilityShim
 
         secret_key = "sk-very-secret-api-key-12345-abcdef"
 

@@ -9,13 +9,13 @@ from unittest.mock import patch
 
 import pytest
 
-from src.gemini_batch.config import resolve_config
-from src.gemini_batch.config.compatibility import (
+from gemini_batch.config import resolve_config
+from gemini_batch.config.compatibility import (
     ConfigCompatibilityShim,
     ensure_frozen_config,
 )
-from src.gemini_batch.config.types import FrozenConfig, ResolvedConfig
-from src.gemini_batch.core.models import APITier
+from gemini_batch.config.types import FrozenConfig, ResolvedConfig
+from gemini_batch.core.models import APITier
 
 
 class TestConfigurationContractCompliance:
@@ -50,8 +50,7 @@ class TestConfigurationContractCompliance:
             enable_caching=True,
             use_real_api=False,
             ttl_seconds=3600,
-            source_map={},
-            redacted_repr="test",
+            origin={},
         )
 
         # NamedTuple fields should be immutable
@@ -205,18 +204,18 @@ class TestConfigurationContractCompliance:
             config2 = resolve_config()
 
         # Results should be independent
-        assert config1.frozen.api_key == "key1"
-        assert config1.frozen.model == "model1"
-        assert config2.frozen.api_key == "key2"
-        assert config2.frozen.model == "model2"
+        assert config1.to_frozen().api_key == "key1"
+        assert config1.to_frozen().model == "model1"
+        assert config2.to_frozen().api_key == "key2"
+        assert config2.to_frozen().model == "model2"
 
     @pytest.mark.contract
     def test_error_handling_is_explicit(self):
         """Contract: Configuration errors must be explicit, not hidden exceptions."""
-        # Test missing required API key
+        # Test missing required API key when use_real_api=True
         with patch.dict(os.environ, {}, clear=True):
             with pytest.raises(ValueError) as exc_info:
-                resolve_config()
+                resolve_config(programmatic={"use_real_api": True})
 
             # Error should be descriptive and explicit
             assert "api_key" in str(exc_info.value).lower()
