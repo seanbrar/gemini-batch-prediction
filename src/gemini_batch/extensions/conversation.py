@@ -11,7 +11,6 @@ from abc import ABC, abstractmethod
 import logging
 from typing import TYPE_CHECKING, Any
 
-from gemini_batch.config.compatibility import ensure_frozen_config
 from gemini_batch.core.types import ConversationTurn, InitialCommand
 
 if TYPE_CHECKING:
@@ -64,7 +63,11 @@ class ConversationManager:
         # 1. Construct the command object. This is the manager's primary job.
         # It packages the current state for the stateless pipeline.
         # Ensure we use FrozenConfig for new commands
-        frozen_config = ensure_frozen_config(self._executor.config)
+        # Accept either FrozenConfig or ResolvedConfig-like values by
+        # converting via to_frozen() when available; otherwise assume
+        # executor already holds a FrozenConfig.
+        cfg = self._executor.config
+        frozen_config = cfg.to_frozen() if hasattr(cfg, "to_frozen") else cfg
         command = InitialCommand(
             sources=self.sources,
             prompts=(prompt,),
