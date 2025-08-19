@@ -114,6 +114,7 @@ markers = [
     "workflows: CI/CD workflow tests (fast)",
     "slow: Tests that take > 1s (subset of integration)",
     "api: Tests requiring external API (slow)",
+    "security: Security and secret handling tests",
 ]
 
 # --- Ruff ---

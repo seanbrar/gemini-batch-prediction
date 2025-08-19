@@ -152,3 +152,16 @@ class FrozenConfig:
     enable_caching: bool
     use_real_api: bool
     ttl_seconds: int
+
+    def __str__(self) -> str:
+        """String representation with redacted API key for safe logging."""
+        api_key_display = "[REDACTED]" if self.api_key else None
+        return (
+            f"FrozenConfig(api_key={api_key_display!r}, model={self.model!r}, "
+            f"tier={self.tier!r}, enable_caching={self.enable_caching!r}, "
+            f"use_real_api={self.use_real_api!r}, ttl_seconds={self.ttl_seconds!r})"
+        )
+
+    def __repr__(self) -> str:
+        """Representation with redacted API key for safe debugging."""
+        return self.__str__()
