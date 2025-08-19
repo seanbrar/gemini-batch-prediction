@@ -11,7 +11,12 @@ from unittest.mock import patch
 
 import pytest
 
-from gemini_batch.config import GeminiConfig, config_scope, get_ambient_config
+from gemini_batch.config import (
+    GeminiConfig,
+    get_ambient_config,
+    legacy_config_scope,
+)
+from gemini_batch.config.compatibility import ConfigCompatibilityShim
 from gemini_batch.executor import create_executor
 
 
@@ -82,8 +87,8 @@ class TestConfigurationSystem:
                 api_key="scoped-api-key-override", model="scoped-model-override"
             )
 
-            # Act: Enter the config_scope.
-            with config_scope(scoped_config):
+            # Act: Enter the legacy config_scope (for backward compatibility test).
+            with legacy_config_scope(scoped_config):
                 # Retrieve the config from within the scope.
                 active_config = get_ambient_config()
 
@@ -105,9 +110,10 @@ class TestConfigurationSystem:
             # Act
             executor = create_executor()
 
-            # Assert
-            assert executor.config["api_key"] == "ambient-for-executor"
-            assert executor.config["model"] == "gemini-2.0-flash"
+            # Assert: Use compatibility shim for dict-style access
+            shim = ConfigCompatibilityShim(executor.config)
+            assert shim.api_key == "ambient-for-executor"
+            assert shim.model == "gemini-2.0-flash"
 
     @pytest.mark.unit
     def test_create_executor_prioritizes_explicit_config(self):
@@ -124,6 +130,7 @@ class TestConfigurationSystem:
             # Act
             executor = create_executor(config=explicit_config)
 
-            # Assert
-            assert executor.config["api_key"] == "explicit-api-key-winner"
-            assert executor.config["model"] == "explicit-model-winner"
+            # Assert: Use compatibility shim for dict-style access
+            shim = ConfigCompatibilityShim(executor.config)
+            assert shim.api_key == "explicit-api-key-winner"
+            assert shim.model == "explicit-model-winner"

@@ -3,7 +3,11 @@
 from time import perf_counter
 from typing import Any, cast
 
-from gemini_batch.config import GeminiConfig, get_ambient_config
+from gemini_batch.config import GeminiConfig, get_ambient_config, resolve_config
+from gemini_batch.config.compatibility import (
+    ConfigCompatibilityShim,
+)
+from gemini_batch.config.types import FrozenConfig
 from gemini_batch.core.exceptions import GeminiBatchError, PipelineError
 from gemini_batch.core.types import (
     Failure,
@@ -30,23 +34,25 @@ class GeminiExecutor:
 
     def __init__(
         self,
-        config: GeminiConfig,
+        config: FrozenConfig | GeminiConfig,
         pipeline_handlers: list[BaseAsyncHandler[Any, Any, GeminiBatchError]]
         | None = None,
     ):
         """Initialize the executor with configuration and optional custom handlers.
 
         Args:
-            config: Configuration for the pipeline.
+            config: Configuration for the pipeline (FrozenConfig or legacy GeminiConfig).
             pipeline_handlers: Optional list of handlers to override the default pipeline.
         """
+        # Store both the original config and a compatibility shim
         self.config = config
+        self._config_shim = ConfigCompatibilityShim(config)
         self._cache_registry = CacheRegistry()
         self._file_registry = FileRegistry()
         self._pipeline = pipeline_handlers or self._build_default_pipeline(config)
 
     def _build_default_pipeline(
-        self, _config: GeminiConfig
+        self, _config: FrozenConfig | GeminiConfig
     ) -> list[BaseAsyncHandler[Any, Any, GeminiBatchError]]:
         """Build the default pipeline of handlers.
 
@@ -146,14 +152,16 @@ class GeminiExecutor:
         }
 
 
-def create_executor(config: GeminiConfig | None = None) -> GeminiExecutor:
+def create_executor(
+    config: FrozenConfig | GeminiConfig | None = None,
+) -> GeminiExecutor:
     """Create an executor with optional configuration.
 
-    If no configuration is provided, it will be resolved from the environment.
-    This provides a convenient entry point for common use cases.
+    If no configuration is provided, it will be resolved from the environment
+    using the new configuration system.
 
     Args:
-        config: Optional configuration object.
+        config: Optional configuration object (FrozenConfig, GeminiConfig, or None).
 
     Returns:
         An instance of GeminiExecutor.
@@ -163,11 +171,17 @@ def create_executor(config: GeminiConfig | None = None) -> GeminiExecutor:
         final_config = config
     else:
         try:
-            final_config = get_ambient_config()
+            # Try the new configuration system first
+            resolved = resolve_config()
+            final_config = resolved.to_frozen()
         except Exception:
-            # DX-friendly fallback: operate in mock mode without an API key
-            final_config = GeminiConfig(
-                model="gemini-2.0-flash",  # default model
-                use_real_api=False,
-            )
+            # Fallback to legacy system for backward compatibility
+            try:
+                final_config = get_ambient_config()
+            except Exception:
+                # DX-friendly fallback: operate in mock mode without an API key
+                final_config = GeminiConfig(
+                    model="gemini-2.0-flash",  # default model
+                    use_real_api=False,
+                )
     return GeminiExecutor(final_config)

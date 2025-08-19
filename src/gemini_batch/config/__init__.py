@@ -65,6 +65,14 @@ from .validation import (
     validate_config_dict,
     validate_resolved_config,
 )
+from .compatibility import (
+    ConfigCompatibilityShim,
+    ensure_frozen_config,
+    ensure_dict_config,
+    migrate_config_to_frozen,
+    get_config_field,
+    is_frozen_config,
+)
 
 
 # Legacy GeminiConfig type (from the old config.py)
@@ -171,6 +179,13 @@ __all__ = [  # noqa: RUF022
     "ConfigValidationError",
     "check_config_security",
     "suggest_config_improvements",
+    # Compatibility
+    "ConfigCompatibilityShim",
+    "ensure_frozen_config",
+    "ensure_dict_config",
+    "migrate_config_to_frozen",
+    "get_config_field",
+    "is_frozen_config",
     # Legacy compatibility
     "GeminiConfig",
     "get_ambient_config",
