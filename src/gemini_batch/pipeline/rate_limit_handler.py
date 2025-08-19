@@ -11,6 +11,7 @@ from collections.abc import Callable
 from dataclasses import dataclass
 import time
 
+from gemini_batch.config.compatibility import ConfigCompatibilityShim
 from gemini_batch.core.exceptions import GeminiBatchError
 from gemini_batch.core.types import PlannedCommand, RateConstraint, Result, Success
 from gemini_batch.pipeline.base import BaseAsyncHandler
@@ -168,15 +169,14 @@ class RateLimitHandler(
         elif "claude" in lower:
             provider = "anthropic"
         tier_value = "unknown"
-        cfg = command.resolved.initial.config
-        if isinstance(cfg, dict):
-            raw_tier = cfg.get("tier", "unknown")
-            # Normalize enums to their value, otherwise str()
-            if hasattr(raw_tier, "value"):
-                try:  # pragma: no cover - defensive only
-                    tier_value = str(raw_tier.value)
-                except Exception:
-                    tier_value = str(raw_tier)
-            else:
+        cfg_shim = ConfigCompatibilityShim(command.resolved.initial.config)
+        raw_tier = cfg_shim.tier
+        # Normalize enums to their value, otherwise str()
+        if hasattr(raw_tier, "value"):
+            try:  # pragma: no cover - defensive only
+                tier_value = str(raw_tier.value)
+            except Exception:
                 tier_value = str(raw_tier)
+        else:
+            tier_value = str(raw_tier)
         return (provider, model, tier_value)
