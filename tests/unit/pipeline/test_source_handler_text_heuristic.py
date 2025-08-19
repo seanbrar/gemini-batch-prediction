@@ -1,6 +1,6 @@
 import pytest
 
-from gemini_batch.config import GeminiConfig
+from gemini_batch.config import resolve_config
 from gemini_batch.core.types import InitialCommand, Success
 from gemini_batch.pipeline.source_handler import SourceHandler
 
@@ -10,7 +10,9 @@ async def test_text_detection_allows_short_bare_filenames_as_text():
     handler = SourceHandler()
     # No separators; looks like a bare filename, should be treated as text
     cmd = InitialCommand(
-        sources=("README.md",), prompts=("p",), config=GeminiConfig(api_key="k")
+        sources=("README.md",),
+        prompts=("p",),
+        config=resolve_config(programmatic={"api_key": "k"}).to_frozen(),
     )
     result = await handler.handle(cmd)
     assert isinstance(result, Success)
@@ -24,7 +26,9 @@ async def test_text_detection_treats_pathlike_with_separators_as_path():
     handler = SourceHandler()
     # Contains path separators and suffix → treated as a path; should fail if it doesn't exist
     cmd = InitialCommand(
-        sources=("some/dir/file.txt",), prompts=("p",), config=GeminiConfig(api_key="k")
+        sources=("some/dir/file.txt",),
+        prompts=("p",),
+        config=resolve_config(programmatic={"api_key": "k"}).to_frozen(),
     )
     result = await handler.handle(cmd)
     from gemini_batch.core.types import Failure

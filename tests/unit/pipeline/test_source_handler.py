@@ -11,7 +11,7 @@ import inspect
 
 import pytest
 
-from gemini_batch.config import GeminiConfig
+from gemini_batch.config import resolve_config
 from gemini_batch.core.exceptions import SourceError
 from gemini_batch.core.types import (
     Failure,
@@ -60,7 +60,7 @@ class TestSourceHandlerContracts:
         original_command = InitialCommand(
             sources=("test input",),
             prompts=("test prompt",),
-            config=GeminiConfig(api_key="test-key"),
+            config=resolve_config(programmatic={"api_key": "test-key"}).to_frozen(),
         )
         # Make a deep copy to ensure the original is not mutated.
         command_copy = deepcopy(original_command)
@@ -89,7 +89,7 @@ class TestSourceHandlerContracts:
         command = InitialCommand(
             sources=("deterministic test",),
             prompts=("deterministic question",),
-            config=GeminiConfig(api_key="test-key"),
+            config=resolve_config(programmatic={"api_key": "test-key"}).to_frozen(),
         )
 
         # Act: Run the same command multiple times.
@@ -127,7 +127,9 @@ class TestSourceHandlerContracts:
         handler = SourceHandler()
         # Create a command that is likely to cause an error (e.g., empty sources)
         problematic_command = InitialCommand(
-            sources=(), prompts=("test",), config=GeminiConfig(api_key="test-key")
+            sources=(),
+            prompts=("test",),
+            config=resolve_config(programmatic={"api_key": "test-key"}).to_frozen(),
         )
 
         # Act

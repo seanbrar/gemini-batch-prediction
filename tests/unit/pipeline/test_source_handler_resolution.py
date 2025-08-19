@@ -8,7 +8,7 @@ from pathlib import Path
 
 import pytest
 
-from gemini_batch.config import GeminiConfig
+from gemini_batch.config import resolve_config
 from gemini_batch.core.exceptions import SourceError
 from gemini_batch.core.types import Failure, InitialCommand, Success
 from gemini_batch.pipeline.source_handler import SourceHandler
@@ -23,7 +23,9 @@ async def test_resolves_text_content():
     handler = SourceHandler()
     text = "Hello world"
     command = InitialCommand(
-        sources=(text,), prompts=("p",), config=GeminiConfig(api_key="test")
+        sources=(text,),
+        prompts=("p",),
+        config=resolve_config(programmatic={"api_key": "test"}).to_frozen(),
     )
 
     result = await handler.handle(command)
@@ -44,7 +46,9 @@ async def test_resolves_file_path_text_file():
     assert file_path.exists(), f"Missing test fixture: {file_path}"
 
     command = InitialCommand(
-        sources=(str(file_path),), prompts=("p",), config=GeminiConfig(api_key="test")
+        sources=(str(file_path),),
+        prompts=("p",),
+        config=resolve_config(programmatic={"api_key": "test"}).to_frozen(),
     )
     result = await handler.handle(command)
     assert isinstance(result, Success)
@@ -63,7 +67,9 @@ async def test_resolves_directory_expansion():
     )
 
     command = InitialCommand(
-        sources=(str(dir_path),), prompts=("p",), config=GeminiConfig(api_key="test")
+        sources=(str(dir_path),),
+        prompts=("p",),
+        config=resolve_config(programmatic={"api_key": "test"}).to_frozen(),
     )
     result = await handler.handle(command)
     assert isinstance(result, Success)
@@ -79,7 +85,9 @@ async def test_resolves_youtube_url():
     handler = SourceHandler()
     url = "https://www.youtube.com/watch?v=dQw4w9WgXcQ"
     command = InitialCommand(
-        sources=(url,), prompts=("p",), config=GeminiConfig(api_key="test")
+        sources=(url,),
+        prompts=("p",),
+        config=resolve_config(programmatic={"api_key": "test"}).to_frozen(),
     )
     result = await handler.handle(command)
     assert isinstance(result, Success)
@@ -94,7 +102,9 @@ async def test_resolves_arxiv_pdf_url():
     handler = SourceHandler()
     url = "https://arxiv.org/pdf/1706.03762.pdf"
     command = InitialCommand(
-        sources=(url,), prompts=("p",), config=GeminiConfig(api_key="test")
+        sources=(url,),
+        prompts=("p",),
+        config=resolve_config(programmatic={"api_key": "test"}).to_frozen(),
     )
     result = await handler.handle(command)
     assert isinstance(result, Success)
@@ -109,7 +119,9 @@ async def test_error_on_nonexistent_path():
     handler = SourceHandler()
     missing = project_root() / "test_files" / "does_not_exist.xyz"
     command = InitialCommand(
-        sources=(str(missing),), prompts=("p",), config=GeminiConfig(api_key="test")
+        sources=(str(missing),),
+        prompts=("p",),
+        config=resolve_config(programmatic={"api_key": "test"}).to_frozen(),
     )
     result = await handler.handle(command)
     # Should fail explicitly, not raise

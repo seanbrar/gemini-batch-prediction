@@ -10,7 +10,7 @@ import hashlib
 import json
 from typing import TYPE_CHECKING, Any, cast
 
-from gemini_batch.config.compatibility import ConfigCompatibilityShim
+# Removed ConfigCompatibilityShim import - no longer needed
 from gemini_batch.core.exceptions import ConfigurationError
 from gemini_batch.core.models import get_model_capabilities
 from gemini_batch.core.types import (
@@ -88,8 +88,8 @@ class ExecutionPlanner(
         """
         try:
             initial = command.initial
-            config_shim = ConfigCompatibilityShim(initial.config)
-            model_name: str = str(config_shim.model or "gemini-2.0-flash")
+            config = initial.config
+            model_name: str = str(config.model or "gemini-2.0-flash")
 
             # Validate the prompts exist to avoid invalid states.
             if not initial.prompts:
@@ -144,7 +144,7 @@ class ExecutionPlanner(
 
             # Caching decision: conservative based on max_tokens
             explicit_cache: ExplicitCachePlan | None = None
-            if self._should_cache(total_estimate, config_shim):
+            if self._should_cache(total_estimate, config):
                 key = self._deterministic_cache_key(command, joined_prompt)
                 # In this minimal slice, cache the prompt (part index 0) and include system_instruction when present later
                 explicit_cache = ExplicitCachePlan(
@@ -152,11 +152,7 @@ class ExecutionPlanner(
                     cache_name=None,
                     contents_part_indexes=(0,),
                     include_system_instruction=True,
-                    ttl_seconds=(
-                        int(cast("int | str", config_shim.ttl_seconds))
-                        if config_shim.ttl_seconds is not None
-                        else None
-                    ),
+                    ttl_seconds=config.ttl_seconds,
                     deterministic_key=key,
                 )
                 # For backward compatibility with tests expecting a cache hint
@@ -188,16 +184,9 @@ class ExecutionPlanner(
             # Planner degrades gracefully when tier/model is unknown/unavailable.
             rate_constraint: RateConstraint | None = None
             try:
-                from gemini_batch.core.models import APITier, get_rate_limits
+                from gemini_batch.core.models import get_rate_limits
 
-                tier_value = str(
-                    config_shim.tier.value if config_shim.tier else "free"
-                ).upper()
-                tier = (
-                    APITier[tier_value]
-                    if tier_value in APITier.__members__
-                    else APITier.FREE
-                )
+                tier = config.tier
                 limits = get_rate_limits(tier, model_name)
                 if limits is not None:
                     rate_constraint = RateConstraint(
@@ -226,15 +215,13 @@ class ExecutionPlanner(
             return Failure(ConfigurationError(f"Failed to plan execution: {e}"))
 
     # --- Internal helpers ---
-    def _should_cache(
-        self, estimate: TokenEstimate, config_shim: ConfigCompatibilityShim
-    ) -> bool:
+    def _should_cache(self, estimate: TokenEstimate, config: Any) -> bool:
         """Decide whether to use caching based on model capabilities.
 
         Uses explicit caching threshold when available, otherwise falls back
         to implicit threshold. Finally, falls back to 4096 if model is unknown.
         """
-        model = str(config_shim.model or "gemini-2.0-flash")
+        model = str(config.model or "gemini-2.0-flash")
         capabilities = get_model_capabilities(model)
         threshold = 4096
         if capabilities and capabilities.caching:
@@ -251,8 +238,8 @@ class ExecutionPlanner(
         non-deterministic function object addresses in `content_loader`.
         """
         initial = command.initial
-        config_shim = ConfigCompatibilityShim(initial.config)
-        model = str(config_shim.model or "gemini-2.0-flash")
+        config = initial.config
+        model = str(config.model or "gemini-2.0-flash")
         prompts = list(initial.prompts)
         sources = [
             {
@@ -277,8 +264,8 @@ class ExecutionPlanner(
         independent of any provider SDK or runtime state.
         """
         initial = command.initial
-        config_shim = ConfigCompatibilityShim(initial.config)
-        model = str(config_shim.model or "gemini-2.0-flash")
+        config = initial.config
+        model = str(config.model or "gemini-2.0-flash")
         prompts = [joined_prompt]
         sources = [
             {

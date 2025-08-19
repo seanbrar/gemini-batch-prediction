@@ -1,6 +1,6 @@
 import pytest
 
-from gemini_batch.config import GeminiConfig
+from gemini_batch.config import resolve_config
 from gemini_batch.core.types import (
     Failure,
     InitialCommand,
@@ -18,7 +18,7 @@ async def test_planner_produces_parts_on_prompts():
     initial = InitialCommand(
         sources=("src",),
         prompts=("p1", "p2"),
-        config=GeminiConfig(api_key="k", model="gemini-2.0-flash"),
+        config=resolve_config(programmatic={"api_key": "k"}).to_frozen(),
     )
     resolved = ResolvedCommand(initial=initial, resolved_sources=())
 
@@ -38,7 +38,7 @@ async def test_planner_fails_on_empty_prompts():
     initial = InitialCommand(
         sources=("src",),
         prompts=(),
-        config=GeminiConfig(api_key="k", model="gemini-2.0-flash"),
+        config=resolve_config(programmatic={"api_key": "k"}).to_frozen(),
     )
     resolved = ResolvedCommand(initial=initial, resolved_sources=())
 

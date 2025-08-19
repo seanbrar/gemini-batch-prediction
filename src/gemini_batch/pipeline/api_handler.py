@@ -20,7 +20,7 @@ import asyncio
 import os
 from typing import TYPE_CHECKING, Any, cast
 
-from gemini_batch.config.compatibility import ConfigCompatibilityShim
+# Removed ConfigCompatibilityShim import - no longer needed
 from gemini_batch.core.exceptions import APIError
 from gemini_batch.core.types import (
     APICall,
@@ -141,8 +141,8 @@ class APIHandler(BaseAsyncHandler[PlannedCommand, FinalizedCommand, APIError]):
         if self._adapter is not None:
             return self._adapter
         if self._adapter_factory is not None:
-            cfg_shim = ConfigCompatibilityShim(command.resolved.initial.config)
-            api_key = cfg_shim.api_key
+            config = command.resolved.initial.config
+            api_key = config.api_key
             if not api_key:
                 raise APIError("Adapter factory provided but api_key missing")
             try:

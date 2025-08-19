@@ -1,6 +1,6 @@
 import pytest
 
-from gemini_batch.config import GeminiConfig
+from gemini_batch.config.api import resolve_config
 from gemini_batch.core.types import InitialCommand, ResolvedCommand, Source
 from gemini_batch.pipeline.planner import ExecutionPlanner
 
@@ -24,7 +24,9 @@ async def test_planner_uses_model_thresholds_from_core_models():
     initial = InitialCommand(
         sources=("ignored",),
         prompts=("p",),
-        config=GeminiConfig(api_key="k", model=model_name),
+        config=resolve_config(
+            programmatic={"api_key": "k", "model": model_name}
+        ).to_frozen(),
     )
     resolved = ResolvedCommand(initial=initial, resolved_sources=(big,))
 

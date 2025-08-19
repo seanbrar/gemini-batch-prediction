@@ -1,6 +1,6 @@
 import pytest
 
-from gemini_batch.config import GeminiConfig
+from gemini_batch.config import resolve_config
 from gemini_batch.core.types import (
     APICall,
     ExecutionPlan,
@@ -18,7 +18,9 @@ from gemini_batch.pipeline.api_handler import APIHandler
 
 def make_planned(prompts: tuple[str, ...]) -> PlannedCommand:
     initial = InitialCommand(
-        sources=("s",), prompts=prompts, config=GeminiConfig(api_key="k")
+        sources=("s",),
+        prompts=prompts,
+        config=resolve_config(programmatic={"api_key": "k"}).to_frozen(),
     )
     resolved = ResolvedCommand(initial=initial, resolved_sources=())
     call = APICall(
@@ -46,7 +48,9 @@ async def test_api_handler_uses_planned_parts():
 async def test_api_handler_fails_on_empty_parts():
     handler = APIHandler()
     initial = InitialCommand(
-        sources=("s",), prompts=("p",), config=GeminiConfig(api_key="k")
+        sources=("s",),
+        prompts=("p",),
+        config=resolve_config(programmatic={"api_key": "k"}).to_frozen(),
     )
     resolved = ResolvedCommand(initial=initial, resolved_sources=())
     empty_call = APICall(model_name="gemini-2.0-flash", api_parts=(), api_config={})
@@ -66,7 +70,11 @@ async def test_factory_requires_api_key_and_fails_explicitly():
         raise AssertionError("Factory should not be invoked without api_key")
 
     handler = APIHandler(adapter_factory=_factory)
-    initial = InitialCommand(sources=("s",), prompts=("p",), config=GeminiConfig())
+    initial = InitialCommand(
+        sources=("s",),
+        prompts=("p",),
+        config=resolve_config(programmatic={}).to_frozen(),
+    )
     resolved = ResolvedCommand(initial=initial, resolved_sources=())
     call = APICall(
         model_name="gemini-2.0-flash", api_parts=(TextPart("p"),), api_config={}

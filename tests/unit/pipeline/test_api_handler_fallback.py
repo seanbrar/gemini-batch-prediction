@@ -1,8 +1,8 @@
-from typing import Any
+from typing import Any, cast
 
 import pytest
 
-from gemini_batch.config import GeminiConfig
+from gemini_batch.config import resolve_config
 from gemini_batch.core.types import (
     APICall,
     ExecutionPlan,
@@ -24,7 +24,9 @@ def _make_planned(
     primary_text: str, fallback_text: str | None = None
 ) -> PlannedCommand:
     initial = InitialCommand(
-        sources=("s",), prompts=(primary_text,), config=GeminiConfig(api_key="k")
+        sources=("s",),
+        prompts=(primary_text,),
+        config=resolve_config(programmatic={}).to_frozen(),
     )
     resolved = ResolvedCommand(initial=initial, resolved_sources=())
     primary = APICall(
@@ -65,7 +67,7 @@ class _FakeAdapter:
 @pytest.mark.asyncio
 async def test_fallback_runs_once_and_succeeds():
     # Use explicit factory to avoid env coupling and private telemetry enablement
-    def factory(_api_key):
+    def factory(_api_key: str | None) -> Any:
         return _FakeAdapter()
 
     reporter = _SimpleReporter()
@@ -88,7 +90,9 @@ async def test_fallback_runs_once_and_succeeds():
     assert any(k.endswith("api.fallback") for k in timing_keys)
 
     # Assert execution.used_fallback toggles and primary_error exists
-    exec_meta = result.value.telemetry_data.get("execution", {})
+    exec_meta = cast(
+        "dict[str, object]", result.value.telemetry_data.get("execution", {})
+    )
     assert exec_meta.get("used_fallback") is True
     assert "primary_error" in exec_meta
 
@@ -108,7 +112,7 @@ async def test_fallback_absent_propagates_error():
         ) -> dict[str, Any]:
             raise RuntimeError("always fail")
 
-    def factory(_api_key):
+    def factory(_api_key: str | None) -> Any:
         return _AlwaysFail()
 
     handler = APIHandler(adapter_factory=factory)
@@ -117,3 +121,32 @@ async def test_fallback_absent_propagates_error():
     result = await handler.handle(planned)
     assert isinstance(result, Failure)
     assert "Provider call failed" in str(result.error)
+
+
+@pytest.mark.asyncio
+async def test_api_handler_fallback_to_adapter_factory():
+    # Factory will produce a fake adapter that returns a deterministic response
+    class _FakeAdapter:
+        async def generate(self, *_args: Any, **_kwargs: Any) -> dict[str, Any]:
+            return {"text": "echo: fallback"}
+
+    def _factory(_api_key: str) -> Any:
+        return _FakeAdapter()
+
+    handler = APIHandler(adapter_factory=_factory)
+    initial = InitialCommand(
+        sources=("s",),
+        prompts=("p",),
+        config=resolve_config(programmatic={}).to_frozen(),
+    )
+    resolved = ResolvedCommand(initial=initial, resolved_sources=())
+    call = APICall(
+        model_name="gemini-2.0-flash", api_parts=(TextPart("p"),), api_config={}
+    )
+    plan = ExecutionPlan(primary_call=call)
+    planned = PlannedCommand(resolved=resolved, execution_plan=plan)
+
+    result = await handler.handle(planned)
+    assert isinstance(result, Success)
+    finalized = result.value
+    assert "echo: fallback" in finalized.raw_api_response.get("text", "")
