@@ -1,9 +1,13 @@
-from gemini_batch.config import GeminiConfig
+from gemini_batch.config import resolve_config
 from gemini_batch.executor import create_executor
 
 
 def test_default_pipeline_includes_expected_handlers():
-    ex = create_executor(GeminiConfig(api_key="k", model="gemini-2.0-flash"))
+    ex = create_executor(
+        resolve_config(
+            programmatic={"api_key": "k", "model": "gemini-2.0-flash"}
+        ).to_frozen()
+    )
     names = [
         h.__class__.__name__ for h in ex._pipeline
     ]  # accessing internal for contract check

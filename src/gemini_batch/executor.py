@@ -3,10 +3,7 @@
 from time import perf_counter
 from typing import Any, cast
 
-from gemini_batch.config import GeminiConfig, get_ambient_config, resolve_config
-from gemini_batch.config.compatibility import (
-    ConfigCompatibilityShim,
-)
+from gemini_batch.config import resolve_config
 from gemini_batch.config.types import FrozenConfig
 from gemini_batch.core.exceptions import GeminiBatchError, PipelineError
 from gemini_batch.core.types import (
@@ -34,25 +31,23 @@ class GeminiExecutor:
 
     def __init__(
         self,
-        config: FrozenConfig | GeminiConfig,
+        config: FrozenConfig,
         pipeline_handlers: list[BaseAsyncHandler[Any, Any, GeminiBatchError]]
         | None = None,
     ):
-        """Initialize the executor with configuration and optional custom handlers.
+        """Initialize the executor with configuration.
 
         Args:
-            config: Configuration for the pipeline (FrozenConfig or legacy GeminiConfig).
+            config: Configuration for the pipeline (FrozenConfig).
             pipeline_handlers: Optional list of handlers to override the default pipeline.
         """
-        # Store both the original config and a compatibility shim
         self.config = config
-        self._config_shim = ConfigCompatibilityShim(config)
         self._cache_registry = CacheRegistry()
         self._file_registry = FileRegistry()
         self._pipeline = pipeline_handlers or self._build_default_pipeline(config)
 
     def _build_default_pipeline(
-        self, _config: FrozenConfig | GeminiConfig
+        self, config: FrozenConfig
     ) -> list[BaseAsyncHandler[Any, Any, GeminiBatchError]]:
         """Build the default pipeline of handlers.
 
@@ -61,10 +56,7 @@ class GeminiExecutor:
         """
         # Optional real adapter factory when explicitly requested
         adapter_factory = None
-        try:
-            use_real = bool(cast("dict[str, Any]", self.config).get("use_real_api"))
-        except Exception:
-            use_real = False
+        use_real = config.use_real_api
         if use_real:
 
             def _factory(api_key: str) -> Any:  # defer import until needed
@@ -153,7 +145,7 @@ class GeminiExecutor:
 
 
 def create_executor(
-    config: FrozenConfig | GeminiConfig | None = None,
+    config: FrozenConfig | None = None,
 ) -> GeminiExecutor:
     """Create an executor with optional configuration.
 
@@ -161,7 +153,7 @@ def create_executor(
     using the new configuration system.
 
     Args:
-        config: Optional configuration object (FrozenConfig, GeminiConfig, or None).
+        config: Optional configuration object (FrozenConfig or None).
 
     Returns:
         An instance of GeminiExecutor.
@@ -170,18 +162,7 @@ def create_executor(
     if config is not None:
         final_config = config
     else:
-        try:
-            # Try the new configuration system first
-            resolved = resolve_config()
-            final_config = resolved.to_frozen()
-        except Exception:
-            # Fallback to legacy system for backward compatibility
-            try:
-                final_config = get_ambient_config()
-            except Exception:
-                # DX-friendly fallback: operate in mock mode without an API key
-                final_config = GeminiConfig(
-                    model="gemini-2.0-flash",  # default model
-                    use_real_api=False,
-                )
+        # Use the new configuration system
+        resolved = resolve_config()
+        final_config = resolved.to_frozen()
     return GeminiExecutor(final_config)

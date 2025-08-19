@@ -1,16 +1,22 @@
 import pytest
 
-from gemini_batch.config import GeminiConfig
+from gemini_batch.config import resolve_config
 from gemini_batch.core.types import InitialCommand
 from gemini_batch.executor import create_executor
 
 
 @pytest.mark.asyncio
 async def test_executor_surfaces_all_stage_durations():
-    executor = create_executor(GeminiConfig(api_key="k", model="gemini-2.0-flash"))
-    cmd = InitialCommand(sources=("s",), prompts=("p",), config=executor.config)
+    executor = create_executor(
+        resolve_config(programmatic={"api_key": "k"}).to_frozen()
+    )
+    initial = InitialCommand(
+        sources=("s",),
+        prompts=("p",),
+        config=resolve_config(programmatic={"api_key": "k"}).to_frozen(),
+    )
 
-    result = await executor.execute(cmd)
+    result = await executor.execute(initial)
 
     assert result["success"] is True
     metrics = result.get("metrics", {})
