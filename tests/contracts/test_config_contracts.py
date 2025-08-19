@@ -10,10 +10,6 @@ from unittest.mock import patch
 import pytest
 
 from gemini_batch.config import resolve_config
-from gemini_batch.config.compatibility import (
-    ConfigCompatibilityShim,
-    ensure_frozen_config,
-)
 from gemini_batch.config.types import FrozenConfig, ResolvedConfig
 from gemini_batch.core.models import APITier
 
@@ -95,8 +91,8 @@ class TestConfigurationContractCompliance:
             assert hasattr(result, "origin")
 
     @pytest.mark.contract
-    def test_compatibility_shim_signature_contract(self):
-        """Contract: ConfigCompatibilityShim must provide unified field access."""
+    def test_frozen_config_direct_access_contract(self):
+        """Contract: FrozenConfig must provide direct field access."""
         frozen_config = FrozenConfig(
             api_key="test_key",
             model="gemini-2.0-flash",
@@ -106,50 +102,37 @@ class TestConfigurationContractCompliance:
             ttl_seconds=3600,
         )
 
-        shim = ConfigCompatibilityShim(frozen_config)
-
         # Must provide all required fields
-        assert hasattr(shim, "api_key")
-        assert hasattr(shim, "model")
-        assert hasattr(shim, "tier")
-        assert hasattr(shim, "enable_caching")
-        assert hasattr(shim, "use_real_api")
-        assert hasattr(shim, "ttl_seconds")
+        assert hasattr(frozen_config, "api_key")
+        assert hasattr(frozen_config, "model")
+        assert hasattr(frozen_config, "tier")
+        assert hasattr(frozen_config, "enable_caching")
+        assert hasattr(frozen_config, "use_real_api")
+        assert hasattr(frozen_config, "ttl_seconds")
 
         # Field access must work
-        assert shim.api_key == "test_key"
-        assert shim.model == "gemini-2.0-flash"
-        assert shim.tier == APITier.FREE
+        assert frozen_config.api_key == "test_key"
+        assert frozen_config.model == "gemini-2.0-flash"
+        assert frozen_config.tier == APITier.FREE
 
     @pytest.mark.contract
     def test_ensure_frozen_config_contract(self):
         """Contract: ensure_frozen_config() must handle both config types."""
         # Test with FrozenConfig - should return unchanged
-        frozen = FrozenConfig(
-            api_key="test_key",
-            model="gemini-2.0-flash",
-            tier=APITier.FREE,
-            enable_caching=True,
-            use_real_api=False,
-            ttl_seconds=3600,
+        # Keep a FrozenConfig example for serialization tests below
+        # As compatibility helpers are removed, emulate conversion via resolver
+        resolved = resolve_config(
+            programmatic={
+                "api_key": "test_key",
+                "model": "gemini-2.0-flash",
+                "tier": APITier.FREE,
+                "enable_caching": True,
+                "use_real_api": False,
+                "ttl_seconds": 3600,
+            }
         )
-
-        result = ensure_frozen_config(frozen)
-        assert result is frozen  # Should be identical object
-
-        # Test with dict - should convert
-        dict_config = {
-            "api_key": "test_key",
-            "model": "gemini-2.0-flash",
-            "tier": APITier.FREE,
-            "enable_caching": True,
-            "use_real_api": False,
-            "ttl_seconds": 3600,
-        }
-
-        result = ensure_frozen_config(dict_config)
-        assert isinstance(result, FrozenConfig)
-        assert result.api_key == "test_key"
+        assert isinstance(resolved.to_frozen(), FrozenConfig)
+        assert resolved.to_frozen().api_key == "test_key"
 
     @pytest.mark.contract
     def test_profile_system_deterministic(self):

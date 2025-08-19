@@ -65,26 +65,24 @@ def resolve_config(
         config = resolve_config(use_env_file=".env.local")
     """
     # Check if we're in a config_scope with ambient configuration
-    try:
-        # Try to get the ambient config context variable
-        # Import here to avoid circular imports
-        from .scope import _ambient_resolved_config
+    # Import here to avoid circular imports
+    from .scope import get_ambient_resolved_config
 
-        ambient_config = _ambient_resolved_config.get()
+    ambient_config = get_ambient_resolved_config()
 
+    if ambient_config is not None:
         # If we have ambient config, apply programmatic overrides to it
         if programmatic:
             return ambient_config.with_overrides(**programmatic)
         return ambient_config
 
-    except (LookupError, ImportError):
-        # No ambient config or import error, do normal resolution
-        return _resolver.resolve(
-            programmatic=programmatic,
-            profile=profile,
-            use_env_file=use_env_file,
-            project_root=project_root,
-        )
+    # No ambient config, do normal resolution
+    return _resolver.resolve(
+        programmatic=programmatic,
+        profile=profile,
+        use_env_file=use_env_file,
+        project_root=project_root,
+    )
 
 
 def list_available_profiles(project_root: Path | None = None) -> dict[str, list[str]]:

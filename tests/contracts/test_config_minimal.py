@@ -9,10 +9,8 @@ from unittest.mock import patch
 import pytest
 
 from gemini_batch.config import resolve_config
-from gemini_batch.config.compatibility import (
-    ConfigCompatibilityShim,
-    ensure_frozen_config,
-)
+
+# compatibility helpers removed; tests use resolve_config()/to_frozen()
 from gemini_batch.config.types import FrozenConfig, ResolvedConfig
 from gemini_batch.core.models import APITier
 from gemini_batch.executor import create_executor
@@ -52,7 +50,7 @@ class TestEssentialConfigurationContracts:
 
     @pytest.mark.contract
     def test_compatibility_shim_works(self):
-        """Essential: ConfigCompatibilityShim must handle both config types."""
+        """Essential: # ConfigCompatibilityShim removed must handle both config types."""
         frozen = FrozenConfig(
             api_key="test_key",
             model="gemini-2.0-flash",
@@ -62,9 +60,9 @@ class TestEssentialConfigurationContracts:
             ttl_seconds=3600,
         )
 
-        shim = ConfigCompatibilityShim(frozen)
-        assert shim.api_key == "test_key"
-        assert shim.model == "gemini-2.0-flash"
+        # Direct use of FrozenConfig is sufficient
+        assert frozen.api_key == "test_key"
+        assert frozen.model == "gemini-2.0-flash"
 
     @pytest.mark.contract
     def test_precedence_order_basic(self):
@@ -82,9 +80,8 @@ class TestEssentialConfigurationContracts:
             # Executor should have some config (dict or FrozenConfig)
             assert executor.config is not None
 
-            # Should be accessible via shim
-            shim = ConfigCompatibilityShim(executor.config)
-            assert shim.api_key == "test_key"
+            # Executor holds a FrozenConfig
+            assert executor.config.api_key == "test_key"
 
     @pytest.mark.contract
     def test_configuration_resolution_basic(self):
@@ -109,7 +106,12 @@ class TestEssentialConfigurationContracts:
             "ttl_seconds": 3600,
         }
 
-        result = ensure_frozen_config(dict_config)
+        # convert dict to FrozenConfig via resolve/to_frozen flow
+        # Use the resolver to validate and normalize, then convert
+        from gemini_batch.config import resolve_config
+
+        resolved = resolve_config(programmatic=dict_config)
+        result = resolved.to_frozen()
         assert isinstance(result, FrozenConfig)
         assert result.api_key == "test_key"
 
@@ -157,5 +159,4 @@ class TestEssentialConfigurationContracts:
 
             # Executor creation
             executor = create_executor()
-            shim = ConfigCompatibilityShim(executor.config)
-            assert shim.api_key == "test_key"
+            assert executor.config.api_key == "test_key"

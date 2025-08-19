@@ -200,7 +200,7 @@ class TestConfigurationArchitecturalInvariants:
     @pytest.mark.contract
     def test_compatibility_shim_transparency_invariant(self):
         """Invariant: Compatibility shim must provide transparent access to both config types."""
-        from gemini_batch.config.compatibility import ConfigCompatibilityShim
+        # Compatibility shim removed; use FrozenConfig / dict conversion directly
 
         # Create both config types with same values
         frozen = FrozenConfig(
@@ -221,13 +221,11 @@ class TestConfigurationArchitecturalInvariants:
             "ttl_seconds": 3600,
         }
 
-        # Shims should provide identical access
-        frozen_shim = ConfigCompatibilityShim(frozen)
-        dict_shim = ConfigCompatibilityShim(dict_config)
-
-        assert frozen_shim.api_key == dict_shim.api_key
-        assert frozen_shim.model == dict_shim.model
-        assert frozen_shim.tier == dict_shim.tier
-        assert frozen_shim.enable_caching == dict_shim.enable_caching
-        assert frozen_shim.use_real_api == dict_shim.use_real_api
-        assert frozen_shim.ttl_seconds == dict_shim.ttl_seconds
+        # Compare values directly
+        resolved_from_dict = resolve_config(programmatic=dict_config)
+        assert frozen.api_key == resolved_from_dict.api_key
+        assert frozen.model == resolved_from_dict.model
+        assert frozen.tier == resolved_from_dict.tier
+        assert frozen.enable_caching == resolved_from_dict.enable_caching
+        assert frozen.use_real_api == resolved_from_dict.use_real_api
+        assert frozen.ttl_seconds == resolved_from_dict.ttl_seconds

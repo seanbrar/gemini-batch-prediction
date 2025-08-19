@@ -11,12 +11,7 @@ from unittest.mock import patch
 
 import pytest
 
-from gemini_batch.config import (
-    GeminiConfig,
-    get_ambient_config,
-    legacy_config_scope,
-)
-from gemini_batch.config.compatibility import ConfigCompatibilityShim
+from gemini_batch.config import config_scope, resolve_config
 from gemini_batch.executor import create_executor
 
 
@@ -37,11 +32,11 @@ class TestConfigurationSystem:
             },
         ):
             # Act
-            config = get_ambient_config()
+            resolved = resolve_config()
 
             # Assert
-            assert config["api_key"] == "env-api-key-123"
-            assert config["model"] == "env-model-flash"
+            assert resolved.api_key == "env-api-key-123"
+            assert resolved.model == "env-model-flash"
 
     @pytest.mark.unit
     def test_get_ambient_config_uses_defaults(self):
@@ -50,24 +45,25 @@ class TestConfigurationSystem:
         """
         with patch.dict(os.environ, {"GEMINI_API_KEY": "env-api-key-only"}):
             # Act
-            config = get_ambient_config()
+            resolved = resolve_config()
 
             # Assert
-            assert config["api_key"] == "env-api-key-only"
-            assert config["model"] == "gemini-2.0-flash"  # Default value
+            assert resolved.api_key == "env-api-key-only"
+            assert resolved.model == "gemini-2.0-flash"  # Default value
 
     @pytest.mark.unit
     def test_get_ambient_config_raises_error_if_key_is_missing(self):
         """
-        Verifies that a ValueError is raised if the required API key is not found.
+        Verifies that when no API key is present, the resolver returns a ResolvedConfig
+        with api_key set to None (the new system does not raise for missing keys by default).
         """
         # Arrange: Ensure the key is not in the environment.
-        with (
-            patch.dict(os.environ, {}, clear=True),
-            pytest.raises(ValueError, match="GEMINI_API_KEY is not set"),
-        ):
-            # Act & Assert
-            get_ambient_config()
+        with patch.dict(os.environ, {}, clear=True):
+            # Act
+            resolved = resolve_config()
+
+            # Assert: new behavior — no exception, but api_key is None
+            assert resolved.api_key is None
 
     @pytest.mark.unit
     def test_config_scope_overrides_environment(self):
@@ -82,24 +78,24 @@ class TestConfigurationSystem:
                 "GEMINI_MODEL": "env-model-original",
             },
         ):
-            # Define the overriding configuration.
-            scoped_config = GeminiConfig(
-                api_key="scoped-api-key-override", model="scoped-model-override"
+            # Create an explicit ResolvedConfig for the scope using programmatic overrides
+            scoped_resolved = resolve_config(
+                programmatic={
+                    "api_key": "scoped-api-key-override",
+                    "model": "scoped-model-override",
+                }
             )
 
-            # Act: Enter the legacy config_scope (for backward compatibility test).
-            with legacy_config_scope(scoped_config):
-                # Retrieve the config from within the scope.
-                active_config = get_ambient_config()
+            # Act: Enter the new config_scope using a ResolvedConfig
+            with config_scope(scoped_resolved):
+                active = resolve_config()
+                assert active.api_key == "scoped-api-key-override"
+                assert active.model == "scoped-model-override"
 
-                # Assert: The active config should match the scoped config.
-                assert active_config["api_key"] == "scoped-api-key-override"
-                assert active_config["model"] == "scoped-model-override"
-
-            # Assert: After exiting the scope, the config should revert to the environment.
-            reverted_config = get_ambient_config()
-            assert reverted_config["api_key"] == "env-api-key-original"
-            assert reverted_config["model"] == "env-model-original"
+            # After exiting the scope, resolution should reflect the environment again
+            reverted = resolve_config()
+            assert reverted.api_key == "env-api-key-original"
+            assert reverted.model == "env-model-original"
 
     @pytest.mark.unit
     def test_create_executor_uses_ambient_config(self):
@@ -110,10 +106,9 @@ class TestConfigurationSystem:
             # Act
             executor = create_executor()
 
-            # Assert: Use compatibility shim for dict-style access
-            shim = ConfigCompatibilityShim(executor.config)
-            assert shim.api_key == "ambient-for-executor"
-            assert shim.model == "gemini-2.0-flash"
+            # Assert: Executor provides FrozenConfig
+            assert executor.config.api_key == "ambient-for-executor"
+            assert executor.config.model == "gemini-2.0-flash"
 
     @pytest.mark.unit
     def test_create_executor_prioritizes_explicit_config(self):
@@ -123,14 +118,20 @@ class TestConfigurationSystem:
         """
         # Arrange: Set an ambient config that should be ignored.
         with patch.dict(os.environ, {"GEMINI_API_KEY": "should-be-ignored"}):
-            explicit_config = GeminiConfig(
-                api_key="explicit-api-key-winner", model="explicit-model-winner"
+            # Build an explicit FrozenConfig via resolver
+            explicit_resolved = resolve_config(
+                programmatic={
+                    "api_key": "explicit-api-key-winner",
+                    "model": "explicit-model-winner",
+                }
             )
+            executor = create_executor(config=explicit_resolved.to_frozen())
 
-            # Act
-            executor = create_executor(config=explicit_config)
+            # Assert: Executor provides FrozenConfig
+            assert executor.config.api_key == "explicit-api-key-winner"
+            assert executor.config.model == "explicit-model-winner"
 
-            # Assert: Use compatibility shim for dict-style access
-            shim = ConfigCompatibilityShim(executor.config)
-            assert shim.api_key == "explicit-api-key-winner"
-            assert shim.model == "explicit-model-winner"
+    @pytest.mark.unit
+    def test_use_real_api_requires_api_key(self):
+        with patch.dict(os.environ, {}, clear=True), pytest.raises(ValueError):
+            resolve_config(programmatic={"use_real_api": True})

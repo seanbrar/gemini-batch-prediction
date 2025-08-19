@@ -100,14 +100,14 @@ def validate_config_dict(config_dict: dict[str, Any]) -> dict[str, Any]:
 
 
 def _validate_api_key_requirement(config: ResolvedConfig) -> None:
-    """Validate API key requirement based on use_real_api setting."""
-    if config.use_real_api and not config.api_key:
-        raise ConfigValidationError(
-            field="api_key",
-            value=None,
-            message="API key is required when use_real_api=True",
-            suggestion="Set GEMINI_API_KEY environment variable or provide in configuration",
-        )
+    """Validate API key requirement based on use_real_api setting.
+
+    Note: This validation is also performed by the Pydantic schema,
+    but kept here for additional business logic validation if needed.
+    """
+    # This validation is primarily handled by the Pydantic schema
+    # in schema.py:97-106. Keeping this as a placeholder for any
+    # additional business logic validation that might be needed.
 
 
 def _validate_model_tier_compatibility(config: ResolvedConfig) -> None:
@@ -131,15 +131,14 @@ def _validate_caching_configuration(config: ResolvedConfig) -> None:
 
 
 def _validate_ttl_settings(config: ResolvedConfig) -> None:
-    """Validate TTL (Time To Live) settings."""
-    if config.ttl_seconds < 1:
-        raise ConfigValidationError(
-            field="ttl_seconds",
-            value=config.ttl_seconds,
-            message="TTL must be at least 1 second",
-            suggestion="Set ttl_seconds to a positive integer value",
-        )
+    """Validate TTL (Time To Live) settings.
 
+    Note: Basic TTL validation (>= 1) is handled by the Pydantic schema.
+    """
+    # Basic validation (ttl_seconds >= 1) is handled by Pydantic schema
+    # in schema.py:65 with ge=1 constraint.
+
+    # Keep additional business logic validations here
     # Warn about very long TTLs (more than 24 hours)
     if config.ttl_seconds > 86400:  # 24 hours
         # This is a warning, not an error - we don't raise here

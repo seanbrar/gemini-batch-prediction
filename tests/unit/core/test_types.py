@@ -6,10 +6,11 @@ principles of immutability, self-validation, and pure transformations.
 
 from copy import deepcopy
 from pathlib import Path
+from typing import Any, cast
 
 import pytest
 
-from gemini_batch.config import GeminiConfig
+from gemini_batch.config import resolve_config
 from gemini_batch.core.types import (
     APICall,
     ConversationTurn,
@@ -21,6 +22,7 @@ from gemini_batch.core.types import (
     ResolvedCommand,
     Source,
     Success,
+    TextPart,
 )
 
 
@@ -220,7 +222,7 @@ class TestCommandStateCompliance:
     @pytest.mark.unit
     def test_initial_command_constructor_is_immutable(self):
         """InitialCommand should be immutable by design."""
-        config = GeminiConfig(api_key="test_key")
+        config = resolve_config(programmatic={"api_key": "test_key"}).to_frozen()
         command = InitialCommand(
             sources=("source1", "source2"),
             prompts=("prompt1", "prompt2"),
@@ -234,7 +236,7 @@ class TestCommandStateCompliance:
     @pytest.mark.unit
     def test_initial_command_has_sensible_defaults(self):
         """InitialCommand should have sensible defaults for optional fields."""
-        config = GeminiConfig(api_key="test_key")
+        config = resolve_config(programmatic={"api_key": "test_key"}).to_frozen()
         command = InitialCommand(
             sources=("source1",), prompts=("prompt1",), config=config
         )
@@ -244,7 +246,7 @@ class TestCommandStateCompliance:
     @pytest.mark.unit
     def test_resolved_command_contains_initial(self):
         """ResolvedCommand should contain the initial command for traceability."""
-        config = GeminiConfig(api_key="test_key")
+        config = resolve_config(programmatic={"api_key": "test_key"}).to_frozen()
         initial = InitialCommand(
             sources=("source1",), prompts=("prompt1",), config=config
         )
@@ -270,12 +272,14 @@ class TestCommandStateCompliance:
     @pytest.mark.unit
     def test_api_call_constructor_is_immutable(self):
         """APICall should be immutable by design."""
-        from google.genai import types as genai_types
+        # Avoid importing provider SDK types in tests; use library-owned shapes
+        from gemini_batch.core.types import TextPart
 
+        # Convert provider SDK parts/config into library-owned shapes
         api_call = APICall(
             model_name="gemini-2.0-flash",
-            api_parts=[genai_types.Part(text="test")],
-            api_config=genai_types.GenerationConfig(),
+            api_parts=(TextPart(text="test"),),
+            api_config={},
             cache_name_to_use=None,
         )
 
@@ -286,12 +290,12 @@ class TestCommandStateCompliance:
     @pytest.mark.unit
     def test_execution_plan_has_optional_fallback(self):
         """ExecutionPlan should have an optional fallback call."""
-        from google.genai import types as genai_types
+        # provider SDK import intentionally omitted in tests; use library shapes
 
         primary = APICall(
             model_name="gemini-2.0-flash",
-            api_parts=[genai_types.Part(text="test")],
-            api_config=genai_types.GenerationConfig(),
+            api_parts=(TextPart(text="test"),),
+            api_config={},
         )
 
         # Plan without fallback
@@ -301,8 +305,8 @@ class TestCommandStateCompliance:
         # Plan with fallback
         fallback = APICall(
             model_name="gemini-1.5-flash",
-            api_parts=[genai_types.Part(text="fallback")],
-            api_config=genai_types.GenerationConfig(),
+            api_parts=(TextPart(text="fallback"),),
+            api_config={},
         )
         plan2 = ExecutionPlan(primary_call=primary, fallback_call=fallback)
         assert plan2.fallback_call == fallback
@@ -310,7 +314,7 @@ class TestCommandStateCompliance:
     @pytest.mark.unit
     def test_planned_command_contains_resolved_and_plan(self):
         """PlannedCommand should contain both resolved command and execution plan."""
-        config = GeminiConfig(api_key="test_key")
+        config = resolve_config(programmatic={"api_key": "test_key"}).to_frozen()
         initial = InitialCommand(
             sources=("source1",), prompts=("prompt1",), config=config
         )
@@ -331,13 +335,11 @@ class TestCommandStateCompliance:
             ),
         )
 
-        from google.genai import types as genai_types
-
         execution_plan = ExecutionPlan(
             primary_call=APICall(
                 model_name="gemini-2.0-flash",
-                api_parts=[genai_types.Part.from_text(text="test")],
-                api_config=genai_types.GenerationConfig(),
+                api_parts=(TextPart(text="test"),),
+                api_config={},
             )
         )
 
@@ -349,7 +351,7 @@ class TestCommandStateCompliance:
     @pytest.mark.unit
     def test_finalized_command_contains_telemetry_data(self):
         """FinalizedCommand should contain telemetry data for observability."""
-        config = GeminiConfig(api_key="test_key")
+        config = resolve_config(programmatic={"api_key": "test_key"}).to_frozen()
         initial = InitialCommand(
             sources=("source1",), prompts=("prompt1",), config=config
         )
@@ -370,13 +372,11 @@ class TestCommandStateCompliance:
             ),
         )
 
-        from google.genai import types as genai_types
-
         execution_plan = ExecutionPlan(
             primary_call=APICall(
                 model_name="gemini-2.0-flash",
-                api_parts=[genai_types.Part.from_text(text="test")],
-                api_config=genai_types.GenerationConfig(),
+                api_parts=(TextPart(text="test"),),
+                api_config={},
             )
         )
 
@@ -428,7 +428,7 @@ class TestDataCentricityCompliance:
                     content_loader=lambda: b"test",
                 )
             elif cls == InitialCommand:
-                config = GeminiConfig(api_key="test")
+                config = resolve_config(programmatic={"api_key": "test"}).to_frozen()
                 instance = cls(sources=("test",), prompts=("test",), config=config)
             else:
                 # Skip complex constructors for this test
@@ -445,17 +445,17 @@ class TestDataCentricityCompliance:
         """Data structures should prevent invalid states at construction time."""
         # Test that required fields are enforced
         with pytest.raises(TypeError):
-            # Missing required fields
-            InitialCommand()
+            # Missing required fields - call via Any-cast to bypass static checks
+            cast("Any", InitialCommand)()
 
         with pytest.raises(TypeError):
-            # Missing required fields
-            Source()
+            # Missing required fields - call via Any-cast to bypass static checks
+            cast("Any", Source)()
 
     @pytest.mark.unit
     def test_transformations_are_pure(self):
         """Command transformations should be pure (no side effects)."""
-        config = GeminiConfig(api_key="test_key")
+        config = resolve_config(programmatic={"api_key": "test_key"}).to_frozen()
         original_command = InitialCommand(
             sources=("source1",), prompts=("prompt1",), config=config
         )

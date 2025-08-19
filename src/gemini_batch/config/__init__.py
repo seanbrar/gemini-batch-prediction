@@ -11,18 +11,7 @@ Key components:
 
 # ruff: noqa: I001
 
-# --- New Configuration System ---
-from collections.abc import Generator
-from contextlib import contextmanager
-import contextvars
-import os
-
-# --- Legacy Compatibility (temporary) ---
-# Import the old config system to maintain compatibility during migration
-import sys
-from typing import TypedDict
-
-from gemini_batch.core.models import APITier
+# --- Configuration System Exports ---
 
 from .api import (
     check_environment,
@@ -65,70 +54,7 @@ from .validation import (
     validate_config_dict,
     validate_resolved_config,
 )
-from .compatibility import (
-    ConfigCompatibilityShim,
-    ensure_frozen_config,
-    ensure_dict_config,
-    migrate_config_to_frozen,
-    get_config_field,
-    is_frozen_config,
-)
-
-
-# Legacy GeminiConfig type (from the old config.py)
-class GeminiConfig(TypedDict, total=False):
-    """Legacy configuration type for backward compatibility."""
-
-    api_key: str
-    model: str
-    tier: str | APITier
-    enable_caching: bool
-    use_real_api: bool
-    ttl_seconds: int
-
-
-# Legacy ambient config system
-_ambient_config_var: contextvars.ContextVar[GeminiConfig] = contextvars.ContextVar(
-    "gemini_batch_config"
-)
-
-
-def get_ambient_config() -> GeminiConfig:
-    """Legacy ambient config resolution for backward compatibility."""
-    try:
-        return _ambient_config_var.get()
-    except LookupError:
-        api_key = os.getenv("GEMINI_API_KEY")
-        if not api_key:
-            raise ValueError(
-                "GEMINI_API_KEY is not set in the environment and no explicit "
-                "config was provided."
-            ) from None
-
-        return GeminiConfig(
-            api_key=api_key,
-            model=os.getenv("GEMINI_MODEL", "gemini-2.0-flash"),
-        )
-
-
-@contextmanager
-def legacy_config_scope(config: GeminiConfig) -> Generator[None]:
-    """Legacy config scope for backward compatibility.
-
-    DEPRECATED: Use the new config_scope() with ResolvedConfig instead.
-    This function is kept for backward compatibility during migration.
-    """
-    token = _ambient_config_var.set(config)
-    try:
-        yield
-    finally:
-        _ambient_config_var.reset(token)
-
-
-# For backward compatibility, alias the legacy function to config_scope
-# This allows existing code to continue working during migration
-_legacy_config_scope = legacy_config_scope
-
+# Compatibility and migration helpers removed
 
 __all__ = [  # noqa: RUF022
     # New system - main API
@@ -179,15 +105,4 @@ __all__ = [  # noqa: RUF022
     "ConfigValidationError",
     "check_config_security",
     "suggest_config_improvements",
-    # Compatibility
-    "ConfigCompatibilityShim",
-    "ensure_frozen_config",
-    "ensure_dict_config",
-    "migrate_config_to_frozen",
-    "get_config_field",
-    "is_frozen_config",
-    # Legacy compatibility
-    "GeminiConfig",
-    "get_ambient_config",
-    "legacy_config_scope",
 ]

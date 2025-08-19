@@ -10,7 +10,7 @@ import contextvars
 from pathlib import Path
 from typing import Any
 
-from .api import resolve_config
+# Removed resolve_config import to break circular dependency
 from .types import ResolvedConfig
 
 # Context variable for ambient configuration during resolution
@@ -19,25 +19,25 @@ _ambient_resolved_config: contextvars.ContextVar[ResolvedConfig] = (
 )
 
 
-def get_ambient_resolved_config() -> ResolvedConfig:
+def get_ambient_resolved_config() -> ResolvedConfig | None:
     """Get the ambient resolved configuration if set by a scope.
 
     This function is used internally during configuration resolution.
-    If no ambient config is set, it resolves from environment/files/defaults.
+    It only returns the ambient config if one is set by a scope, otherwise None.
 
     Returns:
-        ResolvedConfig from the current scope, or resolved from sources.
+        ResolvedConfig from the current scope, or None if no ambient config.
 
     Note:
-        This is an internal function. External code should use resolve_config()
-        which automatically handles ambient resolution.
+        This is an internal function. The resolution fallback is handled
+        by the caller (api.py) to avoid circular imports.
     """
     try:
         # If inside a config_scope, return the scoped config
         return _ambient_resolved_config.get()
     except LookupError:
-        # No ambient config set, resolve from sources
-        return resolve_config()
+        # No ambient config set - return None instead of resolving
+        return None
 
 
 @contextmanager
@@ -88,6 +88,11 @@ def config_override(**overrides: Any) -> Generator[None]:
     """
     # Get current config and apply overrides
     base_config = get_ambient_resolved_config()
+    if base_config is None:
+        # Import here to avoid circular dependency at module level
+        from .api import resolve_config
+
+        base_config = resolve_config()
     scoped_config = base_config.with_overrides(**overrides)
 
     # Use the config_scope to apply the overridden config

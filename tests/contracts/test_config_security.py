@@ -182,13 +182,8 @@ class TestConfigurationSecurityContracts:
         # The dict contains the secret (unavoidable)
         assert unsafe_dict["api_key"] == secret_key
 
-        # But our safe representations should still work
-        from gemini_batch.config.compatibility import ConfigCompatibilityShim
-
-        shim = ConfigCompatibilityShim(unsafe_dict)
-
-        # Shim should provide access but not leak in string form
-        assert shim.api_key == secret_key  # Direct access works
+        # Manual dict access still works but is unsafe for string representations
+        assert unsafe_dict["api_key"] == secret_key  # Direct access works
         # Note: We rely on frozen config string methods for safety
 
     @pytest.mark.contract
@@ -234,10 +229,8 @@ class TestConfigurationSecurityContracts:
 
     @pytest.mark.contract
     @pytest.mark.security
-    def test_compatibility_shim_preserves_security(self):
-        """Security: Compatibility shim must maintain security properties."""
-        from gemini_batch.config.compatibility import ConfigCompatibilityShim
-
+    def test_frozen_config_preserves_security(self):
+        """Security: FrozenConfig must maintain security properties."""
         secret_key = "sk-very-secret-api-key-12345-abcdef"
 
         frozen = FrozenConfig(
@@ -249,16 +242,13 @@ class TestConfigurationSecurityContracts:
             ttl_seconds=3600,
         )
 
-        shim = ConfigCompatibilityShim(frozen)
-
-        # Shim provides access to secret
-        assert shim.api_key == secret_key
+        # FrozenConfig provides access to secret
+        assert frozen.api_key == secret_key
 
         # But string representations should be safe
-        # (This depends on the underlying FrozenConfig having safe __str__)
-        shim_str = str(shim)
-        shim_repr = repr(shim)
+        frozen_str = str(frozen)
+        frozen_repr = repr(frozen)
 
         # These should not contain the secret
-        assert secret_key not in shim_str
-        assert secret_key not in shim_repr
+        assert secret_key not in frozen_str
+        assert secret_key not in frozen_repr
