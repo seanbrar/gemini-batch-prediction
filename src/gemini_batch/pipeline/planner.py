@@ -10,7 +10,6 @@ import hashlib
 import json
 from typing import TYPE_CHECKING, Any, cast
 
-# Removed ConfigCompatibilityShim import - no longer needed
 from gemini_batch.core.exceptions import ConfigurationError
 from gemini_batch.core.models import get_model_capabilities
 from gemini_batch.core.types import (
@@ -187,7 +186,8 @@ class ExecutionPlanner(
                 from gemini_batch.core.models import get_rate_limits
 
                 tier = config.tier
-                limits = get_rate_limits(tier, model_name)
+                # Only call get_rate_limits when a tier is present (avoid passing None)
+                limits = get_rate_limits(tier, model_name) if tier is not None else None
                 if limits is not None:
                     rate_constraint = RateConstraint(
                         requests_per_minute=limits.requests_per_minute,

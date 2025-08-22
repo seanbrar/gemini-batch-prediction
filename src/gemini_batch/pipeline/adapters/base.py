@@ -1,6 +1,7 @@
 """Provider adapter contracts for API execution.
 
 Small, explicit Protocols to keep the API handler decoupled from SDKs.
+Also provides base classes for common adapter patterns.
 """
 
 from __future__ import annotations
@@ -8,7 +9,10 @@ from __future__ import annotations
 from typing import TYPE_CHECKING, Any, Protocol, runtime_checkable
 
 if TYPE_CHECKING:
+    from collections.abc import Mapping
     import os
+
+    from gemini_batch.config import FrozenConfig
 
 
 @runtime_checkable
@@ -65,3 +69,33 @@ class ExecutionHintsAware(Protocol):
         correctness.
         """
         ...
+
+
+class BaseProviderAdapter:
+    """Base implementation for provider adapters.
+
+    This provides a default implementation of the ProviderAdapter protocol
+    that can be subclassed by specific provider implementations.
+    """
+
+    name: str = "base"
+
+    def build_provider_config(self, cfg: FrozenConfig) -> Mapping[str, Any]:
+        """Build provider-specific configuration from FrozenConfig.
+
+        Default implementation returns a basic configuration suitable for
+        most providers. Subclasses should override to customize.
+
+        Args:
+            cfg: The resolved, immutable configuration.
+
+        Returns:
+            Basic provider configuration mapping.
+        """
+        return {
+            "model": cfg.model,
+            "api_key": cfg.api_key,
+            "use_real_api": cfg.use_real_api,
+            "enable_caching": cfg.enable_caching,
+            "ttl_seconds": cfg.ttl_seconds,
+        }

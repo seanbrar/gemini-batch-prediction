@@ -171,8 +171,9 @@ class RateLimitHandler(
         tier_value = "unknown"
         config = command.resolved.initial.config
         raw_tier = config.tier
-        # Normalize enums to their value, otherwise str()
-        if hasattr(raw_tier, "value"):
+        # Normalize enums to their value, otherwise str(). Explicitly check
+        # for None so static checkers narrow the type before attribute access.
+        if raw_tier is not None and hasattr(raw_tier, "value"):
             try:  # pragma: no cover - defensive only
                 tier_value = str(raw_tier.value)
             except Exception:

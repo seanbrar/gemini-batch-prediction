@@ -41,7 +41,7 @@ class Settings(BaseModel):
     """
 
     # Core fields
-    model: str = Field(default="gemini-1.5-flash", min_length=1)
+    model: str = Field(default="gemini-2.0-flash", min_length=1)
     # Accept plain strings or SecretStr, normalize to SecretStr | None
     api_key: SecretStr | str | None = Field(default=None)
     use_real_api: bool = Field(default=False)
