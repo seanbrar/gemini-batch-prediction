@@ -39,7 +39,7 @@ class TestSettings:
         """Settings should provide sensible defaults."""
         settings = Settings()
 
-        assert settings.model == "gemini-1.5-flash"
+        assert settings.model == "gemini-2.0-flash"
         assert settings.api_key is None
         assert settings.use_real_api is False
         assert settings.enable_caching is False
@@ -107,7 +107,7 @@ class TestConfigResolution:
             config = resolve_config()
 
             assert isinstance(config, FrozenConfig)
-            assert config.model == "gemini-1.5-flash"
+            assert config.model == "gemini-2.0-flash"
             assert config.api_key is None
             assert config.use_real_api is False
             assert config.provider == "google"
@@ -407,7 +407,7 @@ class TestEdgeCases:
 
             config = resolve_config()
             # Should use defaults
-            assert config.model == "gemini-1.5-flash"
+            assert config.model == "gemini-2.0-flash"
 
     @pytest.mark.unit
     def test_malformed_toml_files_handled_gracefully(self):
@@ -430,7 +430,7 @@ model = "test"
 
             config = resolve_config()
             # Should use defaults when file is malformed
-            assert config.model == "gemini-1.5-flash"
+            assert config.model == "gemini-2.0-flash"
 
     @contextmanager
     def temp_toml_file(self, content: str) -> Iterator[Path]:
