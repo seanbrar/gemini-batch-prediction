@@ -24,7 +24,6 @@ dependencies = [
     "pydantic-settings>=2.8.0",
     "python-dotenv~=1.1",
     "python-magic~=0.4.27",
-    "tomli>=2.0.0;python_version<'3.11'",
 ]
 
 [project.urls]
@@ -53,6 +52,10 @@ dev = [
 ]
 viz = ["matplotlib~=3.10", "pandas~=2.3", "seaborn~=0.13"]
 all = ["gemini-batch[dev,viz]"]
+
+# --- Console Scripts ---
+[project.scripts]
+gb-config = "gemini_batch.config.core:main"
 
 # --- Tool Configurations ---
 
@@ -115,6 +118,9 @@ markers = [
     "slow: Tests that take > 1s (subset of integration)",
     "api: Tests requiring external API (slow)",
     "security: Security and secret handling tests",
+    "allow_dotenv: Opt-in to load .env in a specific test",
+    "allow_real_home_config: Opt-in to use the real home config path",
+    "allow_env_pollution: Opt-in to keep current env (no cleanup)",
 ]
 
 # --- Ruff ---

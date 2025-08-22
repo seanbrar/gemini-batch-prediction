@@ -1,108 +1,79 @@
+# src/gemini_batch/config/__init__.py
+
 """Configuration management for the Gemini Batch Pipeline.
 
-This module provides the new resolve-once, freeze-then-flow configuration system
-that replaces the previous ambient context-based approach.
+This module provides the new Pydantic Two-File Core configuration system
+that replaces the previous multi-file approach with a clean, data-centric design.
 
-Key components:
-- ResolvedConfig: Post-resolution configuration with audit metadata
-- FrozenConfig: Immutable configuration for pipeline execution
-- SourceMap: Audit tracking of configuration value origins
+The core principle is resolve-once, freeze-then-flow: configuration is resolved
+at entry points into immutable FrozenConfig objects that flow through the pipeline.
+
+Key exports:
+- resolve_config: Main API for configuration resolution
+- FrozenConfig: Immutable configuration payload for pipeline
+- config_scope: Context manager for scoped configuration
+- Settings: Pydantic schema for validation and defaults
 """
 
 # ruff: noqa: I001
 
-# --- Configuration System Exports ---
+# --- Core Configuration API ---
 
-from .api import (
+from .core import (
+    FrozenConfig,
+    Origin,
+    FieldOrigin,
+    Settings,
+    SourceMap,
+    was_field_overridden,
+    tier_was_specified,
+    to_redacted_dict,
+    audit_layers_summary,
+    audit_lines,
+    audit_text,
+    summarize_origins,
+    doctor,
     check_environment,
-    get_effective_profile,
-    list_available_profiles,
-    print_config_audit,
-    print_effective_config,
+    config_scope,
     resolve_config,
-    validate_profile,
 )
-from .scope import config_override, config_scope, get_ambient_resolved_config
-from .audit import SourceTracker, generate_redacted_audit, generate_telemetry_summary
-from .file_loader import ConfigFileError, FileConfigLoader
-from .providers import (
-    GeminiConfigBuilder,
-    GeminiProviderConfig,
-    ProviderConfigBuilder,
-    ProviderConfigRegistry,
-    build_provider_config,
-    get_provider_registry,
-    list_registered_providers,
-    register_provider,
+
+# Re-export key functions from loaders and utils for advanced usage
+from .loaders import list_profiles, validate_profile, profile_validation_error
+from .utils import (
+    resolve_provider,
+    get_effective_profile,
+    field_spec_hint,
 )
-from .resolver import ConfigResolver
-from .schema import GeminiSettings
-from .telemetry import (
-    ConfigTelemetryMixin,
-    get_config_telemetry_summary,
-    record_config_file_load,
-    record_config_provider_build,
-    record_config_resolution,
-    record_config_scope_usage,
-    record_config_validation_error,
-)
-from .types import ConfigOrigin, FrozenConfig, ResolvedConfig, SourceMap
-from .validation import (
-    ConfigValidationError,
-    check_config_security,
-    suggest_config_improvements,
-    validate_config_dict,
-    validate_resolved_config,
-)
-# Compatibility and migration helpers removed
 
 __all__ = [  # noqa: RUF022
-    # New system - main API
+    # Main public API
     "resolve_config",
-    "list_available_profiles",
+    "FrozenConfig",
+    "config_scope",
+    # Core types for typing and advanced usage
+    "Settings",
+    "Origin",
+    "FieldOrigin",
+    "SourceMap",
+    # Provenance helpers
+    "was_field_overridden",
+    "tier_was_specified",
+    "field_spec_hint",
+    # Redacted view & summaries
+    "to_redacted_dict",
+    "audit_layers_summary",
+    # Audit helpers
+    "audit_lines",
+    "audit_text",
+    "summarize_origins",
+    "doctor",
+    "check_environment",
+    # ambient removed; prefer explicit `config_scope` and `resolve_config`
+    # Advanced utilities
+    "resolve_provider",
+    "list_profiles",
     "get_effective_profile",
     "validate_profile",
-    "print_config_audit",
-    "print_effective_config",
-    "check_environment",
-    # Scoping
-    "config_scope",
-    "config_override",
-    "get_ambient_resolved_config",
-    # Core types
-    "ResolvedConfig",
-    "FrozenConfig",
-    "SourceMap",
-    "ConfigOrigin",
-    # Advanced usage
-    "GeminiSettings",
-    "ConfigResolver",
-    "FileConfigLoader",
-    "ConfigFileError",
-    "SourceTracker",
-    "generate_redacted_audit",
-    "generate_telemetry_summary",
-    # Providers
-    "ProviderConfigBuilder",
-    "ProviderConfigRegistry",
-    "register_provider",
-    "build_provider_config",
-    "get_provider_registry",
-    "list_registered_providers",
-    "GeminiProviderConfig",
-    "GeminiConfigBuilder",
-    # Telemetry
-    "record_config_resolution",
-    "record_config_validation_error",
-    "record_config_scope_usage",
-    "record_config_file_load",
-    "record_config_provider_build",
-    "ConfigTelemetryMixin",
-    "get_config_telemetry_summary",
-    # Validation
-    "validate_resolved_config",
-    "validate_config_dict",
-    "ConfigValidationError",
-    "check_config_security",
-    "suggest_config_improvements",
+    "profile_validation_error",
 ]

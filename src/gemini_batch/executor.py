@@ -3,8 +3,7 @@
 from time import perf_counter
 from typing import Any, cast
 
-from gemini_batch.config import resolve_config
-from gemini_batch.config.types import FrozenConfig
+from gemini_batch.config import FrozenConfig, resolve_config
 from gemini_batch.core.exceptions import GeminiBatchError, PipelineError
 from gemini_batch.core.types import (
     Failure,
@@ -58,6 +57,10 @@ class GeminiExecutor:
         adapter_factory = None
         use_real = config.use_real_api
         if use_real:
+            # Use the provider adapter seam to get the right configuration
+            from gemini_batch.pipeline.adapters.registry import build_provider_config
+
+            _ = build_provider_config(config.provider, config)
 
             def _factory(api_key: str) -> Any:  # defer import until needed
                 from gemini_batch.pipeline.adapters.gemini import GoogleGenAIAdapter
@@ -159,10 +162,7 @@ def create_executor(
         An instance of GeminiExecutor.
     """
     # This is the only place where ambient configuration is resolved.
-    if config is not None:
-        final_config = config
-    else:
-        # Use the new configuration system
-        resolved = resolve_config()
-        final_config = resolved.to_frozen()
+    # Use the new configuration system; explain=False returns FrozenConfig
+    final_config = config if config is not None else resolve_config()
+
     return GeminiExecutor(final_config)
