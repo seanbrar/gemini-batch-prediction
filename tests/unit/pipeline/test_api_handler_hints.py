@@ -2,7 +2,7 @@ from typing import Any
 
 import pytest
 
-from gemini_batch.config import GeminiConfig
+from gemini_batch.config import resolve_config
 from gemini_batch.core.types import (
     APICall,
     ExecutionPlan,
@@ -57,7 +57,9 @@ class _HintsSpyAdapter:
 async def test_execution_hints_applied_and_retry_without_cache():
     # Plan with explicit cache creation to trigger cached_content hint
     initial = InitialCommand(
-        sources=("s",), prompts=("p",), config=GeminiConfig(api_key="k")
+        sources=("s",),
+        prompts=("p",),
+        config=resolve_config(overrides={"api_key": "k"}),
     )
     resolved = ResolvedCommand(initial=initial, resolved_sources=())
     call = APICall(

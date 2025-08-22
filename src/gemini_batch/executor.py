@@ -3,7 +3,7 @@
 from time import perf_counter
 from typing import Any, cast
 
-from gemini_batch.config import GeminiConfig, get_ambient_config
+from gemini_batch.config import FrozenConfig, resolve_config
 from gemini_batch.core.exceptions import GeminiBatchError, PipelineError
 from gemini_batch.core.types import (
     Failure,
@@ -30,14 +30,14 @@ class GeminiExecutor:
 
     def __init__(
         self,
-        config: GeminiConfig,
+        config: FrozenConfig,
         pipeline_handlers: list[BaseAsyncHandler[Any, Any, GeminiBatchError]]
         | None = None,
     ):
-        """Initialize the executor with configuration and optional custom handlers.
+        """Initialize the executor with configuration.
 
         Args:
-            config: Configuration for the pipeline.
+            config: Configuration for the pipeline (FrozenConfig).
             pipeline_handlers: Optional list of handlers to override the default pipeline.
         """
         self.config = config
@@ -46,7 +46,7 @@ class GeminiExecutor:
         self._pipeline = pipeline_handlers or self._build_default_pipeline(config)
 
     def _build_default_pipeline(
-        self, _config: GeminiConfig
+        self, config: FrozenConfig
     ) -> list[BaseAsyncHandler[Any, Any, GeminiBatchError]]:
         """Build the default pipeline of handlers.
 
@@ -55,11 +55,12 @@ class GeminiExecutor:
         """
         # Optional real adapter factory when explicitly requested
         adapter_factory = None
-        try:
-            use_real = bool(cast("dict[str, Any]", self.config).get("use_real_api"))
-        except Exception:
-            use_real = False
+        use_real = config.use_real_api
         if use_real:
+            # Use the provider adapter seam to get the right configuration
+            from gemini_batch.pipeline.adapters.registry import build_provider_config
+
+            _ = build_provider_config(config.provider, config)
 
             def _factory(api_key: str) -> Any:  # defer import until needed
                 from gemini_batch.pipeline.adapters.gemini import GoogleGenAIAdapter
@@ -146,28 +147,22 @@ class GeminiExecutor:
         }
 
 
-def create_executor(config: GeminiConfig | None = None) -> GeminiExecutor:
+def create_executor(
+    config: FrozenConfig | None = None,
+) -> GeminiExecutor:
     """Create an executor with optional configuration.
 
-    If no configuration is provided, it will be resolved from the environment.
-    This provides a convenient entry point for common use cases.
+    If no configuration is provided, it will be resolved from the environment
+    using the new configuration system.
 
     Args:
-        config: Optional configuration object.
+        config: Optional configuration object (FrozenConfig or None).
 
     Returns:
         An instance of GeminiExecutor.
     """
     # This is the only place where ambient configuration is resolved.
-    if config is not None:
-        final_config = config
-    else:
-        try:
-            final_config = get_ambient_config()
-        except Exception:
-            # DX-friendly fallback: operate in mock mode without an API key
-            final_config = GeminiConfig(
-                model="gemini-2.0-flash",  # default model
-                use_real_api=False,
-            )
+    # Use the new configuration system; explain=False returns FrozenConfig
+    final_config = config if config is not None else resolve_config()
+
     return GeminiExecutor(final_config)

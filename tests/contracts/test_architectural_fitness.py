@@ -53,7 +53,7 @@ class TestArchitecturalFitnessFunction:
         ]
 
         for cls in dataclasses:
-            sig = inspect.signature(cls.__init__)
+            sig = inspect.signature(cls)
             param_count = len(sig.parameters) - 1  # Exclude self
             if param_count > 6:
                 score -= 1

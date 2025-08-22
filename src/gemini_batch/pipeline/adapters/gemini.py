@@ -12,12 +12,14 @@ import logging
 import os
 from typing import TYPE_CHECKING, Any, cast
 
-from gemini_batch.pipeline.adapters.base import GenerationAdapter
+from gemini_batch.pipeline.adapters.base import BaseProviderAdapter, GenerationAdapter
+from gemini_batch.pipeline.adapters.registry import register_adapter
 
 if TYPE_CHECKING:
-    from collections.abc import Callable
+    from collections.abc import Callable, Mapping
     from concurrent.futures import Executor
 
+    from gemini_batch.config import FrozenConfig
     from gemini_batch.pipeline.execution_state import ExecutionHints
 
 logger = logging.getLogger(__name__)
@@ -206,3 +208,50 @@ class GoogleGenAIAdapter(GenerationAdapter):
         except Exception:
             logger.exception("Failed to extract usage metadata")
         return usage
+
+
+# --- Provider Configuration Adapter ---
+
+
+class GeminiProviderAdapter(BaseProviderAdapter):
+    """Gemini-specific provider adapter for configuration customization.
+
+    This adapter transforms generic FrozenConfig into Gemini-specific
+    configuration shapes, following the adapter seam pattern.
+    """
+
+    name = "google"
+
+    def build_provider_config(self, cfg: FrozenConfig) -> Mapping[str, Any]:
+        """Build Gemini-specific configuration from FrozenConfig.
+
+        Adds Gemini-specific fields and transformations while preserving
+        the core configuration values.
+
+        Args:
+            cfg: The resolved, immutable configuration.
+
+        Returns:
+            Gemini-optimized configuration mapping.
+        """
+        config = {
+            "model": cfg.model,
+            "api_key": cfg.api_key,
+            "use_real_api": cfg.use_real_api,
+            "enable_caching": cfg.enable_caching,
+            "ttl_seconds": cfg.ttl_seconds,
+            "telemetry_enabled": cfg.telemetry_enabled,
+            "tier": cfg.tier,
+        }
+
+        # Add Gemini-specific configuration from extras if present
+        if "timeout_s" in cfg.extra:
+            config["timeout_s"] = cfg.extra["timeout_s"]
+        if "base_url" in cfg.extra:
+            config["base_url"] = cfg.extra["base_url"]
+
+        return config
+
+
+# Register the Gemini adapter on module import
+register_adapter(GeminiProviderAdapter())

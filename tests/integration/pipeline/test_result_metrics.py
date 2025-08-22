@@ -1,6 +1,6 @@
 import pytest
 
-from gemini_batch.config import GeminiConfig
+from gemini_batch.config import resolve_config
 from gemini_batch.core.types import InitialCommand
 from gemini_batch.executor import create_executor
 
@@ -9,7 +9,9 @@ pytestmark = pytest.mark.integration
 
 @pytest.mark.asyncio
 async def test_final_result_includes_token_validation_metrics():
-    executor = create_executor(GeminiConfig(api_key="k", model="gemini-2.0-flash"))
+    executor = create_executor(
+        resolve_config(overrides={"api_key": "k", "model": "gemini-2.0-flash"})
+    )
     cmd = InitialCommand(
         sources=("hello world",), prompts=("Echo me",), config=executor.config
     )

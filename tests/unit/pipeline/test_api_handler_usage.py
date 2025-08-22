@@ -1,6 +1,6 @@
 import pytest
 
-from gemini_batch.config import GeminiConfig
+from gemini_batch.config import resolve_config
 from gemini_batch.core.types import (
     APICall,
     ExecutionPlan,
@@ -18,7 +18,9 @@ pytestmark = pytest.mark.unit
 
 def make_planned_with_estimate(prompt_text: str, expected: int) -> PlannedCommand:
     initial = InitialCommand(
-        sources=("s",), prompts=(prompt_text,), config=GeminiConfig(api_key="k")
+        sources=("s",),
+        prompts=(prompt_text,),
+        config=resolve_config(overrides={"api_key": "k"}),
     )
     resolved = ResolvedCommand(initial=initial, resolved_sources=())
     call = APICall(

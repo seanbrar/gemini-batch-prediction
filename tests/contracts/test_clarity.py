@@ -1,8 +1,12 @@
 import inspect
+from typing import TYPE_CHECKING, Any, cast
 
 import pytest
 
 from gemini_batch.core import exceptions, models, types
+
+if TYPE_CHECKING:
+    from collections.abc import Callable
 
 
 class TestClarityCompliance:
@@ -47,7 +51,8 @@ class TestClarityCompliance:
         ]
 
         for func in functions:
-            sig = inspect.signature(func)
+            # Cast to Callable for static analysis when using inspect.signature
+            sig = inspect.signature(cast("Callable[..., Any]", func))
 
             # All parameters should have type hints
             for param_name, param in sig.parameters.items():

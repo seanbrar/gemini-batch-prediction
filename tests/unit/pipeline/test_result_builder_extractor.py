@@ -1,6 +1,6 @@
 import pytest
 
-from gemini_batch.config import GeminiConfig
+from gemini_batch.config import resolve_config
 from gemini_batch.core.types import (
     APICall,
     ExecutionPlan,
@@ -16,10 +16,12 @@ from gemini_batch.pipeline.result_builder import ResultBuilder
 
 def make_finalized_with_raw(raw: object) -> FinalizedCommand:
     """Create a minimal valid FinalizedCommand for testing."""
-    initial = InitialCommand(
-        sources=("s",), prompts=("p",), config=GeminiConfig(api_key="k")
+    command = InitialCommand(
+        sources=("s",),
+        prompts=("p",),
+        config=resolve_config(overrides={"api_key": "k"}),
     )
-    resolved = ResolvedCommand(initial=initial, resolved_sources=())
+    resolved = ResolvedCommand(initial=command, resolved_sources=())
     api_call = APICall(
         model_name="gemini-2.0-flash", api_parts=(TextPart(text="p"),), api_config={}
     )

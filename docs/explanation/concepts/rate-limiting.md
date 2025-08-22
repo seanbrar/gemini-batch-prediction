@@ -137,5 +137,5 @@ sequenceDiagram
 ## Related Documents
 
 - [Deep Dive — Rate Limiting Spec](../deep-dives/rate-limiting-spec.md)
-- [ADR-0003 — Rate Limiting Pattern](../decisions/ADR-0003-rate-limiting.md)
+- [ADR-0004 — Rate Limiting Pattern](../decisions/ADR-0004-rate-limiting.md)
 - [Architecture at a Glance](../architecture.md)

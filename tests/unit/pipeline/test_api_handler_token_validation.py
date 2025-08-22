@@ -1,6 +1,8 @@
+from typing import cast
+
 import pytest
 
-from gemini_batch.config import GeminiConfig
+from gemini_batch.config import resolve_config
 from gemini_batch.core.types import (
     APICall,
     ExecutionPlan,
@@ -16,7 +18,9 @@ from gemini_batch.pipeline.api_handler import APIHandler
 
 def _planned_with_estimate(prompt_text: str, expected: int) -> PlannedCommand:
     initial = InitialCommand(
-        sources=("s",), prompts=(prompt_text,), config=GeminiConfig(api_key="k")
+        sources=("s",),
+        prompts=(prompt_text,),
+        config=resolve_config(overrides={"api_key": "k"}),
     )
     resolved = ResolvedCommand(initial=initial, resolved_sources=())
     call = APICall(
@@ -43,7 +47,7 @@ async def test_token_validation_attached_in_mock_path():
     result = await handler.handle(planned)
     assert isinstance(result, Success)
     finalized = result.value
-    tv = finalized.telemetry_data.get("token_validation", {})
+    tv = cast("dict[str, object]", finalized.telemetry_data.get("token_validation", {}))
     assert set(tv.keys()) >= {
         "estimated_expected",
         "estimated_min",

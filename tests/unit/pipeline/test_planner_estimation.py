@@ -1,6 +1,6 @@
 import pytest
 
-from gemini_batch.config import GeminiConfig
+from gemini_batch.config import resolve_config
 from gemini_batch.core.types import InitialCommand, ResolvedCommand, Source, Success
 from gemini_batch.pipeline.planner import ExecutionPlanner
 
@@ -15,7 +15,7 @@ async def test_planner_includes_prompt_in_token_estimate():
     initial = InitialCommand(
         sources=(),
         prompts=("short prompt",),
-        config=GeminiConfig(api_key="k", model="gemini-2.0-flash"),
+        config=resolve_config(overrides={"api_key": "k", "model": "gemini-2.0-flash"}),
     )
     resolved = ResolvedCommand(initial=initial, resolved_sources=())
 
@@ -32,7 +32,9 @@ async def test_planner_includes_prompt_in_token_estimate():
     # Parts should contain the joined prompt
     primary = planned.execution_plan.primary_call
     assert primary.api_parts
-    assert primary.api_parts[0].text == "short prompt"
+    # api_parts may contain FileRefPart/FilePlaceholder; ensure it's a TextPart
+    first_part = primary.api_parts[0]
+    assert hasattr(first_part, "text") and first_part.text == "short prompt"
 
 
 @pytest.mark.asyncio
@@ -54,14 +56,14 @@ async def test_cache_key_is_deterministic_and_changes_with_prompts(monkeypatch):
     initial_a = InitialCommand(
         sources=("ignored",),
         prompts=("A",),
-        config=GeminiConfig(api_key="k", model="gemini-2.0-flash"),
+        config=resolve_config(overrides={"api_key": "k", "model": "gemini-2.0-flash"}),
     )
     resolved_a = ResolvedCommand(initial=initial_a, resolved_sources=(large_source,))
 
     initial_b = InitialCommand(
         sources=("ignored",),
         prompts=("A",),
-        config=GeminiConfig(api_key="k", model="gemini-2.0-flash"),
+        config=resolve_config(overrides={"api_key": "k", "model": "gemini-2.0-flash"}),
     )
     resolved_b = ResolvedCommand(initial=initial_b, resolved_sources=(large_source,))
     # Deterministic: identical inputs produce identical cache names
@@ -81,7 +83,7 @@ async def test_cache_key_is_deterministic_and_changes_with_prompts(monkeypatch):
     initial_c = InitialCommand(
         sources=("ignored",),
         prompts=("B",),
-        config=GeminiConfig(api_key="k", model="gemini-2.0-flash"),
+        config=resolve_config(overrides={"api_key": "k", "model": "gemini-2.0-flash"}),
     )
     resolved_c = ResolvedCommand(initial=initial_c, resolved_sources=(large_source,))
     result_c = await planner.handle(resolved_c)

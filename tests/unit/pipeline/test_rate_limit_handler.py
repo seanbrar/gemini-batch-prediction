@@ -16,7 +16,12 @@ from gemini_batch.pipeline.rate_limit_handler import RateLimitHandler
 
 def _planned_with_constraint(rpm: int, tpm: int | None = None) -> PlannedCommand:
     initial = Mock()
-    initial.config = {"model": "gemini-2.0-flash"}
+    # New system: config should be a FrozenConfig-like object with attributes.
+    # Use a simple object with attributes for tests.
+    cfg = Mock()
+    cfg.model = "gemini-2.0-flash"
+    cfg.tier = Mock()  # default stub
+    initial.config = cfg
     resolved = ResolvedCommand(initial=initial, resolved_sources=())
     call = APICall(
         model_name="gemini-2.0-flash", api_parts=(TextPart("hi"),), api_config={}
@@ -29,7 +34,10 @@ def _planned_with_constraint(rpm: int, tpm: int | None = None) -> PlannedCommand
 async def test_passthrough_without_constraint():
     handler = RateLimitHandler()
     initial = Mock()
-    initial.config = {"model": "gemini-2.0-flash"}
+    cfg = Mock()
+    cfg.model = "gemini-2.0-flash"
+    cfg.tier = Mock()
+    initial.config = cfg
     resolved = ResolvedCommand(initial=initial, resolved_sources=())
     call = APICall(
         model_name="gemini-2.0-flash", api_parts=(TextPart("hi"),), api_config={}
@@ -80,7 +88,10 @@ async def test_key_extractor_normalizes_tier_enum_or_string():
     enum_like = Mock()
     enum_like.value = "free"
     initial1 = Mock()
-    initial1.config = {"model": "gemini-2.0-flash", "tier": enum_like}
+    cfg1 = Mock()
+    cfg1.model = "gemini-2.0-flash"
+    cfg1.tier = enum_like
+    initial1.config = cfg1
     resolved1 = ResolvedCommand(initial=initial1, resolved_sources=())
     call1 = APICall(
         model_name="gemini-2.0-flash", api_parts=(TextPart("hi"),), api_config={}
@@ -92,7 +103,10 @@ async def test_key_extractor_normalizes_tier_enum_or_string():
 
     # Case 2: tier as plain string
     initial2 = Mock()
-    initial2.config = {"model": "gemini-2.0-flash", "tier": "tier_1"}
+    cfg2 = Mock()
+    cfg2.model = "gemini-2.0-flash"
+    cfg2.tier = "tier_1"
+    initial2.config = cfg2
     resolved2 = ResolvedCommand(initial=initial2, resolved_sources=())
     call2 = APICall(
         model_name="gemini-2.0-flash", api_parts=(TextPart("hi"),), api_config={}

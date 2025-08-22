@@ -29,15 +29,13 @@ def test_explicit_caching_behavior(
     # We define a side effect to log the interactions with the mocked API.
     # This lets us capture the behavior of our client.
     def log_generate_content(*args, **kwargs):  # noqa: ARG001
-        call_details = {"method": "generate_content"}
+        call_details: dict[str, object] = {"method": "generate_content"}
         # Check if the call is using a cache
-        if (
-            hasattr(kwargs.get("config"), "cached_content")
-            and kwargs.get("config").cached_content
-        ):
-            call_details["cached_content"] = kwargs["config"].cached_content
-        else:
-            call_details["cached_content"] = None
+        cfg = kwargs.get("config")
+        cached_value = None
+        if cfg is not None:
+            cached_value = getattr(cfg, "cached_content", None)
+        call_details["cached_content"] = cached_value
         interaction_log.append(call_details)
 
         # Return a realistic mock response object with the necessary attributes

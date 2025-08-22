@@ -3,7 +3,7 @@ from typing import Any
 
 import pytest
 
-from gemini_batch.config import GeminiConfig
+from gemini_batch.config import resolve_config
 from gemini_batch.core.types import (
     APICall,
     ExecutionPlan,
@@ -45,7 +45,9 @@ class _UploadCapableAdapter(_NoUploadAdapter):
 async def test_required_uploads_fail_when_provider_cannot_upload(tmp_path):
     (tmp_path / "f.txt").write_text("x", encoding="utf-8")
     initial = InitialCommand(
-        sources=("s",), prompts=("p",), config=GeminiConfig(api_key="k")
+        sources=("s",),
+        prompts=("p",),
+        config=resolve_config(overrides={"api_key": "k"}),
     )
     resolved = ResolvedCommand(initial=initial, resolved_sources=())
     call = APICall(
@@ -71,7 +73,9 @@ async def test_required_uploads_fail_when_provider_cannot_upload(tmp_path):
 async def test_optional_uploads_skip_when_provider_cannot_upload(tmp_path):
     (tmp_path / "f.txt").write_text("x", encoding="utf-8")
     initial = InitialCommand(
-        sources=("s",), prompts=("p",), config=GeminiConfig(api_key="k")
+        sources=("s",),
+        prompts=("p",),
+        config=resolve_config(overrides={"api_key": "k"}),
     )
     resolved = ResolvedCommand(initial=initial, resolved_sources=())
     call = APICall(
@@ -94,7 +98,9 @@ async def test_optional_uploads_skip_when_provider_cannot_upload(tmp_path):
 async def test_required_uploads_succeed_when_provider_can_upload(tmp_path):
     (tmp_path / "f.txt").write_text("x", encoding="utf-8")
     initial = InitialCommand(
-        sources=("s",), prompts=("p",), config=GeminiConfig(api_key="k")
+        sources=("s",),
+        prompts=("p",),
+        config=resolve_config(overrides={"api_key": "k"}),
     )
     resolved = ResolvedCommand(initial=initial, resolved_sources=())
     call = APICall(

@@ -62,10 +62,16 @@ class ConversationManager:
         """
         # 1. Construct the command object. This is the manager's primary job.
         # It packages the current state for the stateless pipeline.
+        # Ensure we use FrozenConfig for new commands
+        # Accept either FrozenConfig or ResolvedConfig-like values by
+        # converting via to_frozen() when available; otherwise assume
+        # executor already holds a FrozenConfig.
+        cfg = self._executor.config
+        frozen_config = cfg.to_frozen() if hasattr(cfg, "to_frozen") else cfg
         command = InitialCommand(
             sources=self.sources,
             prompts=(prompt,),
-            config=self._executor.config,
+            config=frozen_config,
             history=tuple(self.history),
         )
 
@@ -98,10 +104,10 @@ class ConversationManager:
         # this affects the tuple (e.g., create a new tuple).
         # For the sketch, a list is simpler to show the concept.
         if not isinstance(self.sources, list):
-            self.sources = list(self.sources)
-        if source not in self.sources:
-            self.sources.append(source)
-            self.sources = tuple(self.sources)  # Maintain immutability
+            sources_list = list(self.sources)
+        if source not in sources_list:
+            sources_list.append(source)
+            self.sources = tuple(sources_list)  # Maintain immutability
 
     def get_detailed_history(self) -> tuple[ConversationTurn, ...]:
         """Returns an immutable snapshot of the detailed conversation history."""

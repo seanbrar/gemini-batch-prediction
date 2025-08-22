@@ -21,7 +21,7 @@ if typing.TYPE_CHECKING:  # pragma: no cover - import for dependency visibility 
     # Ensure external dependency visibility for tests without runtime import
     from google.genai import types as genai_types  # noqa: F401
 
-    from gemini_batch.config import GeminiConfig
+    from gemini_batch.config import FrozenConfig
 
 # --- Result Monad for Robust Error Handling ---
 # Implements the "Unified Result Type" enhancement for explicit error handling.
@@ -118,7 +118,7 @@ class InitialCommand:
 
     sources: tuple[typing.Any, ...]
     prompts: tuple[str, ...]
-    config: GeminiConfig
+    config: FrozenConfig
     history: tuple[ConversationTurn, ...] = dataclasses.field(default_factory=tuple)
 
 

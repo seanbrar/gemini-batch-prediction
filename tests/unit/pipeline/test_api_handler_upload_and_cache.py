@@ -4,7 +4,7 @@ from typing import Any
 
 import pytest
 
-from gemini_batch.config import GeminiConfig
+from gemini_batch.config import resolve_config
 from gemini_batch.core.types import (
     APICall,
     ExecutionPlan,
@@ -24,7 +24,9 @@ def _mk_planned_with_upload_and_cache(tmp_path: Path) -> PlannedCommand:
     # Primary parts: placeholder for file at index 0, then a text prompt
     placeholder = FileRefPart(uri="", mime_type="text/plain")
     initial = InitialCommand(
-        sources=("s",), prompts=("q",), config=GeminiConfig(api_key="k")
+        sources=("s",),
+        prompts=("q",),
+        config=resolve_config(overrides={"api_key": "k"}),
     )
     resolved = ResolvedCommand(initial=initial, resolved_sources=())
     primary = APICall(
