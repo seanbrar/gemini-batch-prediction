@@ -327,7 +327,7 @@ class ExecutionPlanner(BaseHandler[ResolvedCommand, PlannedCommand]):
     def _get_rate_constraint(self, command: ResolvedCommand) -> RateConstraint | None:
         """Resolve rate constraint for command."""
         config = command.initial.config
-        model = config.get("model", "gemini-1.5-flash")
+        model = config.get("model", "gemini-2.0-flash")
 
         # Try provider capability first
         provider = self._get_provider(model)
@@ -485,7 +485,7 @@ class TestRateLimitProperties:
 ```yaml
 # config.yaml
 gemini:
-  model: gemini-1.5-flash
+  model: gemini-2.0-flash
   tier: tier_2
   rate_limits:
     requests_per_minute: 1000  # Override default
@@ -528,7 +528,7 @@ executor = GeminiExecutor(
     "event": "rate_limit.acquire",
     "timestamp": 1234567890.123,
     "attributes": {
-        "limiter_key": ("gemini", "gemini-1.5-flash", "tier_2"),
+        "limiter_key": ("gemini", "gemini-2.0-flash", "tier_2"),
         "estimated_tokens": 1500
     }
 }
@@ -538,7 +538,7 @@ executor = GeminiExecutor(
     "event": "rate_limit.delayed",
     "timestamp": 1234567890.456,
     "data": {
-        "limiter_key": ("gemini", "gemini-1.5-flash", "tier_2"),
+        "limiter_key": ("gemini", "gemini-2.0-flash", "tier_2"),
         "wait_ms": 250,
         "request_wait_ms": 50,
         "token_wait_ms": 200,
@@ -580,6 +580,6 @@ executor = GeminiExecutor(
 ## 10. References
 
 - [Concept — Rate Limiting](../concepts/rate-limiting.md)
-- [ADR-0003 — Rate Limiting Pattern](../decisions/ADR-0003-rate-limiting.md)
+- [ADR-0004 — Rate Limiting Pattern](../decisions/ADR-0004-rate-limiting.md)
 - [Command Pipeline Architecture](./command-pipeline-spec.md)
 - [Gemini API Rate Limits](https://ai.google.dev/gemini-api/docs/rate-limits)

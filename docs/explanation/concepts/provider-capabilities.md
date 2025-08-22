@@ -1,13 +1,13 @@
 # Provider Capabilities Model — Conceptual Overview
 
-> Status: Implemented. This model governs how provider differences are abstracted.
+> Status: Implemented. This model governs how provider differences are abstracted via adapter protocols.
 >
 > Audience: Contributors implementing new provider adapters.
 > Prerequisites: Understanding of Python protocols and the API Execution pattern.
 
 ## Purpose & Scope
 
-The Provider Capabilities Model defines how the pipeline abstracts over different LLM providers (Gemini, OpenAI, Anthropic) while maintaining type safety and explicit feature detection.
+The Provider Capabilities Model defines how the pipeline abstracts over different LLM providers while maintaining type safety and explicit feature detection.
 
 **In scope**:
 
@@ -27,11 +27,7 @@ The Provider Capabilities Model defines how the pipeline abstracts over differen
 
 ## Design Forces
 
-Different providers offer different features:
-
-- **Gemini**: Generation + File uploads + Context caching
-- **OpenAI**: Generation + Function calling (no native caching)
-- **Anthropic**: Generation + Some caching (no file uploads)
+Different providers offer different features. The library exposes a neutral seam so features can be used when present and gracefully skipped when absent. The current codebase ships a Gemini adapter; other providers can be added by users.
 
 Traditional approaches use:
 
@@ -52,26 +48,32 @@ We need:
 
 ### Capability Protocols
 
-Fine-grained protocols define specific provider abilities:
+Fine-grained protocols define specific provider abilities (see `gemini_batch.pipeline.adapters.base`):
 
 ```python
 @runtime_checkable
-class GenerationCapability(Protocol):
-    """Core capability - all providers must have this."""
-    async def generate(...) -> dict: ...
+class GenerationAdapter(Protocol):
+    async def generate(*, model_name: str, api_parts: tuple[Any, ...], api_config: dict[str, object]) -> dict[str, Any]: ...
 
 @runtime_checkable
 class UploadsCapability(Protocol):
-    """Optional - for providers supporting file uploads."""
-    async def upload_file(...) -> FileRefPart: ...
+    async def upload_file_local(path: str | os.PathLike[str], mime_type: str | None) -> Any: ...
+
+@runtime_checkable
+class CachingCapability(Protocol):
+    async def create_cache(*, model_name: str, content_parts: tuple[Any, ...], system_instruction: str | None, ttl_seconds: int | None) -> str: ...
+
+@runtime_checkable
+class ExecutionHintsAware(Protocol):
+    def apply_hints(hints: Any) -> None: ...
 ```
 
 ### Capability Checking
 
 Two levels of verification:
 
-1. **Type-time**: Protocol inheritance
-2. **Runtime**: `isinstance()` checks via `@runtime_checkable`
+1. **Type-time**: Protocol conformance (via static typing where used)
+2. **Runtime**: `isinstance()` checks enabled by `@runtime_checkable`
 
 ### Adapter Pattern
 
@@ -80,30 +82,20 @@ Each provider has an adapter that:
 - Implements relevant capability protocols
 - Translates between neutral and provider types
 - Handles provider-specific errors
-- Normalizes responses
+- Normalizes responses to a minimal raw dict consumed by the Result Builder
 
 ---
 
 ## Capability Hierarchy
 
-```mermaid
-graph TD
-    Gen[GenerationCapability<br/>Required] --> All[All Providers]
+At present, the execution seam defines these capabilities:
 
-    Upload[UploadsCapability<br/>Optional] --> Gemini
-    Upload --> Future1[Future Provider]
+- Generation (required): `GenerationAdapter`
+- Uploads (optional): `UploadsCapability`
+- Context caching (optional): `CachingCapability`
+- Hints (optional): `ExecutionHintsAware`
 
-    Cache[CachingCapability<br/>Optional] --> Gemini
-    Cache --> Anthropic
-
-    Func[FunctionCallingCapability<br/>Optional] --> OpenAI
-    Func --> Anthropic
-
-    Stream[StreamingCapability<br/>Optional] --> All
-
-    style Gen fill:#ffebee
-    style All fill:#e8f5e9
-```
+Additional capabilities can be added in the future as new protocols.
 
 ---
 
@@ -112,17 +104,17 @@ graph TD
 ### Required Capability
 
 ```python
-# Generation is required - checked at construction
-if not isinstance(provider, GenerationCapability):
-    raise ValueError("Provider must support generation")
+# Generation is required - validate when accepting an adapter
+if not isinstance(adapter, GenerationAdapter):
+    raise ValueError("Adapter must support generation")
 ```
 
 ### Optional Capability
 
 ```python
 # Uploads optional - check and degrade gracefully
-if isinstance(provider, UploadsCapability):
-    file_ref = await provider.upload_file(path)
+if isinstance(adapter, UploadsCapability):
+    file_ref = await adapter.upload_file_local(path, mime_type)
 else:
     # Use inline content or skip
     pass
@@ -133,9 +125,8 @@ else:
 ```python
 # Stage only runs if capability present
 class UploadStage:
-    def applies_to(self, state, provider):
-        return bool(state.plan.upload_tasks) and
-               isinstance(provider, UploadsCapability)
+    def applies_to(self, state, adapter):
+        return bool(state.plan.upload_tasks) and isinstance(adapter, UploadsCapability)
 ```
 
 ---
@@ -156,7 +147,7 @@ class UploadStage:
 
 ### Clear Contracts
 
-- Providers explicitly declare capabilities
+- Adapters explicitly declare capabilities
 - Users know what's available
 - No hidden assumptions
 
@@ -210,12 +201,12 @@ else:
 
 ## Adding New Capabilities
 
-1. Define protocol in `capabilities/new_capability.py`
-2. Mark with `@runtime_checkable`
-3. Implement in relevant adapters
-4. Add conditional usage in stages
-5. Document degradation behavior
-6. Add capability tests
+1. Define a new protocol (e.g., in `gemini_batch/pipeline/adapters/base.py` or a small adjacent module).
+2. Mark it with `@runtime_checkable` for safe `isinstance` checks.
+3. Implement it in relevant adapters.
+4. Add conditional usage in the pipeline where appropriate.
+5. Document graceful degradation behavior.
+6. Add tests for both supported and unsupported paths.
 
 ---
 
