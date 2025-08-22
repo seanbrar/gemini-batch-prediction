@@ -25,7 +25,7 @@ async def test_resolves_text_content():
     command = InitialCommand(
         sources=(text,),
         prompts=("p",),
-        config=resolve_config(programmatic={"api_key": "test"}).to_frozen(),
+        config=resolve_config(overrides={"api_key": "test"}),
     )
 
     result = await handler.handle(command)
@@ -48,7 +48,7 @@ async def test_resolves_file_path_text_file():
     command = InitialCommand(
         sources=(str(file_path),),
         prompts=("p",),
-        config=resolve_config(programmatic={"api_key": "test"}).to_frozen(),
+        config=resolve_config(overrides={"api_key": "test"}),
     )
     result = await handler.handle(command)
     assert isinstance(result, Success)
@@ -69,7 +69,7 @@ async def test_resolves_directory_expansion():
     command = InitialCommand(
         sources=(str(dir_path),),
         prompts=("p",),
-        config=resolve_config(programmatic={"api_key": "test"}).to_frozen(),
+        config=resolve_config(overrides={"api_key": "test"}),
     )
     result = await handler.handle(command)
     assert isinstance(result, Success)
@@ -87,7 +87,7 @@ async def test_resolves_youtube_url():
     command = InitialCommand(
         sources=(url,),
         prompts=("p",),
-        config=resolve_config(programmatic={"api_key": "test"}).to_frozen(),
+        config=resolve_config(overrides={"api_key": "test"}),
     )
     result = await handler.handle(command)
     assert isinstance(result, Success)
@@ -104,7 +104,7 @@ async def test_resolves_arxiv_pdf_url():
     command = InitialCommand(
         sources=(url,),
         prompts=("p",),
-        config=resolve_config(programmatic={"api_key": "test"}).to_frozen(),
+        config=resolve_config(overrides={"api_key": "test"}),
     )
     result = await handler.handle(command)
     assert isinstance(result, Success)
@@ -121,7 +121,7 @@ async def test_error_on_nonexistent_path():
     command = InitialCommand(
         sources=(str(missing),),
         prompts=("p",),
-        config=resolve_config(programmatic={"api_key": "test"}).to_frozen(),
+        config=resolve_config(overrides={"api_key": "test"}),
     )
     result = await handler.handle(command)
     # Should fail explicitly, not raise

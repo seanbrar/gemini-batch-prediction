@@ -8,10 +8,11 @@ import json
 import os
 from unittest.mock import patch
 
+from pydantic import ValidationError
 import pytest
 
 from gemini_batch.config import resolve_config
-from gemini_batch.config.types import FrozenConfig
+from gemini_batch.config.core import FrozenConfig
 from gemini_batch.core.models import APITier
 
 
@@ -25,19 +26,15 @@ class TestConfigurationSecurityContracts:
         secret_key = "sk-very-secret-api-key-12345-abcdef"
 
         with patch.dict(os.environ, {"GEMINI_API_KEY": secret_key}):
-            resolved = resolve_config()
+            cfg = resolve_config()
 
             # Check various string representations
-            resolved_str = str(resolved)
-            resolved_repr = repr(resolved)
-            frozen_str = str(resolved.to_frozen())
-            frozen_repr = repr(resolved.to_frozen())
+            cfg_str = str(cfg)
+            cfg_repr = repr(cfg)
 
             # Secret should not appear in any string representation
-            assert secret_key not in resolved_str
-            assert secret_key not in resolved_repr
-            assert secret_key not in frozen_str
-            assert secret_key not in frozen_repr
+            assert secret_key not in cfg_str
+            assert secret_key not in cfg_repr
 
     @pytest.mark.contract
     @pytest.mark.security
@@ -46,13 +43,16 @@ class TestConfigurationSecurityContracts:
         secret_key = "sk-very-secret-api-key-12345-abcdef"
 
         with patch.dict(os.environ, {"GEMINI_API_KEY": secret_key}):
-            resolved = resolve_config()
+            cfg, origin = resolve_config(explain=True)
 
             # Redacted representation should not contain secret
-            assert secret_key not in resolved.audit()
+            from gemini_batch.config.core import audit_text
+
+            redacted_text = audit_text(cfg, origin)
+            assert secret_key not in redacted_text
 
             # Should contain redaction indicator
-            redacted_repr_lower = resolved.audit().lower()
+            redacted_repr_lower = redacted_text.lower()
             assert any(
                 indicator in redacted_repr_lower
                 for indicator in ["***", "[redacted]", "hidden", "secret"]
@@ -65,18 +65,18 @@ class TestConfigurationSecurityContracts:
         secret_key = "sk-very-secret-api-key-12345-abcdef"
 
         with patch.dict(os.environ, {"GEMINI_API_KEY": secret_key}):
-            resolved = resolve_config()
+            _, origin = resolve_config(explain=True)
 
             # Convert source map to string for searching
-            source_map_str = str(resolved.origin)
-            source_map_repr = repr(resolved.origin)
+            source_map_str = str(origin)
+            source_map_repr = repr(origin)
 
             # Secret should not appear anywhere in source map
             assert secret_key not in source_map_str
             assert secret_key not in source_map_repr
 
             # Source map should still track the field
-            assert "api_key" in resolved.origin
+            assert "api_key" in origin
 
     @pytest.mark.contract
     @pytest.mark.security
@@ -91,12 +91,15 @@ class TestConfigurationSecurityContracts:
             enable_caching=True,
             use_real_api=False,
             ttl_seconds=3600,
+            telemetry_enabled=True,
+            provider="google",
+            extra={},
         )
 
         # Create safe dict for serialization (without secrets)
         safe_dict = {
             "model": frozen.model,
-            "tier": frozen.tier.value,
+            "tier": frozen.tier.value if frozen.tier is not None else None,
             "enable_caching": frozen.enable_caching,
             "use_real_api": frozen.use_real_api,
             "ttl_seconds": frozen.ttl_seconds,
@@ -115,15 +118,13 @@ class TestConfigurationSecurityContracts:
 
         # Test validation error with secret in context
         with patch.dict(os.environ, {"GEMINI_API_KEY": secret_key}):
-            try:
+            with pytest.raises(ValidationError) as exc_info:
                 # Force a validation error
-                resolve_config(programmatic={"ttl_seconds": -1})
-                pytest.fail("Should have raised validation error")
-            except ValueError as e:
-                error_msg = str(e)
+                resolve_config(overrides={"ttl_seconds": -1})
+            error_msg = str(exc_info.value)
 
-                # Error message should not contain the secret
-                assert secret_key not in error_msg
+            # Error message should not contain the secret
+            assert secret_key not in error_msg
 
     @pytest.mark.contract
     @pytest.mark.security
@@ -132,17 +133,17 @@ class TestConfigurationSecurityContracts:
         secret_key = "sk-very-secret-api-key-12345-abcdef"
 
         with patch.dict(os.environ, {"GEMINI_API_KEY": secret_key}):
-            resolved = resolve_config()
+            cfg = resolve_config()
 
             # Test common logging representations
+            from gemini_batch.config.core import audit_text
+
+            cfg2, origin = resolve_config(explain=True)
             logging_representations = [
-                str(resolved),
-                repr(resolved),
-                str(resolved.to_frozen()),
-                repr(resolved.to_frozen()),
-                resolved.audit(),
-                f"Config: {resolved}",
-                f"Frozen: {resolved.to_frozen()}",
+                str(cfg),
+                repr(cfg),
+                audit_text(cfg2, origin),
+                f"Config: {cfg}",
             ]
 
             for representation in logging_representations:
@@ -163,6 +164,9 @@ class TestConfigurationSecurityContracts:
             enable_caching=True,
             use_real_api=False,
             ttl_seconds=3600,
+            telemetry_enabled=True,
+            provider="google",
+            extra={},
         )
 
         # Manual conversion to dict should still require explicit handling
@@ -193,16 +197,15 @@ class TestConfigurationSecurityContracts:
         secret_key = "sk-very-secret-api-key-12345-abcdef"
 
         with patch.dict(os.environ, {"GEMINI_API_KEY": secret_key}):
-            resolved = resolve_config()
-
             # Simulate telemetry data collection
+            cfg, origin = resolve_config(explain=True)
             telemetry_safe_config = {
-                "model": resolved.to_frozen().model,
-                "tier": resolved.to_frozen().tier.value,
-                "enable_caching": resolved.to_frozen().enable_caching,
-                "use_real_api": resolved.to_frozen().use_real_api,
-                "ttl_seconds": resolved.to_frozen().ttl_seconds,
-                "config_sources": list(resolved.origin.values()),
+                "model": cfg.model,
+                "tier": cfg.tier.value if cfg.tier is not None else None,
+                "enable_caching": cfg.enable_caching,
+                "use_real_api": cfg.use_real_api,
+                "ttl_seconds": cfg.ttl_seconds,
+                "config_sources": [fo.origin.value for fo in origin.values()],
             }
 
             # Serialize for telemetry
@@ -219,13 +222,13 @@ class TestConfigurationSecurityContracts:
         secret_key = "sk-very-secret-api-key-12345-abcdef"
 
         with patch.dict(os.environ, {"GEMINI_API_KEY": secret_key}):
-            resolved = resolve_config()
+            _, origin = resolve_config(explain=True)
 
             # Source map can contain env var names (not sensitive)
-            assert "env" in resolved.origin["api_key"]
+            assert "env" in origin["api_key"].origin.value
 
             # But not the actual secret value
-            assert secret_key not in str(resolved.origin)
+            assert secret_key not in str(origin)
 
     @pytest.mark.contract
     @pytest.mark.security
@@ -240,6 +243,9 @@ class TestConfigurationSecurityContracts:
             enable_caching=True,
             use_real_api=False,
             ttl_seconds=3600,
+            telemetry_enabled=True,
+            provider="google",
+            extra={},
         )
 
         # FrozenConfig provides access to secret

@@ -222,7 +222,7 @@ class TestCommandStateCompliance:
     @pytest.mark.unit
     def test_initial_command_constructor_is_immutable(self):
         """InitialCommand should be immutable by design."""
-        config = resolve_config(programmatic={"api_key": "test_key"}).to_frozen()
+        config = resolve_config(overrides={"api_key": "test_key"})
         command = InitialCommand(
             sources=("source1", "source2"),
             prompts=("prompt1", "prompt2"),
@@ -236,7 +236,7 @@ class TestCommandStateCompliance:
     @pytest.mark.unit
     def test_initial_command_has_sensible_defaults(self):
         """InitialCommand should have sensible defaults for optional fields."""
-        config = resolve_config(programmatic={"api_key": "test_key"}).to_frozen()
+        config = resolve_config(overrides={"api_key": "test_key"})
         command = InitialCommand(
             sources=("source1",), prompts=("prompt1",), config=config
         )
@@ -246,7 +246,7 @@ class TestCommandStateCompliance:
     @pytest.mark.unit
     def test_resolved_command_contains_initial(self):
         """ResolvedCommand should contain the initial command for traceability."""
-        config = resolve_config(programmatic={"api_key": "test_key"}).to_frozen()
+        config = resolve_config(overrides={"api_key": "test_key"})
         initial = InitialCommand(
             sources=("source1",), prompts=("prompt1",), config=config
         )
@@ -314,7 +314,7 @@ class TestCommandStateCompliance:
     @pytest.mark.unit
     def test_planned_command_contains_resolved_and_plan(self):
         """PlannedCommand should contain both resolved command and execution plan."""
-        config = resolve_config(programmatic={"api_key": "test_key"}).to_frozen()
+        config = resolve_config(overrides={"api_key": "test_key"})
         initial = InitialCommand(
             sources=("source1",), prompts=("prompt1",), config=config
         )
@@ -351,7 +351,7 @@ class TestCommandStateCompliance:
     @pytest.mark.unit
     def test_finalized_command_contains_telemetry_data(self):
         """FinalizedCommand should contain telemetry data for observability."""
-        config = resolve_config(programmatic={"api_key": "test_key"}).to_frozen()
+        config = resolve_config(overrides={"api_key": "test_key"})
         initial = InitialCommand(
             sources=("source1",), prompts=("prompt1",), config=config
         )
@@ -428,7 +428,7 @@ class TestDataCentricityCompliance:
                     content_loader=lambda: b"test",
                 )
             elif cls == InitialCommand:
-                config = resolve_config(programmatic={"api_key": "test"}).to_frozen()
+                config = resolve_config(overrides={"api_key": "test"})
                 instance = cls(sources=("test",), prompts=("test",), config=config)
             else:
                 # Skip complex constructors for this test
@@ -455,7 +455,7 @@ class TestDataCentricityCompliance:
     @pytest.mark.unit
     def test_transformations_are_pure(self):
         """Command transformations should be pure (no side effects)."""
-        config = resolve_config(programmatic={"api_key": "test_key"}).to_frozen()
+        config = resolve_config(overrides={"api_key": "test_key"})
         original_command = InitialCommand(
             sources=("source1",), prompts=("prompt1",), config=config
         )

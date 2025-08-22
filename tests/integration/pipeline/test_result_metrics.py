@@ -10,9 +10,7 @@ pytestmark = pytest.mark.integration
 @pytest.mark.asyncio
 async def test_final_result_includes_token_validation_metrics():
     executor = create_executor(
-        resolve_config(
-            programmatic={"api_key": "k", "model": "gemini-2.0-flash"}
-        ).to_frozen()
+        resolve_config(overrides={"api_key": "k", "model": "gemini-2.0-flash"})
     )
     cmd = InitialCommand(
         sources=("hello world",), prompts=("Echo me",), config=executor.config

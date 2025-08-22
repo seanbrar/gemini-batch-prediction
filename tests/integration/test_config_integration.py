@@ -10,7 +10,7 @@ from unittest.mock import patch
 import pytest
 
 from gemini_batch.config import resolve_config
-from gemini_batch.config.types import FrozenConfig
+from gemini_batch.config.core import FrozenConfig
 from gemini_batch.core.types import InitialCommand
 from gemini_batch.executor import GeminiExecutor, create_executor
 from gemini_batch.extensions.conversation import ConversationManager
@@ -38,8 +38,8 @@ class TestConfigurationIntegrationBehavior:
         explicit_config = {"api_key": "explicit_key", "model": "explicit_model"}
 
         with patch.dict(os.environ, {"GEMINI_API_KEY": "env_key"}):
-            resolved = resolve_config(programmatic=explicit_config)
-            executor = create_executor(config=resolved.to_frozen())
+            resolved = resolve_config(overrides=explicit_config)
+            executor = create_executor(config=resolved)
 
             # Should use explicit config (converted to FrozenConfig)
             assert isinstance(executor.config, FrozenConfig)
@@ -55,7 +55,7 @@ class TestConfigurationIntegrationBehavior:
             command = InitialCommand(
                 sources=("test.txt",),
                 prompts=("Test prompt",),
-                config=resolved.to_frozen(),
+                config=resolved,
                 history=(),
             )
 
@@ -95,8 +95,8 @@ class TestConfigurationIntegrationBehavior:
         ):
             # Override with explicit config
             explicit_config = {"model": "explicit_model"}
-            resolved_explicit = resolve_config(programmatic=explicit_config)
-            executor = create_executor(config=resolved_explicit.to_frozen())
+            resolved_explicit = resolve_config(overrides=explicit_config)
+            executor = create_executor(config=resolved_explicit)
 
             # Should combine correctly (explicit overrides env)
             assert executor.config.api_key == "env_key"  # From env
@@ -123,13 +123,13 @@ class TestConfigurationIntegrationBehavior:
 
         # When passing a dict, create_executor will resolve and freeze it;
         # for direct GeminiExecutor construction in tests, normalize explicitly
-        resolved_dict = resolve_config(programmatic=dict_config)
-        executor_dict = GeminiExecutor(config=resolved_dict.to_frozen())
+        resolved_dict = resolve_config(overrides=dict_config)
+        executor_dict = GeminiExecutor(config=resolved_dict)
 
         # Test with FrozenConfig (new)
         with patch.dict(os.environ, {"GEMINI_API_KEY": "frozen_key"}):
             resolved = resolve_config()
-            executor_frozen = GeminiExecutor(config=resolved.to_frozen())
+            executor_frozen = GeminiExecutor(config=resolved)
 
         # Both should work
         assert executor_dict.config.api_key == "dict_key"
@@ -157,7 +157,7 @@ class TestConfigurationIntegrationBehavior:
         ):
             # Validation happens during resolution; resolving invalid programmatic
             # config should raise ValueError
-            resolve_config(programmatic={"ttl_seconds": 0})
+            resolve_config(overrides={"ttl_seconds": 0})
 
     @pytest.mark.workflows
     def test_environment_override_behavior(self):

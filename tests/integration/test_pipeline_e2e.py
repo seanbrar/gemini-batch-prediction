@@ -9,9 +9,7 @@ from gemini_batch.executor import create_executor
 @pytest.mark.asyncio
 async def test_minimal_pipeline_happy_path():
     executor = create_executor(
-        resolve_config(
-            programmatic={"api_key": "test", "model": "gemini-2.0-flash"}
-        ).to_frozen()
+        resolve_config(overrides={"api_key": "test", "model": "gemini-2.0-flash"})
     )
     cmd = InitialCommand(
         sources=("hello world",), prompts=("Echo me",), config=executor.config
@@ -27,9 +25,7 @@ async def test_minimal_pipeline_happy_path():
 @pytest.mark.asyncio
 async def test_pipeline_raises_on_stage_failure():
     executor = create_executor(
-        resolve_config(
-            programmatic={"api_key": "test", "model": "gemini-2.0-flash"}
-        ).to_frozen()
+        resolve_config(overrides={"api_key": "test", "model": "gemini-2.0-flash"})
     )
     # Non-existent path should cause SourceHandler to return Failure → executor raises PipelineError
     bad_cmd = InitialCommand(

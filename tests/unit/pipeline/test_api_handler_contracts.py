@@ -20,7 +20,7 @@ def make_planned(prompts: tuple[str, ...]) -> PlannedCommand:
     initial = InitialCommand(
         sources=("s",),
         prompts=prompts,
-        config=resolve_config(programmatic={"api_key": "k"}).to_frozen(),
+        config=resolve_config(overrides={"api_key": "k"}),
     )
     resolved = ResolvedCommand(initial=initial, resolved_sources=())
     call = APICall(
@@ -50,7 +50,7 @@ async def test_api_handler_fails_on_empty_parts():
     initial = InitialCommand(
         sources=("s",),
         prompts=("p",),
-        config=resolve_config(programmatic={"api_key": "k"}).to_frozen(),
+        config=resolve_config(overrides={"api_key": "k"}),
     )
     resolved = ResolvedCommand(initial=initial, resolved_sources=())
     empty_call = APICall(model_name="gemini-2.0-flash", api_parts=(), api_config={})
@@ -73,7 +73,7 @@ async def test_factory_requires_api_key_and_fails_explicitly():
     initial = InitialCommand(
         sources=("s",),
         prompts=("p",),
-        config=resolve_config(programmatic={}).to_frozen(),
+        config=resolve_config(overrides={}),
     )
     resolved = ResolvedCommand(initial=initial, resolved_sources=())
     call = APICall(

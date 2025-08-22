@@ -18,7 +18,7 @@ async def test_planner_produces_parts_on_prompts():
     initial = InitialCommand(
         sources=("src",),
         prompts=("p1", "p2"),
-        config=resolve_config(programmatic={"api_key": "k"}).to_frozen(),
+        config=resolve_config(overrides={"api_key": "k"}),
     )
     resolved = ResolvedCommand(initial=initial, resolved_sources=())
 
@@ -29,7 +29,9 @@ async def test_planner_produces_parts_on_prompts():
     primary = planned.execution_plan.primary_call
     assert primary.api_parts
     # Joined with blank line between prompts
-    assert primary.api_parts[0].text == "p1\n\np2"
+    first_part = primary.api_parts[0]
+    assert hasattr(first_part, "text")
+    assert first_part.text == "p1\n\np2"
 
 
 @pytest.mark.asyncio
@@ -38,7 +40,7 @@ async def test_planner_fails_on_empty_prompts():
     initial = InitialCommand(
         sources=("src",),
         prompts=(),
-        config=resolve_config(programmatic={"api_key": "k"}).to_frozen(),
+        config=resolve_config(overrides={"api_key": "k"}),
     )
     resolved = ResolvedCommand(initial=initial, resolved_sources=())
 

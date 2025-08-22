@@ -59,7 +59,7 @@ async def test_execution_hints_applied_and_retry_without_cache():
     initial = InitialCommand(
         sources=("s",),
         prompts=("p",),
-        config=resolve_config(programmatic={"api_key": "k"}).to_frozen(),
+        config=resolve_config(overrides={"api_key": "k"}),
     )
     resolved = ResolvedCommand(initial=initial, resolved_sources=())
     call = APICall(

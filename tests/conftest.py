@@ -3,6 +3,7 @@ Global test configuration with support for different test types.
 """
 
 from collections.abc import Generator
+from contextlib import contextmanager, suppress
 from datetime import datetime
 import logging
 import os
@@ -23,6 +24,174 @@ from tests.helpers import ActTestHelper, GitHelper, MockCommit
 
 # Note: Old BatchProcessor and GeminiClient imports removed during transition
 # The test adapter provides the interface compatibility needed for existing tests
+
+
+# --- Environment Isolation (Autouse) ---
+@pytest.fixture(autouse=True)
+def block_dotenv(request, monkeypatch):
+    """Prevent python-dotenv from loading project .env files during tests.
+
+    Architecture Rubric: remove hidden state and action-at-a-distance. Tests
+    should only see environment that they explicitly set.
+
+    Opt-in escape hatch: mark a test with @pytest.mark.allow_dotenv
+    to permit .env loading for that specific test.
+    """
+    if request.node.get_closest_marker("allow_dotenv"):
+        return
+    # If dotenv is installed, replace load_dotenv with a no-op for this test.
+    with suppress(Exception):
+        monkeypatch.setattr(
+            "dotenv.load_dotenv", lambda *_args, **_kwargs: False, raising=False
+        )
+
+
+@pytest.fixture(autouse=True)
+def isolate_gemini_env(request, monkeypatch):
+    """Ensure a clean GEMINI_* environment for each test.
+
+    - Removes all GEMINI_* variables and debug toggles before each test
+    - Leaves non-GEMINI_* variables intact for stability
+
+    Escape hatches:
+      - @pytest.mark.allow_env_pollution: keep current env unchanged
+      - tests marked with @pytest.mark.api automatically bypass isolation
+        so real environment can be used when explicitly running API tests.
+    """
+    if request.node.get_closest_marker("allow_env_pollution") or (
+        "api" in request.node.keywords
+    ):
+        return
+
+    for key in list(os.environ.keys()):
+        if key.startswith("GEMINI_"):
+            monkeypatch.delenv(key, raising=False)
+    # Avoid DEBUG toggles affecting telemetry/config debug paths
+    monkeypatch.delenv("DEBUG", raising=False)
+    monkeypatch.delenv("GEMINI_DEBUG_CONFIG", raising=False)
+
+
+@pytest.fixture(autouse=True)
+def neutral_home_config(request, monkeypatch, tmp_path):
+    """Point home-config path to an isolated temp file by default.
+
+    Prevents reading a developer's real ~/.config/gemini_batch.toml during tests.
+
+    Escape hatch: mark test with @pytest.mark.allow_real_home_config to use
+    the real path.
+    """
+    if request.node.get_closest_marker("allow_real_home_config"):
+        return
+
+    fake_home_dir = tmp_path / "home_config_isolated"
+    fake_home_dir.mkdir(parents=True, exist_ok=True)
+    fake_home_file = fake_home_dir / "gemini_batch.toml"
+    # Prefer environment override to avoid monkeypatching internals
+    monkeypatch.setenv("GEMINI_CONFIG_HOME", str(fake_home_file))
+
+
+@pytest.fixture
+def clean_env_patch():
+    """Helper to apply a clean env baseline plus overrides.
+
+    Usage:
+        with clean_env_patch({"GEMINI_MODEL": "env-model"}):
+            ...
+    """
+
+    def _apply(extra: dict[str, str] | None = None) -> Generator[None]:
+        base = {k: v for k, v in os.environ.items() if not k.startswith("GEMINI_")}
+        if extra:
+            base.update(extra)
+        with patch.dict(os.environ, base, clear=True):
+            yield
+
+    return _apply
+
+
+@pytest.fixture
+def isolated_config_sources(tmp_path):
+    """Completely isolate configuration sources for testing.
+
+    This fixture ensures that:
+    1. No environment variables affect config resolution
+    2. No real home config is loaded
+    3. No real pyproject.toml is loaded
+    4. Only explicitly provided configs are used
+
+    Returns a helper function to set up specific config sources.
+    """
+
+    @contextmanager
+    def _setup(
+        *,
+        pyproject_content: str = "",
+        home_content: str = "",
+        env_vars: dict[str, str] | None = None,
+    ) -> Generator[None]:
+        """Set up isolated config sources with specific content.
+
+        Args:
+            pyproject_content: TOML content for pyproject file
+            home_content: TOML content for home config file
+            env_vars: Environment variables to set (GEMINI_ prefix added automatically)
+        """
+        # Clean environment
+        clean_env = {k: v for k, v in os.environ.items() if not k.startswith("GEMINI_")}
+        if env_vars:
+            for key, value in env_vars.items():
+                if not key.startswith("GEMINI_"):
+                    key = f"GEMINI_{key.upper()}"
+                clean_env[key] = value
+
+        # Set up file paths
+        project_dir = tmp_path / "project"
+        project_dir.mkdir(exist_ok=True)
+        pyproject_path = project_dir / "pyproject.toml"
+
+        home_dir = tmp_path / "home"
+        home_dir.mkdir(exist_ok=True)
+        home_config_path = home_dir / "gemini_batch.toml"
+
+        # Write config files if content provided
+        if pyproject_content:
+            pyproject_path.write_text(pyproject_content)
+        if home_content:
+            home_config_path.write_text(home_content)
+
+        # Prefer environment overrides for paths to avoid monkeypatching internals
+        clean_env["GEMINI_PYPROJECT_PATH"] = str(pyproject_path)
+        clean_env["GEMINI_CONFIG_HOME"] = str(home_config_path)
+
+        # Apply environment and yield control
+        with patch.dict(os.environ, clean_env, clear=True):
+            yield
+
+    return _setup
+
+
+@pytest.fixture
+def temp_toml_file():
+    """Create temporary TOML files for testing.
+
+    Returns a context manager that creates a temp file with given content.
+    """
+    from contextlib import contextmanager
+    import tempfile
+
+    @contextmanager
+    def _create(content: str) -> Generator[Path]:
+        with tempfile.NamedTemporaryFile(mode="w", suffix=".toml", delete=False) as f:
+            f.write(content)
+            f.flush()
+            temp_path = Path(f.name)
+        try:
+            yield temp_path
+        finally:
+            if temp_path.exists():
+                temp_path.unlink()
+
+    return _create
 
 
 # --- Logging Fixtures ---

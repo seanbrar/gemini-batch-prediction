@@ -20,7 +20,7 @@ def make_planned_with_estimate(prompt_text: str, expected: int) -> PlannedComman
     initial = InitialCommand(
         sources=("s",),
         prompts=(prompt_text,),
-        config=resolve_config(programmatic={"api_key": "k"}).to_frozen(),
+        config=resolve_config(overrides={"api_key": "k"}),
     )
     resolved = ResolvedCommand(initial=initial, resolved_sources=())
     call = APICall(

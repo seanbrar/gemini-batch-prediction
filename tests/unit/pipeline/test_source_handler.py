@@ -60,7 +60,7 @@ class TestSourceHandlerContracts:
         original_command = InitialCommand(
             sources=("test input",),
             prompts=("test prompt",),
-            config=resolve_config(programmatic={"api_key": "test-key"}).to_frozen(),
+            config=resolve_config(overrides={"api_key": "test-key"}),
         )
         # Make a deep copy to ensure the original is not mutated.
         command_copy = deepcopy(original_command)
@@ -89,7 +89,7 @@ class TestSourceHandlerContracts:
         command = InitialCommand(
             sources=("deterministic test",),
             prompts=("deterministic question",),
-            config=resolve_config(programmatic={"api_key": "test-key"}).to_frozen(),
+            config=resolve_config(overrides={"api_key": "test-key"}),
         )
 
         # Act: Run the same command multiple times.
@@ -129,7 +129,7 @@ class TestSourceHandlerContracts:
         problematic_command = InitialCommand(
             sources=(),
             prompts=("test",),
-            config=resolve_config(programmatic={"api_key": "test-key"}).to_frozen(),
+            config=resolve_config(overrides={"api_key": "test-key"}),
         )
 
         # Act

@@ -11,7 +11,7 @@ import pytest
 from gemini_batch.config import resolve_config
 
 # compatibility helpers removed; tests use resolve_config()/to_frozen()
-from gemini_batch.config.types import FrozenConfig, ResolvedConfig
+from gemini_batch.config.core import FrozenConfig
 from gemini_batch.core.models import APITier
 from gemini_batch.executor import create_executor
 
@@ -29,6 +29,9 @@ class TestEssentialConfigurationContracts:
             enable_caching=True,
             use_real_api=False,
             ttl_seconds=3600,
+            telemetry_enabled=True,
+            provider="google",
+            extra={},
         )
 
         with pytest.raises(AttributeError):
@@ -36,17 +39,16 @@ class TestEssentialConfigurationContracts:
 
     @pytest.mark.contract
     def test_resolve_config_basic_functionality(self):
-        """Essential: resolve_config() must return proper ResolvedConfig."""
+        """Essential: resolve_config() must return proper FrozenConfig and origin when requested."""
         with patch.dict(os.environ, {"GEMINI_API_KEY": "test_key"}):
-            result = resolve_config()
+            cfg = resolve_config()
 
-            assert isinstance(result, ResolvedConfig)
-            assert result.api_key == "test_key"
-            assert hasattr(result, "origin")
+            assert isinstance(cfg, FrozenConfig)
+            assert cfg.api_key == "test_key"
 
-            frozen = result.to_frozen()
-            assert isinstance(frozen, FrozenConfig)
-            assert frozen.api_key == "test_key"
+            cfg2, origin = resolve_config(explain=True)
+            assert isinstance(origin, dict)
+            assert "api_key" in origin
 
     @pytest.mark.contract
     def test_compatibility_shim_works(self):
@@ -58,6 +60,9 @@ class TestEssentialConfigurationContracts:
             enable_caching=True,
             use_real_api=False,
             ttl_seconds=3600,
+            telemetry_enabled=True,
+            provider="google",
+            extra={},
         )
 
         # Direct use of FrozenConfig is sufficient
@@ -68,9 +73,10 @@ class TestEssentialConfigurationContracts:
     def test_precedence_order_basic(self):
         """Essential: Programmatic config must override environment."""
         with patch.dict(os.environ, {"GEMINI_API_KEY": "env_key"}):
-            result = resolve_config(programmatic={"api_key": "prog_key"})
-            assert result.api_key == "prog_key"
-            assert result.origin["api_key"] == "programmatic"
+            cfg = resolve_config(overrides={"api_key": "prog_key"})
+            assert cfg.api_key == "prog_key"
+            _, origin = resolve_config(overrides={"api_key": "prog_key"}, explain=True)
+            assert origin["api_key"].origin.value == "overrides"
 
     @pytest.mark.contract
     def test_executor_integration_basic(self):
@@ -87,11 +93,11 @@ class TestEssentialConfigurationContracts:
     def test_configuration_resolution_basic(self):
         """Essential: Configuration resolution must work with defaults."""
         with patch.dict(os.environ, {}, clear=True):
-            # Should resolve to defaults (validation not implemented yet)
-            result = resolve_config()
-            assert isinstance(result, ResolvedConfig)
-            assert result.api_key is None  # Default when not provided
-            assert result.model is not None  # Should have default model
+            # Should resolve to defaults
+            cfg = resolve_config()
+            assert isinstance(cfg, FrozenConfig)
+            assert cfg.api_key is None  # Default when not provided
+            assert cfg.model is not None  # Should have default model
 
     @pytest.mark.contract
     def test_ensure_frozen_config_conversion(self):
@@ -110,8 +116,7 @@ class TestEssentialConfigurationContracts:
         # Use the resolver to validate and normalize, then convert
         from gemini_batch.config import resolve_config
 
-        resolved = resolve_config(programmatic=dict_config)
-        result = resolved.to_frozen()
+        result = resolve_config(overrides=dict_config)
         assert isinstance(result, FrozenConfig)
         assert result.api_key == "test_key"
 
@@ -127,6 +132,9 @@ class TestEssentialConfigurationContracts:
             enable_caching=True,
             use_real_api=False,
             ttl_seconds=3600,
+            telemetry_enabled=True,
+            provider="google",
+            extra={},
         )
 
         # Secret should not appear in string representations
@@ -139,23 +147,19 @@ class TestEssentialConfigurationContracts:
         secret_key = "sk-very-secret-api-key-12345"
 
         with patch.dict(os.environ, {"GEMINI_API_KEY": secret_key}):
-            result = resolve_config()
+            cfg, origin = resolve_config(explain=True)
 
             # Origin should track source but not contain secret
-            assert "api_key" in result.origin
-            assert secret_key not in str(result.origin)
+            assert "api_key" in origin
+            assert secret_key not in str(origin)
 
     @pytest.mark.workflows
     def test_end_to_end_configuration_flow(self):
         """Essential: Complete flow from resolution to executor to command."""
         with patch.dict(os.environ, {"GEMINI_API_KEY": "test_key"}):
             # Resolution
-            resolved = resolve_config()
-            assert resolved.api_key == "test_key"
-
-            # Conversion
-            frozen = resolved.to_frozen()
-            assert frozen.api_key == "test_key"
+            cfg = resolve_config()
+            assert cfg.api_key == "test_key"
 
             # Executor creation
             executor = create_executor()

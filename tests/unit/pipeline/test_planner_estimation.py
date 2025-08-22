@@ -15,9 +15,7 @@ async def test_planner_includes_prompt_in_token_estimate():
     initial = InitialCommand(
         sources=(),
         prompts=("short prompt",),
-        config=resolve_config(
-            programmatic={"api_key": "k", "model": "gemini-2.0-flash"}
-        ).to_frozen(),
+        config=resolve_config(overrides={"api_key": "k", "model": "gemini-2.0-flash"}),
     )
     resolved = ResolvedCommand(initial=initial, resolved_sources=())
 
@@ -58,18 +56,14 @@ async def test_cache_key_is_deterministic_and_changes_with_prompts(monkeypatch):
     initial_a = InitialCommand(
         sources=("ignored",),
         prompts=("A",),
-        config=resolve_config(
-            programmatic={"api_key": "k", "model": "gemini-2.0-flash"}
-        ).to_frozen(),
+        config=resolve_config(overrides={"api_key": "k", "model": "gemini-2.0-flash"}),
     )
     resolved_a = ResolvedCommand(initial=initial_a, resolved_sources=(large_source,))
 
     initial_b = InitialCommand(
         sources=("ignored",),
         prompts=("A",),
-        config=resolve_config(
-            programmatic={"api_key": "k", "model": "gemini-2.0-flash"}
-        ).to_frozen(),
+        config=resolve_config(overrides={"api_key": "k", "model": "gemini-2.0-flash"}),
     )
     resolved_b = ResolvedCommand(initial=initial_b, resolved_sources=(large_source,))
     # Deterministic: identical inputs produce identical cache names
@@ -89,9 +83,7 @@ async def test_cache_key_is_deterministic_and_changes_with_prompts(monkeypatch):
     initial_c = InitialCommand(
         sources=("ignored",),
         prompts=("B",),
-        config=resolve_config(
-            programmatic={"api_key": "k", "model": "gemini-2.0-flash"}
-        ).to_frozen(),
+        config=resolve_config(overrides={"api_key": "k", "model": "gemini-2.0-flash"}),
     )
     resolved_c = ResolvedCommand(initial=initial_c, resolved_sources=(large_source,))
     result_c = await planner.handle(resolved_c)

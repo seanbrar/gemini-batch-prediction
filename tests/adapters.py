@@ -8,6 +8,7 @@ without requiring changes to the test code or golden files.
 import asyncio
 from typing import Any
 
+from gemini_batch.config import resolve_config
 from gemini_batch.core.types import InitialCommand
 from gemini_batch.executor import GeminiExecutor
 
@@ -27,29 +28,26 @@ class TestAdapterBatchProcessor:
         Args:
             **config_overrides: Configuration parameters to override defaults
         """
-        # Create a config object from overrides, with sensible defaults
-        config_dict = {
+        # Programmatic overrides with test-friendly defaults
+        programmatic: dict[str, Any] = {
             "api_key": config_overrides.get("api_key", "mock_api_key_for_tests"),
             "model": config_overrides.get("model", "gemini-2.0-flash"),
+            # Keep caching off in tests unless explicitly enabled
             "enable_caching": config_overrides.get("enable_caching", False),
+            # Ensure the real API is not used in tests unless explicitly enabled
+            "use_real_api": config_overrides.get("use_real_api", False),
         }
+        if "tier" in config_overrides:
+            programmatic["tier"] = config_overrides["tier"]
+        if "ttl_seconds" in config_overrides:
+            programmatic["ttl_seconds"] = config_overrides["ttl_seconds"]
 
-        # Add any additional config overrides
-        config_dict.update(config_overrides)
+        # Resolve and freeze using the new configuration system
+        resolved = resolve_config(overrides=programmatic)
+        self.config = resolved
 
-        # Build a config dictionary compatible with the library (runtime-typed)
-        config_typed: dict[str, Any] = {
-            "api_key": config_dict.get("api_key", "mock_api_key_for_tests"),
-            "model": config_dict.get("model", "gemini-2.0-flash"),
-            "enable_caching": config_dict.get("enable_caching", False),
-        }
-        if "tier" in config_dict:
-            # Preserve optional tier when present; typing relaxed in tests
-            config_typed["tier"] = config_dict["tier"]
-
-        # Cast to the library's expected TypedDict (acceptable in test adapter)
-        self.config = config_typed
-        self.executor = GeminiExecutor(config=self.config)  # type: ignore[arg-type]
+        # Executor requires a FrozenConfig instance
+        self.executor = GeminiExecutor(config=self.config)
 
     def process_questions(
         self,
@@ -84,7 +82,7 @@ class TestAdapterBatchProcessor:
         command = InitialCommand(
             sources=sources,
             prompts=prompts,
-            config=self.config,  # type: ignore[arg-type]
+            config=self.config,
         )
 
         # Execute using the new async executor

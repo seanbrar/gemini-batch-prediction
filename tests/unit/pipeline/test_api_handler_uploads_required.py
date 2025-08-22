@@ -47,7 +47,7 @@ async def test_required_uploads_fail_when_provider_cannot_upload(tmp_path):
     initial = InitialCommand(
         sources=("s",),
         prompts=("p",),
-        config=resolve_config(programmatic={"api_key": "k"}).to_frozen(),
+        config=resolve_config(overrides={"api_key": "k"}),
     )
     resolved = ResolvedCommand(initial=initial, resolved_sources=())
     call = APICall(
@@ -75,7 +75,7 @@ async def test_optional_uploads_skip_when_provider_cannot_upload(tmp_path):
     initial = InitialCommand(
         sources=("s",),
         prompts=("p",),
-        config=resolve_config(programmatic={"api_key": "k"}).to_frozen(),
+        config=resolve_config(overrides={"api_key": "k"}),
     )
     resolved = ResolvedCommand(initial=initial, resolved_sources=())
     call = APICall(
@@ -100,7 +100,7 @@ async def test_required_uploads_succeed_when_provider_can_upload(tmp_path):
     initial = InitialCommand(
         sources=("s",),
         prompts=("p",),
-        config=resolve_config(programmatic={"api_key": "k"}).to_frozen(),
+        config=resolve_config(overrides={"api_key": "k"}),
     )
     resolved = ResolvedCommand(initial=initial, resolved_sources=())
     call = APICall(

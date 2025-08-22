@@ -12,7 +12,7 @@ async def test_text_detection_allows_short_bare_filenames_as_text():
     cmd = InitialCommand(
         sources=("README.md",),
         prompts=("p",),
-        config=resolve_config(programmatic={"api_key": "k"}).to_frozen(),
+        config=resolve_config(overrides={"api_key": "k"}),
     )
     result = await handler.handle(cmd)
     assert isinstance(result, Success)
@@ -28,7 +28,7 @@ async def test_text_detection_treats_pathlike_with_separators_as_path():
     cmd = InitialCommand(
         sources=("some/dir/file.txt",),
         prompts=("p",),
-        config=resolve_config(programmatic={"api_key": "k"}).to_frozen(),
+        config=resolve_config(overrides={"api_key": "k"}),
     )
     result = await handler.handle(cmd)
     from gemini_batch.core.types import Failure

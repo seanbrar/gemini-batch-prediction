@@ -26,7 +26,7 @@ def _make_planned(
     initial = InitialCommand(
         sources=("s",),
         prompts=(primary_text,),
-        config=resolve_config(programmatic={}).to_frozen(),
+        config=resolve_config(overrides={}),
     )
     resolved = ResolvedCommand(initial=initial, resolved_sources=())
     primary = APICall(
@@ -137,7 +137,7 @@ async def test_api_handler_fallback_to_adapter_factory():
     initial = InitialCommand(
         sources=("s",),
         prompts=("p",),
-        config=resolve_config(programmatic={}).to_frozen(),
+        config=resolve_config(overrides={}),
     )
     resolved = ResolvedCommand(initial=initial, resolved_sources=())
     call = APICall(

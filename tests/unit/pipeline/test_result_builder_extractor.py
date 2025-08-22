@@ -19,7 +19,7 @@ def make_finalized_with_raw(raw: object) -> FinalizedCommand:
     command = InitialCommand(
         sources=("s",),
         prompts=("p",),
-        config=resolve_config(programmatic={"api_key": "k"}).to_frozen(),
+        config=resolve_config(overrides={"api_key": "k"}),
     )
     resolved = ResolvedCommand(initial=command, resolved_sources=())
     api_call = APICall(
