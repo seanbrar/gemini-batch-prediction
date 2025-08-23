@@ -75,6 +75,25 @@ class Source:
     content_loader: Callable[[], bytes]  # A function to get content on demand
 
 
+@dataclasses.dataclass(frozen=True)
+class PromptBundle:
+    """Immutable container for assembled prompts with provenance.
+
+    This represents the final, composed prompts after assembly from various
+    sources (inline config, files, builder hooks). The bundle preserves the
+    exact count of user prompts to maintain batching invariants while allowing
+    system instructions to be added separately.
+    """
+
+    user: tuple[
+        str, ...
+    ]  # Transformed user prompts (prefix/suffix applied), count preserved
+    system: str | None = None  # Optional system instruction
+    hints: dict[str, typing.Any] = dataclasses.field(
+        default_factory=dict
+    )  # Provenance flags (has_sources, user_from, etc.)
+
+
 # --- Typed Command States ---
 # These dataclasses define the shape of our data as it is transformed by
 # each stage of the pipeline.

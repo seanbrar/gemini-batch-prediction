@@ -19,6 +19,7 @@ from gemini_batch.core.types import (
     Failure,
     FilePlaceholder,
     PlannedCommand,
+    PromptBundle,
     RateConstraint,
     ResolvedCommand,
     Result,
@@ -28,6 +29,7 @@ from gemini_batch.core.types import (
     UploadTask,
 )
 from gemini_batch.pipeline.base import BaseAsyncHandler
+from gemini_batch.pipeline.prompts import assemble_prompts
 from gemini_batch.pipeline.tokens.adapters.gemini import (
     GeminiEstimationAdapter,
 )
@@ -90,13 +92,28 @@ class ExecutionPlanner(
             config = initial.config
             model_name: str = str(config.model or "gemini-2.0-flash")
 
-            # Validate the prompts exist to avoid invalid states.
-            if not initial.prompts:
-                return Failure(ConfigurationError("At least one prompt is required."))
+            # Assemble prompts using the prompt assembly system
+            try:
+                prompt_bundle: PromptBundle = assemble_prompts(command)
+            except ConfigurationError as e:
+                return Failure(e)
 
-            # Assemble a minimal text payload from prompts. The API layer will
-            # translate these neutral parts to provider-specific objects.
-            joined_prompt = "\n\n".join(initial.prompts)
+            # Join user prompts for token estimation and API call
+            joined_prompt = "\n\n".join(prompt_bundle.user)
+
+            # Emit prompt assembly telemetry
+            with self._telemetry("planner.prompt") as tele:
+                tele.gauge("user_from", prompt_bundle.hints.get("user_from", "unknown"))
+                tele.gauge(
+                    "system_from", prompt_bundle.hints.get("system_from", "none")
+                )
+                if prompt_bundle.system:
+                    tele.gauge("system_len", len(prompt_bundle.system))
+                tele.gauge("user_total_len", sum(len(p) for p in prompt_bundle.user))
+                if system_file := prompt_bundle.hints.get("system_file"):
+                    tele.gauge("system_file", system_file)
+                if user_file := prompt_bundle.hints.get("user_file"):
+                    tele.gauge("user_file", user_file)
 
             # Estimate tokens for prompt and resolved sources (pure, adapter-based)
             with self._telemetry("planner.estimate", model=model_name):
@@ -144,8 +161,10 @@ class ExecutionPlanner(
             # Caching decision: conservative based on max_tokens
             explicit_cache: ExplicitCachePlan | None = None
             if self._should_cache(total_estimate, config):
-                key = self._deterministic_cache_key(command, joined_prompt)
-                # In this minimal slice, cache the prompt (part index 0) and include system_instruction when present later
+                key = self._deterministic_cache_key(
+                    command, joined_prompt, prompt_bundle.system
+                )
+                # In this minimal slice, cache the prompt (part index 0) and include system_instruction when present
                 explicit_cache = ExplicitCachePlan(
                     create=True,
                     cache_name=None,
@@ -156,7 +175,7 @@ class ExecutionPlanner(
                 )
                 # For backward compatibility with tests expecting a cache hint
                 # provide a deterministic cache_name_to_use hint.
-                cache_hint = self._generate_cache_name(command)
+                cache_hint = self._generate_cache_name(command, prompt_bundle.system)
             else:
                 cache_hint = None
 
@@ -173,10 +192,15 @@ class ExecutionPlanner(
                         )
                     )
 
+            # Create API config with system instruction when present
+            api_config: dict[str, Any] = {}
+            if prompt_bundle.system:
+                api_config["system_instruction"] = prompt_bundle.system
+
             api_call = APICall(
                 model_name=model_name,
                 api_parts=tuple(parts),
-                api_config={},
+                api_config=api_config,
                 cache_name_to_use=cache_hint,
             )
 
@@ -232,10 +256,12 @@ class ExecutionPlanner(
                 threshold = int(capabilities.caching.implicit_minimum_tokens)
         return estimate.max_tokens >= threshold
 
-    def _generate_cache_name(self, command: ResolvedCommand) -> str:
+    def _generate_cache_name(
+        self, command: ResolvedCommand, system_instruction: str | None = None
+    ) -> str:
         """Generate a deterministic cache key based on stable fields.
 
-        Includes model, prompts, and normalized source metadata, avoiding
+        Includes model, prompts, system instruction, and normalized source metadata, avoiding
         non-deterministic function object addresses in `content_loader`.
         """
         initial = command.initial
@@ -251,15 +277,23 @@ class ExecutionPlanner(
             }
             for s in command.resolved_sources
         ]
-        payload = {"model": model, "prompts": prompts, "sources": sources}
+        payload = {
+            "model": model,
+            "prompts": prompts,
+            "system": system_instruction,
+            "sources": sources,
+        }
         data = json.dumps(payload, sort_keys=True, separators=(",", ":")).encode()
         content_hash = hashlib.sha256(data).hexdigest()[:12]
         return f"cache_{content_hash}"
 
     def _deterministic_cache_key(
-        self, command: ResolvedCommand, joined_prompt: str
+        self,
+        command: ResolvedCommand,
+        joined_prompt: str,
+        system_instruction: str | None = None,
     ) -> str:
-        """Deterministic key capturing model + stable source + prompt signature.
+        """Deterministic key capturing model + stable source + prompt + system signature.
 
         This is used by registries to map to provider cache names. It is pure and
         independent of any provider SDK or runtime state.
@@ -277,6 +311,11 @@ class ExecutionPlanner(
             }
             for s in command.resolved_sources
         ]
-        payload = {"model": model, "prompts": prompts, "sources": sources}
+        payload = {
+            "model": model,
+            "prompts": prompts,
+            "system": system_instruction,
+            "sources": sources,
+        }
         data = json.dumps(payload, sort_keys=True, separators=(",", ":")).encode()
         return hashlib.sha256(data).hexdigest()
