@@ -41,9 +41,6 @@ class SourceHandler(BaseAsyncHandler[InitialCommand, ResolvedCommand, SourceErro
     ) -> Result[ResolvedCommand, SourceError]:
         """Resolve sources in a command into immutable `Source` objects."""
         try:
-            if not command.sources:
-                return Failure(SourceError("Input sources cannot be empty."))
-
             resolved_sources: list[Source] = []
             for raw_source in command.sources:
                 try:
@@ -177,21 +174,49 @@ class SourceHandler(BaseAsyncHandler[InitialCommand, ResolvedCommand, SourceErro
     def _is_text_content(self, text: str, original_source: Any) -> bool:
         if isinstance(original_source, Path):
             return False
-        if "\n" in text or len(text) > 200:
+
+        # Handle empty strings as text (they represent "no content")
+        if text == "":
             return True
+
+        # Check for URLs first
         if self._is_url(text):
             return False
-        # Looks like a path? If it exists, it's not text. If it has an extension and
-        # contains path separators, treat as path; otherwise allow short bare names as text.
+
+        # Check for multi-line text or very long text (likely text content)
+        if "\n" in text or len(text) > 200:
+            return True
+
+        # Use existing MIME detection to identify file paths
         try:
             p = Path(text)
+            # If the path exists, it's definitely not text content
             if p.exists():
                 return False
+
+            # If it has path separators and an extension, likely a file path
             has_separator = any(sep in text for sep in ("/", "\\"))
             if has_separator and p.suffix:
                 return False
+
+            # For simple filenames with extensions, be less aggressive
+            # Only treat as file path if it's a very obvious file extension
+            if p.suffix and len(p.parts) == 1:
+                # Only reject text interpretation for very obvious binary/document extensions
+                obvious_file_extensions = {
+                    ".pdf",
+                    ".jpg",
+                    ".jpeg",
+                    ".png",
+                    ".gif",
+                    ".mp4",
+                    ".zip",
+                }
+                if p.suffix.lower() in obvious_file_extensions:
+                    return False
         except Exception:
             logger.warning(f"Failed to resolve source: {text}")
+
         return True
 
     # ------- directory scanning and mime detection -------

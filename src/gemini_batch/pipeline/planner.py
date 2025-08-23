@@ -161,6 +161,7 @@ class ExecutionPlanner(
                 cache_hint = None
 
             # Build parts: prompt first, then map file sources to placeholders (MVP)
+
             parts: list[Any] = [TextPart(text=joined_prompt)]
             for s in command.resolved_sources:
                 if s.source_type == "file":
