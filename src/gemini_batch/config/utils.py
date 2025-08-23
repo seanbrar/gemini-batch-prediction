@@ -195,6 +195,11 @@ KNOWN_EXTRA_FIELDS = (
         description="Legacy fields for backward compatibility",
         deprecated=True,
     ),
+    ExtraFieldRule(
+        pattern=r"^prompts\..*",
+        type_hint="Any",
+        description="Prompt assembly configuration",
+    ),
 )
 
 
