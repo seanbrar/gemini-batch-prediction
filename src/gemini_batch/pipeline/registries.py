@@ -12,10 +12,23 @@ from typing import Any, Protocol
 
 
 class CacheRegistry:
-    """Maps deterministic cache keys to provider cache names.
+    """Maps deterministic cache keys to provider cache names, plus metadata.
 
     Minimal API by design; single-process memory only. Concurrency protection
     is expected to be handled by higher layers via single-flight if needed.
+
+    Primary mapping `get/set` stores provider cache names as strings.
+    A separate metadata channel `get_meta/set_meta` stores structured
+    information (e.g., cache_name, artifacts from CacheHint) keyed by the
+    same deterministic key. This separation maintains homogeneous value
+    types in the primary map and improves robustness and testability.
+
+    Metadata contains execution-relevant information actively maintained
+    during cache operations. The API handler writes cache names and
+    artifacts from CacheHint instances to support the hint capsule system.
+    While best-effort (failures are logged but don't break execution),
+    the metadata provides structured, authoritative information about
+    cache usage for audit, debugging, and potential future retrieval.
     """
 
     def __init__(self) -> None:
@@ -25,6 +38,7 @@ class CacheRegistry:
         provider cache names. No I/O or network calls occur here.
         """
         self._key_to_name: dict[str, str] = {}
+        self._meta: dict[str, dict[str, Any]] = {}
 
     def get(self, key: str) -> str | None:
         """Return the provider cache name for `key`, if present.
@@ -40,6 +54,23 @@ class CacheRegistry:
     def set(self, key: str, name: str) -> None:
         """Associate a deterministic key with a provider cache name."""
         self._key_to_name[key] = name
+
+    # --- Metadata channel ---
+    def get_meta(self, key: str) -> dict[str, Any] | None:
+        """Return metadata for `key`, if present.
+
+        Stored separately from the primary name mapping to keep value types
+        uniform in `get/set` while enabling richer audit/debug information.
+        """
+        return self._meta.get(key)
+
+    def set_meta(self, key: str, meta: dict[str, Any]) -> None:
+        """Associate a metadata mapping with `key`.
+
+        The mapping is stored as-is. Callers should ensure values are
+        JSON-serializable if they intend to persist or export them later.
+        """
+        self._meta[key] = dict(meta)
 
 
 class FileRegistry:
