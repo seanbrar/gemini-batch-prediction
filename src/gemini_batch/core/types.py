@@ -139,6 +139,9 @@ class InitialCommand:
     prompts: tuple[str, ...]
     config: FrozenConfig
     history: tuple[ConversationTurn, ...] = dataclasses.field(default_factory=tuple)
+    # Extensions may attach immutable capsules; core remains agnostic to their types.
+    # Pipeline stages interpret hints in a fail-soft manner (unknown hints ignored).
+    hints: tuple[object, ...] | None = None
 
 
 @dataclasses.dataclass(frozen=True)
@@ -220,6 +223,8 @@ class APICall:
     model_name: str
     api_parts: tuple[APIPart, ...]
     api_config: GenerationConfigDict
+    # Optional best-effort cache name; adapters that support caching may reuse
+    # this name. Callers must remain correct when caching is unsupported.
     cache_name_to_use: str | None = None
 
 
