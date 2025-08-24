@@ -55,8 +55,7 @@ class GeminiExecutor:
         """
         # Optional real adapter factory when explicitly requested
         adapter_factory = None
-        use_real = config.use_real_api
-        if use_real:
+        if config.use_real_api:
             # Use the provider adapter seam to get the right configuration
             from gemini_batch.pipeline.adapters.registry import build_provider_config
 
@@ -69,10 +68,16 @@ class GeminiExecutor:
 
             adapter_factory = _factory
 
-        handlers = [
+        # Always include the RateLimitHandler. Enforcement is plan-driven:
+        # the planner attaches a RateConstraint only when using the real API.
+        # When no constraint is present, the handler is a no-op.
+        handlers: list[BaseAsyncHandler[Any, Any, GeminiBatchError]] = [
             SourceHandler(),
             ExecutionPlanner(),
             RateLimitHandler(),
+        ]
+
+        handlers += [
             APIHandler(
                 telemetry=None,
                 registries={
