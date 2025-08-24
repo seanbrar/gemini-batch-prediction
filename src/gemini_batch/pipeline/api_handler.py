@@ -17,6 +17,7 @@ leaking provider SDK details.
 from __future__ import annotations
 
 import asyncio
+import logging
 import os
 from typing import TYPE_CHECKING, Any, cast
 
@@ -40,16 +41,20 @@ from gemini_batch.pipeline.adapters.base import (
 )
 from gemini_batch.pipeline.base import BaseAsyncHandler
 from gemini_batch.pipeline.execution_state import ExecutionHints
-
-if TYPE_CHECKING:
-    from gemini_batch.pipeline.registries import SimpleRegistry
-from gemini_batch.telemetry import TelemetryContext, TelemetryContextProtocol
+from gemini_batch.pipeline.hints import CacheHint, ExecutionCacheName
+from gemini_batch.telemetry import TelemetryContext
 
 if TYPE_CHECKING:
     from collections.abc import Callable
 
+    from gemini_batch.core.types import ExplicitCachePlan
+    from gemini_batch.pipeline.registries import SimpleRegistry
+    from gemini_batch.telemetry import TelemetryContextProtocol
+
 # Note: Provider adapters are injected explicitly via `adapter` or `adapter_factory`.
 # No import-time aliasing is required.
+
+logger = logging.getLogger(__name__)
 
 
 class APIHandler(BaseAsyncHandler[PlannedCommand, FinalizedCommand, APIError]):
@@ -100,6 +105,53 @@ class APIHandler(BaseAsyncHandler[PlannedCommand, FinalizedCommand, APIError]):
             cache_name, exp_cache = await self._resolve_cache(
                 adapter, plan, effective_parts, primary
             )
+
+            # Best-effort: persist cache artifacts metadata using the registry's
+            # metadata channel when available (keeps primary values homogeneous).
+            reg_key: str | None = None
+            try:
+                reg = self._cache_registry
+                if reg is not None and cache_name:
+                    # Read artifacts from the first CacheHint on the initial command
+                    initial = command.resolved.initial
+                    ch = next(
+                        (
+                            h
+                            for h in (getattr(initial, "hints", ()) or ())
+                            if isinstance(h, CacheHint)
+                        ),
+                        None,
+                    )
+                    reg_key = getattr(
+                        getattr(plan, "explicit_cache", None), "deterministic_key", None
+                    )
+                    if ch is not None and reg_key:
+                        try:
+                            from gemini_batch.pipeline.registries import CacheRegistry
+
+                            if isinstance(reg, CacheRegistry):
+                                reg.set_meta(
+                                    reg_key,
+                                    {
+                                        "cache_name": cache_name,
+                                        "artifacts": tuple(ch.artifacts),
+                                    },
+                                )
+                        except Exception as inner:
+                            logger.debug(
+                                "Cache metadata set_meta failed (key=%s): %s",
+                                reg_key,
+                                inner,
+                                exc_info=True,
+                            )
+            except Exception as e:
+                logger.debug(
+                    "Cache metadata write skipped (key=%s): %s",
+                    reg_key,
+                    e,
+                    exc_info=True,
+                )
+                # Strictly best-effort; never fail execution due to metadata write
 
             # 4) Execute with resilience and optional fallback
             (
@@ -256,7 +308,21 @@ class APIHandler(BaseAsyncHandler[PlannedCommand, FinalizedCommand, APIError]):
         plan: ExecutionPlan,
         effective_parts: list[Any],
         primary: APICall,
-    ) -> tuple[str | None, Any]:
+    ) -> tuple[str | None, ExplicitCachePlan | None]:
+        """Resolve the cache name to use for this execution.
+
+        Precedence (fail-soft):
+        1) Start with any `APICall.cache_name_to_use` carried in the plan.
+        2) If an `ExplicitCachePlan` is present and the adapter supports caching,
+           consult the cache registry by deterministic key and, if missing,
+           create the cache from the selected content parts (optionally including
+           the system instruction). Store the created name in the registry.
+        3) If `ExplicitCachePlan.cache_name` is set but `create=False`, use it.
+
+        Returns a tuple of `(cache_name, explicit_cache_plan)` to inform retry
+        semantics upstream; callers may still apply an execution-time override
+        via `ExecutionCacheName` later.
+        """
         cache_name = primary.cache_name_to_use
         exp_cache = getattr(plan, "explicit_cache", None)
         if exp_cache is not None and isinstance(adapter, CachingCapability):
@@ -452,6 +518,16 @@ class APIHandler(BaseAsyncHandler[PlannedCommand, FinalizedCommand, APIError]):
         had_explicit_cache_plan: bool,
         planned_command: PlannedCommand,
     ) -> dict[str, Any]:
+        """Generate with cache hinting and minimal retry logic.
+
+        Behavior:
+        - If adapter is the mock, execute once deterministically (no retries).
+        - If a cache name is present (from plan or exec-time hint), apply it
+          and attempt generation.
+        - On error and when caching was intended (explicit plan or exec-time
+          override), retry once without cache and mark the retry in telemetry.
+        - For recognized transient errors, perform a small backoff loop (2 tries).
+        """
         # Reset flag visible to caller for telemetry
         self._last_retry_without_cache = False
 
@@ -460,23 +536,71 @@ class APIHandler(BaseAsyncHandler[PlannedCommand, FinalizedCommand, APIError]):
             with self._telemetry("api.generate", model=model_name):
                 return self._build_mock_response_from_parts(parts, planned_command)
 
-        # Real path: attempt with cache hint first (if provided)
+        # Read any execution-time cache override from hints (fail-soft)
+        cache_overridden_by_hint = False
         try:
+            initial = planned_command.resolved.initial
+            hints_tuple = tuple(getattr(initial, "hints", ()) or ())
+            exec_cache = next(
+                (
+                    h.cache_name
+                    for h in hints_tuple
+                    if isinstance(h, ExecutionCacheName)
+                ),
+                None,
+            )
+            if exec_cache:
+                cache_name = exec_cache
+                cache_overridden_by_hint = True
+                # Emit telemetry for cache override
+                with self._telemetry("api.hints") as tele:
+                    tele.gauge("exec_cache_override", 1)
+        except Exception as e:
+            logger.debug(
+                "Failed to read execution cache name from hints: %s",
+                e,
+                exc_info=True,
+            )
+            # strictly best-effort; never fail on hints
+
+        # Real path: attempt with cache hint first (if provided)
+        last_error: Exception | None = None
+        try:
+            # Clarify intent derivation for observability and correctness.
+            # intent_from_plan: planner produced an explicit cache plan
+            # intent_from_override: execution-time override via ExecutionCacheName
+            # cache_applied: a concrete cache name is present for this attempt
+            intent_from_plan = bool(had_explicit_cache_plan)
+            intent_from_override = bool(cache_overridden_by_hint)
+            cache_applied = cache_name is not None
+
             hints = ExecutionHints(cached_content=cache_name)
             if isinstance(adapter, ExecutionHintsAware):
                 from contextlib import suppress
 
                 with suppress(Exception):
                     adapter.apply_hints(hints)
-            with self._telemetry("api.generate", model=model_name):
+            with self._telemetry("api.generate", model=model_name) as tele:
+                # Lightweight, explicit gauges for clarity
+                tele.gauge("cache_intent_plan", 1 if intent_from_plan else 0)
+                tele.gauge("cache_intent_override", 1 if intent_from_override else 0)
+                tele.gauge("cache_applied", 1 if cache_applied else 0)
                 return await adapter.generate(
                     model_name=model_name,
                     api_parts=parts,
                     api_config=self._with_cache(api_config, cache_name),
                 )
         except Exception as first_error:
-            # If cache was intended, retry once without cache before backoff loop
-            if had_explicit_cache_plan:
+            # Retry w/o cache only if caching was truly intended and applied:
+            #   a) explicit cache plan AND a concrete cache name was applied; or
+            #   b) an execution-time override provided a cache name.
+            intent_from_plan = bool(had_explicit_cache_plan)
+            intent_from_override = bool(cache_overridden_by_hint)
+            cache_applied = cache_name is not None
+            treat_as_explicit = (
+                intent_from_plan and cache_applied
+            ) or intent_from_override
+            if treat_as_explicit:
                 with self._telemetry("api.retry_no_cache", model=model_name):
                     self._last_retry_without_cache = True
                     try:
@@ -503,7 +627,7 @@ class APIHandler(BaseAsyncHandler[PlannedCommand, FinalizedCommand, APIError]):
         for i in range(attempts):
             from random import random
 
-            if not self._is_transient_error(last_error):
+            if last_error is None or not self._is_transient_error(last_error):
                 break
             sleep_for = (
                 delay * (2**i) * (1 + 0.25 * random())  # noqa: S311

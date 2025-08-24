@@ -29,13 +29,16 @@ from gemini_batch.core.types import (
     UploadTask,
 )
 from gemini_batch.pipeline.base import BaseAsyncHandler
+from gemini_batch.pipeline.hints import CacheHint, EstimationOverrideHint
 from gemini_batch.pipeline.prompts import assemble_prompts
 from gemini_batch.pipeline.tokens.adapters.gemini import (
     GeminiEstimationAdapter,
 )
-from gemini_batch.telemetry import TelemetryContext, TelemetryContextProtocol
+from gemini_batch.telemetry import TelemetryContext
 
 if TYPE_CHECKING:
+    from gemini_batch.telemetry import TelemetryContextProtocol
+
     from .tokens.adapters.base import EstimationAdapter  # pragma: no cover
 
 
@@ -63,10 +66,14 @@ class ExecutionPlanner(
         Defaults to a Gemini-specific estimation adapter. Telemetry is optional
         and incurs zero overhead when not provided or disabled.
         """
+        # Adapter is library-owned and provider-neutral at this seam.
+        # Use a precise type annotation to keep mypy strict without importing
+        # the protocol at runtime.
+        self._adapter: EstimationAdapter
         if estimation_adapter is not None:
-            self._adapter: Any = estimation_adapter
+            self._adapter = estimation_adapter
         else:
-            # Instantiate the default Gemini estimation adapter eagerly
+            # Instantiate the default Gemini estimation adapter eagerly.
             self._adapter = cast("Any", GeminiEstimationAdapter)()
         # Safe no-op context when not enabled
         self._telemetry: TelemetryContextProtocol = telemetry or TelemetryContext()
@@ -91,6 +98,21 @@ class ExecutionPlanner(
             initial = command.initial
             config = initial.config
             model_name: str = str(config.model or "gemini-2.0-flash")
+
+            # --- Hints (kept optional and fail-soft) ---
+            hints = tuple(getattr(initial, "hints", ()) or ())
+            cacheh = next((h for h in hints if isinstance(h, CacheHint)), None)
+            overh = next(
+                (h for h in hints if isinstance(h, EstimationOverrideHint)), None
+            )
+
+            # Emit minimal hint telemetry
+            with self._telemetry("planner.hints") as tele:
+                tele.gauge("hints_seen", len(hints))
+                if cacheh:
+                    tele.gauge("cache_hint", 1)
+                if overh:
+                    tele.gauge("estimation_override", 1)
 
             # Assemble prompts using the prompt assembly system
             try:
@@ -137,6 +159,9 @@ class ExecutionPlanner(
                 combined_estimates = [prompt_estimate, *source_estimates]
                 aggregated: TokenEstimate = self._adapter.aggregate(combined_estimates)
 
+                # Apply conservative, planner-scoped overrides (no provider coupling)
+                aggregated = self._apply_estimation_override(aggregated, overh)
+
                 # Normalize breakdown to include a stable 'prompt' key.
                 # Adapters usually return the prompt as the first item; we
                 # re-label it to 'prompt' to keep downstream consumers stable.
@@ -160,18 +185,23 @@ class ExecutionPlanner(
 
             # Caching decision: conservative based on max_tokens
             explicit_cache: ExplicitCachePlan | None = None
-            if self._should_cache(total_estimate, config):
+            # Honor either the planner policy OR an explicit CacheHint
+            if self._should_cache(total_estimate, config) or cacheh is not None:
                 key = self._deterministic_cache_key(
                     command, joined_prompt, prompt_bundle.system
                 )
                 # In this minimal slice, cache the prompt (part index 0) and include system_instruction when present
                 explicit_cache = ExplicitCachePlan(
-                    create=True,
+                    create=not (cacheh and cacheh.reuse_only),
                     cache_name=None,
                     contents_part_indexes=(0,),
                     include_system_instruction=True,
-                    ttl_seconds=config.ttl_seconds,
-                    deterministic_key=key,
+                    ttl_seconds=(
+                        cacheh.ttl_seconds if cacheh is not None else config.ttl_seconds
+                    ),
+                    deterministic_key=(
+                        cacheh.deterministic_key if cacheh is not None else key
+                    ),
                 )
                 # For backward compatibility with tests expecting a cache hint
                 # provide a deterministic cache_name_to_use hint.
@@ -240,6 +270,41 @@ class ExecutionPlanner(
             return Failure(ConfigurationError(f"Failed to plan execution: {e}"))
 
     # --- Internal helpers ---
+    def _apply_estimation_override(
+        self, estimate: TokenEstimate, override_hint: EstimationOverrideHint | None
+    ) -> TokenEstimate:
+        """Apply conservative token estimation overrides while maintaining invariants.
+
+        Applies widen-then-clamp logic to max_tokens and ensures expected_tokens
+        remains within [min_tokens, max_tokens]. Returns original estimate if no override.
+        """
+        if override_hint is None:
+            return estimate
+
+        # Widen max_tokens by factor
+        new_max = estimate.max_tokens
+        factor = float(override_hint.widen_max_factor)
+        if factor and factor != 1.0:
+            new_max = int(new_max * factor)
+
+        # Apply optional upper clamp
+        if override_hint.clamp_max_tokens is not None:
+            new_max = min(new_max, int(override_hint.clamp_max_tokens))
+
+        # Ensure max >= min (invariant enforcement)
+        new_max = max(new_max, estimate.min_tokens)
+
+        # Keep expected within [min, max] bounds
+        new_expected = max(estimate.min_tokens, min(estimate.expected_tokens, new_max))
+
+        return TokenEstimate(
+            min_tokens=estimate.min_tokens,
+            expected_tokens=new_expected,
+            max_tokens=new_max,
+            confidence=estimate.confidence,
+            breakdown=estimate.breakdown,
+        )
+
     def _should_cache(self, estimate: TokenEstimate, config: Any) -> bool:
         """Decide whether to use caching based on model capabilities.
 
@@ -259,10 +324,15 @@ class ExecutionPlanner(
     def _generate_cache_name(
         self, command: ResolvedCommand, system_instruction: str | None = None
     ) -> str:
-        """Generate a deterministic cache key based on stable fields.
+        """Generate a short, user-facing cache name from stable fields.
 
-        Includes model, prompts, system instruction, and normalized source metadata, avoiding
-        non-deterministic function object addresses in `content_loader`.
+        This is a deterministic summary intended for registry hints and
+        human-facing debugging (short SHA). For provider registry lookups,
+        use the full `_deterministic_cache_key` below.
+
+        Includes model, prompts, system instruction, and normalized source
+        metadata; avoids non-deterministic values such as function object
+        addresses in `content_loader`.
         """
         initial = command.initial
         config = initial.config
@@ -293,10 +363,12 @@ class ExecutionPlanner(
         joined_prompt: str,
         system_instruction: str | None = None,
     ) -> str:
-        """Deterministic key capturing model + stable source + prompt + system signature.
+        """Deterministic, full-length key for provider cache registry mapping.
 
-        This is used by registries to map to provider cache names. It is pure and
-        independent of any provider SDK or runtime state.
+        Captures a stable signature of model, prompt, system, and sources.
+        Pure and independent of any provider SDK/runtime. Unlike
+        `_generate_cache_name`, this uses the full hash digest to avoid
+        collisions in programmatic lookups.
         """
         initial = command.initial
         config = initial.config

@@ -18,6 +18,7 @@ from gemini_batch.core.types import (
     Success,
 )
 from gemini_batch.pipeline.base import BaseAsyncHandler
+from gemini_batch.pipeline.hints import ResultHint
 from gemini_batch.pipeline.results.extraction import (
     ExtractionContext,
     ExtractionContract,
@@ -68,6 +69,33 @@ class ResultBuilder(BaseAsyncHandler[FinalizedCommand, dict[str, Any], Never]):
             sorted(self.transforms, key=lambda t: (-t.priority, t.name))
         )
 
+    def _sorted_transforms_for(
+        self, hints: tuple[object, ...] | None
+    ) -> tuple[TransformSpec, ...]:
+        """Optionally bias toward JSON-array extraction when hinted.
+
+        Convention: a transform named "json_array" is considered the JSON-first
+        candidate. When `ResultHint(prefer_json_array=True)` is present, we
+        bubble such a transform before the usual priority order. If multiple
+        hints of this class are present, the presence check remains effectively
+        "first one wins" but produces the same outcome as any-true.
+        """
+        prefer_json = any(
+            isinstance(h, ResultHint) and h.prefer_json_array for h in (hints or ())
+        )
+        if not prefer_json:
+            return self._sorted_transforms
+
+        # Stable reordering: bubble a transform named "json_array" to the front if present
+        def _key(t: TransformSpec) -> tuple[int, int, str]:
+            return (
+                0 if getattr(t, "name", "") == "json_array" else 1,
+                -t.priority,
+                t.name,
+            )
+
+        return tuple(sorted(self.transforms, key=_key))
+
     async def handle(self, command: FinalizedCommand) -> Result[dict[str, Any], Never]:
         """Extract a `ResultEnvelope` from a `FinalizedCommand`.
 
@@ -94,9 +122,17 @@ class ResultBuilder(BaseAsyncHandler[FinalizedCommand, dict[str, Any], Never]):
             if diagnostics:
                 diagnostics.flags.add("truncated_input")
 
-        # Tier 1: Try transforms in priority order (with stable name sort for ties)
+        # Tier 1: Try transforms in priority order (optionally biased by hints)
+        initial = command.planned.resolved.initial
+        hints = tuple(getattr(initial, "hints", ()) or ())
+        prefer_json = any(
+            isinstance(h, ResultHint) and h.prefer_json_array for h in hints
+        )
+        if prefer_json and diagnostics is not None:
+            diagnostics.flags.add("prefer_json_array")
+
         extraction_result = None
-        for transform in self._sorted_transforms:
+        for transform in self._sorted_transforms_for(hints):
             if diagnostics:
                 diagnostics.attempted_transforms.append(transform.name)
 
@@ -126,6 +162,12 @@ class ResultBuilder(BaseAsyncHandler[FinalizedCommand, dict[str, Any], Never]):
 
         # Build result envelope
         result_envelope = self._build_result_envelope(extraction_result, command, ctx)
+
+        # Add hint metadata to metrics when biasing occurred
+        if prefer_json:
+            result_envelope.setdefault("metrics", {}).setdefault("hints", {})[
+                "prefer_json_array"
+            ] = True
 
         # Schema validation (record-only)
         violations = self._validate_schema(result_envelope, ctx)
