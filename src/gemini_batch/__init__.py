@@ -52,6 +52,14 @@ from gemini_batch.extensions.visualization import (
     visualize_scaling_results,
 )
 
+# Hint capsules for extension-to-core communication
+from gemini_batch.pipeline.hints import (
+    CacheHint,
+    EstimationOverrideHint,
+    ExecutionCacheName,
+    ResultHint,
+)
+
 # User-facing extraction types for customization
 from gemini_batch.pipeline.results.extraction import (
     ExtractionContract,
@@ -102,6 +110,11 @@ __all__ = [  # noqa: RUF022
     "TransformSpec",
     "Violation",
     "ExtractionContract",
+    # Hint Capsules
+    "CacheHint",
+    "EstimationOverrideHint",
+    "ResultHint",
+    "ExecutionCacheName",
     # Model Capabilities
     "ModelCapabilities",
     "CachingCapabilities",
