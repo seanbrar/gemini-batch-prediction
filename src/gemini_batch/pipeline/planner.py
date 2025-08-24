@@ -234,22 +234,27 @@ class ExecutionPlanner(
                 cache_name_to_use=cache_hint,
             )
 
-            # Resolve rate limits (vendor-neutral via core.models).
-            # Planner degrades gracefully when tier/model is unknown/unavailable.
+            # Resolve rate limits (vendor-neutral via core.models) only for real API runs.
+            # In dry runs (use_real_api=False) do not attach any constraints to avoid
+            # artificial delays and to keep handlers context-free. The pipeline always
+            # includes the RateLimitHandler; enforcement is controlled solely by the
+            # presence (or absence) of this constraint in the plan.
             rate_constraint: RateConstraint | None = None
-            try:
-                from gemini_batch.core.models import get_rate_limits
+            if config.use_real_api:
+                try:
+                    from gemini_batch.core.models import get_rate_limits
 
-                tier = config.tier
-                # Only call get_rate_limits when a tier is present (avoid passing None)
-                limits = get_rate_limits(tier, model_name) if tier is not None else None
-                if limits is not None:
-                    rate_constraint = RateConstraint(
-                        requests_per_minute=limits.requests_per_minute,
-                        tokens_per_minute=limits.tokens_per_minute,
+                    tier = config.tier
+                    limits = (
+                        get_rate_limits(tier, model_name) if tier is not None else None
                     )
-            except Exception:
-                rate_constraint = None
+                    if limits is not None:
+                        rate_constraint = RateConstraint(
+                            requests_per_minute=limits.requests_per_minute,
+                            tokens_per_minute=limits.tokens_per_minute,
+                        )
+                except Exception:
+                    rate_constraint = None
 
             plan = ExecutionPlan(
                 primary_call=api_call,
