@@ -59,6 +59,14 @@ Raw Response → [Transform Chain] → [Minimal Fallback] → [Schema Wall] → 
 
 Ordered, pure extraction transforms that attempt to extract structured data. First successful match wins.
 
+Built-in examples include:
+
+- `batch_response` for vectorized container shapes (`{"batch": [...]}`)
+- `json_array` for JSON arrays (including markdown-fenced)
+- `provider_normalized` for common provider SDK shapes
+- `markdown_list` for markdown lists
+- `simple_text` for plain text
+
 ### Tier 2: Minimal Projection
 
 Infallible fallback that always produces answers through progressive degradation:
