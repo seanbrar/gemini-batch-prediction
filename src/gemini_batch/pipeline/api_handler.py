@@ -89,6 +89,142 @@ class APIHandler(BaseAsyncHandler[PlannedCommand, FinalizedCommand, APIError]):
         """Handle the planned command and return a finalized command."""
         try:
             plan = command.execution_plan
+            reg_key: str | None = None
+            # Vectorized execution path: iterate calls with shared context
+            if getattr(plan, "calls", ()):  # non-empty tuple
+                adapter = self._select_adapter(command)
+
+                # Prepare shared parts once (uploads/registries)
+                effective_shared = await self._prepare_effective_parts(
+                    adapter, plan, list(getattr(plan, "shared_parts", ()))
+                )
+
+                # Resolve/create shared cache once if supported
+                cache_name_ctx: str | None = None
+                exp_shared = getattr(plan, "shared_cache", None)
+                if exp_shared is not None and isinstance(adapter, CachingCapability):
+                    # Registry lookup by deterministic key
+                    reg_key = getattr(exp_shared, "deterministic_key", None)
+                    if reg_key and self._cache_registry is not None:
+                        try:
+                            cached_name = self._cache_registry.get(reg_key)
+                        except Exception:
+                            cached_name = None
+                        if isinstance(cached_name, str):
+                            cache_name_ctx = cached_name
+                    # Create if allowed and not found
+                    if not cache_name_ctx and getattr(exp_shared, "create", False):
+                        sys_inst = None
+                        try:
+                            first_call = plan.calls[0]
+                            sys_inst = cast(
+                                "str | None",
+                                first_call.api_config.get("system_instruction"),
+                            )
+                        except Exception:
+                            sys_inst = None
+                        created = await adapter.create_cache(
+                            model_name=plan.calls[0].model_name,
+                            content_parts=tuple(effective_shared),
+                            system_instruction=sys_inst,
+                            ttl_seconds=getattr(exp_shared, "ttl_seconds", None),
+                        )
+                        if isinstance(created, str):
+                            cache_name_ctx = created
+                            if reg_key and self._cache_registry is not None:
+                                from contextlib import suppress
+
+                                with suppress(Exception):
+                                    self._cache_registry.set(reg_key, created)
+
+                raw_list: list[dict[str, Any]] = []
+                per_prompt_usage: list[dict[str, Any]] = []
+                per_call_meta: list[dict[str, Any]] = []
+                for call in plan.calls:
+                    combined_parts = tuple(effective_shared) + tuple(call.api_parts)
+                    if isinstance(adapter, _MockAdapter):
+                        # Deterministic mock echo with per-prompt usage
+                        ptxt = ""
+                        for part in reversed(combined_parts):
+                            if hasattr(part, "text"):
+                                ptxt = cast("Any", part).text
+                                break
+                        raw = {
+                            "mock": True,
+                            "model": call.model_name,
+                            "text": f"echo: {ptxt}",
+                            "usage": {
+                                "prompt_token_count": max(len(ptxt) // 4 + 10, 0),
+                                "source_token_count": 0,
+                                "total_token_count": max(len(ptxt) // 4 + 10, 0),
+                            },
+                        }
+                        used_fallback = False
+                        retried_without_cache = False
+                        primary_error_repr = None
+                    else:
+                        # Use the same resilience path as single-call execution
+                        (
+                            raw,
+                            used_fallback,
+                            retried_without_cache,
+                            primary_error_repr,
+                        ) = await self._execute_with_resilience(
+                            adapter,
+                            command,
+                            call,
+                            tuple(combined_parts),
+                            cache_name_ctx,
+                            had_explicit_cache_plan=(exp_shared is not None),
+                        )
+                    raw_list.append(raw)
+                    per_prompt_usage.append(
+                        dict(cast("dict[str, Any]", raw.get("usage", {})))
+                    )
+                    meta: dict[str, Any] = {}
+                    if used_fallback:
+                        meta["used_fallback"] = True
+                    if retried_without_cache:
+                        meta["retried_without_cache"] = True
+                    if primary_error_repr:
+                        meta["primary_error"] = primary_error_repr
+                    per_call_meta.append(meta)
+
+                # Build finalized result with aggregated usage in telemetry
+                finalized = FinalizedCommand(
+                    planned=command,
+                    raw_api_response={
+                        "model": plan.calls[0].model_name,
+                        "batch": tuple(raw_list),
+                    },
+                )
+                # Aggregate total tokens for validation/metrics
+                total_tokens = 0
+                for u in per_prompt_usage:
+                    try:
+                        total_tokens += int(u.get("total_token_count", 0) or 0)
+                    except Exception:
+                        total_tokens += 0
+
+                # Attach usage and per-prompt metrics prior to validation
+                finalized.telemetry_data.setdefault("usage", {})
+                cast("dict[str, Any]", finalized.telemetry_data["usage"]).update(
+                    {"total_token_count": total_tokens}
+                )
+                cast(
+                    "dict[str, Any]", finalized.telemetry_data.setdefault("metrics", {})
+                ).update(
+                    {
+                        "per_prompt": tuple(per_prompt_usage),
+                        "vectorized_n_calls": len(plan.calls),
+                        "per_call_meta": tuple(per_call_meta),
+                    }
+                )
+
+                # Token validation compares estimated aggregate to actual aggregate
+                self._attach_token_validation(finalized)
+                return Success(finalized)
+
             primary = plan.primary_call
             if not primary.api_parts:
                 return Failure(APIError("Execution plan has no parts to execute"))
@@ -108,7 +244,6 @@ class APIHandler(BaseAsyncHandler[PlannedCommand, FinalizedCommand, APIError]):
 
             # Best-effort: persist cache artifacts metadata using the registry's
             # metadata channel when available (keeps primary values homogeneous).
-            reg_key: str | None = None
             try:
                 reg = self._cache_registry
                 if reg is not None and cache_name:
@@ -170,6 +305,7 @@ class APIHandler(BaseAsyncHandler[PlannedCommand, FinalizedCommand, APIError]):
 
             finalized = FinalizedCommand(planned=command, raw_api_response=raw_response)
             self._attach_token_validation(finalized)
+            self._attach_usage_data(finalized)
             # Best-effort attachment of execution metadata
             exec_meta = cast(
                 "dict[str, object]",
@@ -210,6 +346,37 @@ class APIHandler(BaseAsyncHandler[PlannedCommand, FinalizedCommand, APIError]):
         base_parts: list[Any],
     ) -> list[Any]:
         effective_parts: list[Any] = list(base_parts)
+        # A2 shim: render ConversationHistoryPart into a TextPart for adapters
+        from gemini_batch.core.types import ConversationHistoryPart, TextPart
+
+        def _render_history(turns: tuple[Any, ...]) -> str:
+            if not turns:
+                return ""
+            lines: list[str] = []
+            for t in turns:
+                u = getattr(t, "question", None)
+                a = getattr(t, "answer", None)
+                if u:
+                    lines.append(f"User: {u}")
+                if a:
+                    lines.append(f"Assistant: {a}")
+            return "\n".join(lines)
+
+        # Create a copy for safe in-place edits and index management
+        idx = 0
+        while idx < len(effective_parts):
+            part = effective_parts[idx]
+            if isinstance(part, ConversationHistoryPart):
+                rendered = _render_history(part.turns)
+                if rendered:
+                    effective_parts[idx] = TextPart(text=rendered)
+                    idx += 1
+                else:
+                    # Drop empty history to avoid blank parts
+                    effective_parts.pop(idx)
+                    # do not increment idx so the next element shifts into current index
+            else:
+                idx += 1
         plan_uploads = getattr(plan, "upload_tasks", ())
         # Infer uploads from placeholders when not explicitly planned
         if not plan_uploads:
@@ -483,6 +650,14 @@ class APIHandler(BaseAsyncHandler[PlannedCommand, FinalizedCommand, APIError]):
         actual = (
             int(usage.get("total_token_count", 0)) if isinstance(usage, dict) else 0
         )
+        # Vectorized path: fall back to telemetry usage totals when raw lacks usage
+        if actual == 0:
+            try:
+                tele_usage = finalized.telemetry_data.get("usage", {})
+                if isinstance(tele_usage, dict):
+                    actual = int(tele_usage.get("total_token_count", 0) or 0)
+            except Exception:
+                actual = 0
         cast(
             "dict[str, object]",
             finalized.telemetry_data.setdefault("token_validation", {}),
@@ -495,6 +670,21 @@ class APIHandler(BaseAsyncHandler[PlannedCommand, FinalizedCommand, APIError]):
                 "in_range": estimate.min_tokens <= actual <= estimate.max_tokens,
             }
         )
+
+    def _attach_usage_data(self, finalized: FinalizedCommand) -> None:
+        """Extract usage data from API response and attach to telemetry."""
+        if not isinstance(finalized.telemetry_data, dict):
+            return
+        usage: dict[str, Any] = {}
+        try:
+            raw = finalized.raw_api_response
+            if isinstance(raw, dict):
+                usage = cast("dict[str, Any]", raw.get("usage", {}))
+        except Exception:
+            usage = {}
+
+        if usage:
+            finalized.telemetry_data["usage"] = dict(usage)
 
     def _with_cache(
         self, api_config: dict[str, object], cache_name: str | None

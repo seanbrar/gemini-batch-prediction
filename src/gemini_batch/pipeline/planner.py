@@ -8,12 +8,14 @@ from __future__ import annotations
 
 import hashlib
 import json
+import logging
 from typing import TYPE_CHECKING, Any, cast
 
 from gemini_batch.core.exceptions import ConfigurationError
 from gemini_batch.core.models import get_model_capabilities
 from gemini_batch.core.types import (
     APICall,
+    ConversationHistoryPart,
     ExecutionPlan,
     ExplicitCachePlan,
     Failure,
@@ -37,9 +39,12 @@ from gemini_batch.pipeline.tokens.adapters.gemini import (
 from gemini_batch.telemetry import TelemetryContext
 
 if TYPE_CHECKING:
+    from gemini_batch.config import FrozenConfig
     from gemini_batch.telemetry import TelemetryContextProtocol
 
     from .tokens.adapters.base import EstimationAdapter  # pragma: no cover
+
+log = logging.getLogger(__name__)
 
 
 class ExecutionPlanner(
@@ -120,8 +125,155 @@ class ExecutionPlanner(
             except ConfigurationError as e:
                 return Failure(e)
 
-            # Join user prompts for token estimation and API call
-            joined_prompt = "\n\n".join(prompt_bundle.user)
+            # Vectorized path: when multiple user prompts are present, build
+            # per-prompt calls and shared context parts.
+            user_prompts = tuple(prompt_bundle.user)
+
+            # Render conversation history into a structured part
+            history_turns = tuple(getattr(initial, "history", ()) or ())
+            shared_parts: list[Any] = []
+            if history_turns:
+                shared_parts.append(ConversationHistoryPart(turns=history_turns))
+            # Shared file placeholders (dedup/uploads handled by handler)
+            for s in command.resolved_sources:
+                if s.source_type == "file":
+                    from pathlib import Path
+
+                    shared_parts.append(
+                        FilePlaceholder(
+                            local_path=Path(str(s.identifier)), mime_type=s.mime_type
+                        )
+                    )
+
+            # If more than one prompt, switch to vectorized planning
+            if len(user_prompts) > 1:
+                # Build per-prompt calls. System instruction is carried in api_config
+                api_cfg_base: dict[str, Any] = {}
+                if prompt_bundle.system:
+                    api_cfg_base["system_instruction"] = prompt_bundle.system
+
+                calls = tuple(
+                    APICall(
+                        model_name=model_name,
+                        api_parts=(TextPart(text=p),),
+                        api_config=dict(api_cfg_base),
+                        cache_name_to_use=None,
+                    )
+                    for p in user_prompts
+                )
+
+                # Token estimation: compute shared (history + sources) once, then per-prompt
+                from gemini_batch.core.types import (
+                    Source,
+                )  # local import to avoid cycles
+
+                def _text_source(txt: str) -> Source:
+                    return Source(
+                        source_type="text",
+                        identifier=txt,
+                        mime_type="text/plain",
+                        size_bytes=len(txt.encode("utf-8")),
+                        content_loader=lambda: txt.encode("utf-8"),
+                    )
+
+                # History as rendered text for estimation only
+                def _render_history(turns: tuple[Any, ...]) -> str:
+                    if not turns:
+                        return ""
+                    lines: list[str] = []
+                    for t in turns:
+                        u = getattr(t, "question", None)
+                        a = getattr(t, "answer", None)
+                        if u:
+                            lines.append(f"User: {u}")
+                        if a:
+                            lines.append(f"Assistant: {a}")
+                    return "\n".join(lines)
+
+                history_text = _render_history(history_turns)
+                shared_estimates: list[TokenEstimate] = []
+                if history_text:
+                    shared_estimates.append(
+                        self._adapter.estimate(_text_source(history_text))
+                    )
+                source_estimates = [
+                    self._adapter.estimate(s) for s in command.resolved_sources
+                ]
+
+                per_call: list[TokenEstimate] = []
+                for p in user_prompts:
+                    p_est = self._adapter.estimate(_text_source(p))
+                    agg = self._adapter.aggregate(
+                        [*shared_estimates, p_est, *source_estimates]
+                    )
+                    per_call.append(self._apply_estimation_override(agg, overh))
+
+                total_estimate: TokenEstimate | None = None
+                if per_call:
+                    total_estimate = self._adapter.aggregate(per_call)
+                    total_estimate = self._apply_estimation_override(
+                        total_estimate, overh
+                    )
+
+                # Shared cache plan only for shared parts
+                shared_cache: ExplicitCachePlan | None = None
+                if history_text or command.resolved_sources:
+                    key_payload = {
+                        "model": model_name,
+                        "system": prompt_bundle.system,
+                        "history": history_text,
+                        "sources": [
+                            {
+                                "id": str(s.identifier),
+                                "mt": s.mime_type,
+                                "sz": s.size_bytes,
+                            }
+                            for s in command.resolved_sources
+                        ],
+                    }
+                    key = hashlib.sha256(
+                        json.dumps(key_payload, sort_keys=True).encode()
+                    ).hexdigest()
+                    reuse_only = bool(cacheh and cacheh.reuse_only)
+                    ttl = (
+                        cacheh.ttl_seconds if cacheh is not None else config.ttl_seconds
+                    )
+                    shared_cache = ExplicitCachePlan(
+                        create=not reuse_only,
+                        cache_name=None,
+                        contents_part_indexes=tuple(range(len(shared_parts))),
+                        include_system_instruction=True,
+                        ttl_seconds=ttl,
+                        deterministic_key=(cacheh.deterministic_key if cacheh else key),
+                    )
+
+                # Rate limits applied only for real API usage
+                rate_constraint = self._resolve_rate_constraint(config, model_name)
+
+                # Primary call exists for back-compat but we do not rely on it
+                # in vectorized execution. Use the first per-prompt call.
+                primary_compat = calls[0]
+
+                plan = ExecutionPlan(
+                    primary_call=primary_compat,
+                    fallback_call=None,
+                    calls=calls,
+                    shared_parts=tuple(shared_parts),
+                    shared_cache=shared_cache,
+                    rate_constraint=rate_constraint,
+                    upload_tasks=(),
+                    explicit_cache=None,
+                )
+                planned = PlannedCommand(
+                    resolved=command,
+                    execution_plan=plan,
+                    token_estimate=total_estimate,
+                    per_call_estimates=tuple(per_call),
+                )
+                return Success(planned)
+
+            # --- Single-call path ---
+            joined_prompt = "\n\n".join(user_prompts)
 
             # Emit prompt assembly telemetry
             with self._telemetry("planner.prompt") as tele:
@@ -210,7 +362,6 @@ class ExecutionPlanner(
                 cache_hint = None
 
             # Build parts: prompt first, then map file sources to placeholders (MVP)
-
             parts: list[Any] = [TextPart(text=joined_prompt)]
             for s in command.resolved_sources:
                 if s.source_type == "file":
@@ -239,22 +390,7 @@ class ExecutionPlanner(
             # artificial delays and to keep handlers context-free. The pipeline always
             # includes the RateLimitHandler; enforcement is controlled solely by the
             # presence (or absence) of this constraint in the plan.
-            rate_constraint: RateConstraint | None = None
-            if config.use_real_api:
-                try:
-                    from gemini_batch.core.models import get_rate_limits
-
-                    tier = config.tier
-                    limits = (
-                        get_rate_limits(tier, model_name) if tier is not None else None
-                    )
-                    if limits is not None:
-                        rate_constraint = RateConstraint(
-                            requests_per_minute=limits.requests_per_minute,
-                            tokens_per_minute=limits.tokens_per_minute,
-                        )
-                except Exception:
-                    rate_constraint = None
+            rate_constraint = self._resolve_rate_constraint(config, model_name)
 
             plan = ExecutionPlan(
                 primary_call=api_call,
@@ -275,6 +411,31 @@ class ExecutionPlanner(
             return Failure(ConfigurationError(f"Failed to plan execution: {e}"))
 
     # --- Internal helpers ---
+    def _resolve_rate_constraint(
+        self, config: FrozenConfig, model_name: str
+    ) -> RateConstraint | None:
+        """Resolve rate constraints from the provided FrozenConfig.
+
+        Interacts with configuration in-kind (data-centric): consults
+        `config.use_real_api` and `config.tier` directly, avoiding primitive
+        threading and optional tier handling (tier is always set).
+        """
+        if not config.use_real_api:
+            return None
+
+        try:
+            from gemini_batch.core.models import get_rate_limits
+
+            limits = get_rate_limits(config.tier, model_name)
+            if limits is not None:
+                return RateConstraint(
+                    requests_per_minute=limits.requests_per_minute,
+                    tokens_per_minute=limits.tokens_per_minute,
+                )
+        except Exception as e:
+            log.exception("Failed to resolve rate constraint: %s", e)
+        return None
+
     def _apply_estimation_override(
         self, estimate: TokenEstimate, override_hint: EstimationOverrideHint | None
     ) -> TokenEstimate:
