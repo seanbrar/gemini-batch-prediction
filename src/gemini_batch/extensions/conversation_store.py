@@ -5,7 +5,7 @@ import json
 from pathlib import Path
 from typing import TYPE_CHECKING, Protocol
 
-from .conversation import CacheBinding, ConversationState, Exchange
+from .conversation import ConversationState, Exchange
 
 if TYPE_CHECKING:
     import os
@@ -39,7 +39,15 @@ class JSONStore:
         data = self._read_all()
         entry = data.get(conversation_id)
         if not isinstance(entry, dict):
-            return ConversationState(sources=(), turns=(), cache=None, version=0)
+            return ConversationState(
+                sources=(),
+                turns=(),
+                cache_key=None,
+                cache_artifacts=(),
+                cache_ttl_seconds=None,
+                policy=None,
+                version=0,
+            )
         sources_raw = entry.get("sources", ())
         sources: tuple[str, ...] = (
             tuple(sources_raw) if isinstance(sources_raw, list | tuple) else ()
@@ -62,18 +70,25 @@ class JSONStore:
                     )
                 )
         cache_raw = entry.get("cache")
-        cache = None
+        cache_key = None
+        cache_artifacts: tuple[str, ...] = ()
+        cache_ttl = None
         if isinstance(cache_raw, dict) and cache_raw:
-            artifacts = tuple(cache_raw.get("artifacts", ()) or ())
-            cache = CacheBinding(
-                key=str(cache_raw.get("key")),
-                artifacts=artifacts,
-                ttl_seconds=cache_raw.get("ttl_seconds"),
+            cache_key = (
+                str(cache_raw.get("key")) if cache_raw.get("key") is not None else None
             )
+            cache_artifacts = tuple(cache_raw.get("artifacts", ()) or ())
+            cache_ttl = cache_raw.get("ttl_seconds")
         version_raw = entry.get("version", 0)
         version = int(version_raw) if isinstance(version_raw, int | float | str) else 0
         return ConversationState(
-            sources=sources, turns=tuple(turns), cache=cache, version=version
+            sources=sources,
+            turns=tuple(turns),
+            cache_key=cache_key,
+            cache_artifacts=cache_artifacts,
+            cache_ttl_seconds=cache_ttl,
+            policy=None,
+            version=version,
         )
 
     async def append(
@@ -119,7 +134,8 @@ class JSONStore:
         self._path.parent.mkdir(parents=True, exist_ok=True)
         tmp = self._path.with_suffix(self._path.suffix + ".tmp")
         tmp.write_text(json.dumps(data, indent=2), encoding="utf-8")
-        Path.replace(tmp, self._path)
+        # Use Path.replace on the temporary file to atomically move into place
+        tmp.replace(self._path)
 
 
 def _exchange_to_dict(ex: Exchange) -> dict[str, object]:

@@ -38,11 +38,6 @@ from gemini_batch.core.types import (
     TokenEstimate,
 )
 from gemini_batch.executor import GeminiExecutor, create_executor
-from gemini_batch.extensions.conversation import (
-    BasePersistenceHandler,
-    ConversationManager,
-    JSONPersistenceHandler,
-)
 
 # Visualization imports (now decoupled from legacy)
 from gemini_batch.extensions.visualization import (
@@ -86,10 +81,6 @@ __all__ = [  # noqa: RUF022
     # Telemetry (extension points)
     "TelemetryContext",
     "TelemetryReporter",
-    # Conversation Management
-    "ConversationManager",
-    "BasePersistenceHandler",
-    "JSONPersistenceHandler",
     # Core Types & Data Models
     "ConversationTurn",
     "InitialCommand",
