@@ -167,7 +167,7 @@ class TextPart:
 
 
 # Neutral union of API parts; extendable without leaking provider types
-type APIPart = TextPart | "FileRefPart" | "FilePlaceholder"
+type APIPart = TextPart | "FileRefPart" | "FilePlaceholder" | "ConversationHistoryPart"
 
 
 @dataclasses.dataclass(frozen=True)
@@ -187,6 +187,18 @@ class FilePlaceholder:
 
     local_path: Path
     mime_type: str | None = None
+
+
+@dataclasses.dataclass(frozen=True)
+class ConversationHistoryPart:
+    """Structured conversation history to prepend to prompts.
+
+    Downstream adapters may not understand this part natively. The API handler
+    contains a shim that renders it into a `TextPart` for current providers,
+    keeping the planner data-centric and provider-neutral.
+    """
+
+    turns: tuple[ConversationTurn, ...]
 
 
 @dataclasses.dataclass(frozen=True)
@@ -238,6 +250,10 @@ class ExecutionPlan:
 
     primary_call: APICall
     fallback_call: APICall | None = None  # For when batching fails
+    # Vectorized execution: N independent calls with shared context
+    calls: tuple[APICall, ...] = ()
+    shared_parts: tuple[APIPart, ...] = ()
+    shared_cache: ExplicitCachePlan | None = None
     # Optional rate limiting constraint
     rate_constraint: RateConstraint | None = None
     # Optional pre-generation actions
@@ -277,6 +293,8 @@ class PlannedCommand:
     resolved: ResolvedCommand
     execution_plan: ExecutionPlan
     token_estimate: TokenEstimate | None = None
+    # Per-call estimates for vectorized plans
+    per_call_estimates: tuple[TokenEstimate, ...] = ()
 
 
 @dataclasses.dataclass(frozen=True)
