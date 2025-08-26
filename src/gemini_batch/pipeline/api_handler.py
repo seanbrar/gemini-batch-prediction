@@ -95,9 +95,7 @@ class APIHandler(BaseAsyncHandler[PlannedCommand, FinalizedCommand, APIError]):
                 adapter = self._select_adapter(command)
 
                 # Prepare shared parts once (uploads/registries)
-                effective_shared = await self._prepare_effective_parts(
-                    adapter, plan, list(getattr(plan, "shared_parts", ()))
-                )
+                effective_shared = await self._prepare_shared_parts(adapter, plan)
 
                 # Resolve/create shared cache once if supported
                 cache_name_ctx: str | None = None
@@ -141,7 +139,9 @@ class APIHandler(BaseAsyncHandler[PlannedCommand, FinalizedCommand, APIError]):
                 per_prompt_usage: list[dict[str, Any]] = []
                 per_call_meta: list[dict[str, Any]] = []
                 for call in plan.calls:
-                    combined_parts = tuple(effective_shared) + tuple(call.api_parts)
+                    combined_parts = self._combine_shared_with_call(
+                        effective_shared, call.api_parts
+                    )
                     if isinstance(adapter, _MockAdapter):
                         # Deterministic mock echo with per-prompt usage
                         ptxt = ""
@@ -233,14 +233,13 @@ class APIHandler(BaseAsyncHandler[PlannedCommand, FinalizedCommand, APIError]):
             adapter = self._select_adapter(command)
 
             # 2) Prepare effective parts (uploads, inference, substitution)
-            effective_parts = await self._prepare_effective_parts(
-                adapter, plan, list(primary.api_parts)
+            effective_shared = await self._prepare_shared_parts(adapter, plan)
+            effective_parts = list(
+                self._combine_shared_with_call(effective_shared, primary.api_parts)
             )
 
             # 3) Resolve cache name (explicit or hint)
-            cache_name, exp_cache = await self._resolve_cache(
-                adapter, plan, effective_parts, primary
-            )
+            cache_name, exp_cache = await self._resolve_cache(adapter, plan, primary)
 
             # Best-effort: persist cache artifacts metadata using the registry's
             # metadata channel when available (keeps primary values homogeneous).
@@ -346,42 +345,26 @@ class APIHandler(BaseAsyncHandler[PlannedCommand, FinalizedCommand, APIError]):
         base_parts: list[Any],
     ) -> list[Any]:
         effective_parts: list[Any] = list(base_parts)
-        # A2 shim: render ConversationHistoryPart into a TextPart for adapters
-        from gemini_batch.core.types import ConversationHistoryPart, TextPart
+        # Remove empty HistoryPart entries: core types ensure `turns` is a
+        # tuple[ConversationTurn, ...], so this only filters genuinely empty
+        # histories and does not need import-time guards.
+        from gemini_batch.core.types import HistoryPart
 
-        def _render_history(turns: tuple[Any, ...]) -> str:
-            if not turns:
-                return ""
-            lines: list[str] = []
-            for t in turns:
-                u = getattr(t, "question", None)
-                a = getattr(t, "answer", None)
-                if u:
-                    lines.append(f"User: {u}")
-                if a:
-                    lines.append(f"Assistant: {a}")
-            return "\n".join(lines)
-
-        # Create a copy for safe in-place edits and index management
-        idx = 0
-        while idx < len(effective_parts):
-            part = effective_parts[idx]
-            if isinstance(part, ConversationHistoryPart):
-                rendered = _render_history(part.turns)
-                if rendered:
-                    effective_parts[idx] = TextPart(text=rendered)
-                    idx += 1
-                else:
-                    # Drop empty history to avoid blank parts
-                    effective_parts.pop(idx)
-                    # do not increment idx so the next element shifts into current index
-            else:
-                idx += 1
+        effective_parts = [
+            p
+            for p in effective_parts
+            if not (
+                isinstance(p, HistoryPart) and not tuple(getattr(p, "turns", ()) or ())
+            )
+        ]
+        # A2: keep HistoryPart intact; adapters handle rendering natively
+        # No history downgrading here; adapters interpret structured parts directly
         plan_uploads = getattr(plan, "upload_tasks", ())
         # Infer uploads from placeholders when not explicitly planned
         if not plan_uploads:
             inferred: list[Any] = []
             for idx, p in enumerate(effective_parts):
+                # APICall.api_parts is validated to contain only APIPart types, so type is guaranteed
                 if isinstance(p, FilePlaceholder):
                     inferred.append(
                         type(
@@ -407,8 +390,9 @@ class APIHandler(BaseAsyncHandler[PlannedCommand, FinalizedCommand, APIError]):
             to_replace: list[tuple[int, Any]] = []
             pending: list[tuple[int, Any]] = []
             for task in plan_uploads:
-                idx = int(task.part_index)
-                if idx < 0 or idx >= len(effective_parts):
+                # UploadTask validates part_index >= 0, so no need to check lower bound
+                idx = task.part_index  # Already validated as int >= 0
+                if idx >= len(effective_parts):
                     if getattr(task, "required", True):
                         raise APIError(f"UploadTask index {idx} out of range")
                     continue
@@ -469,11 +453,27 @@ class APIHandler(BaseAsyncHandler[PlannedCommand, FinalizedCommand, APIError]):
 
         return effective_parts
 
+    async def _prepare_shared_parts(
+        self, adapter: GenerationAdapter, plan: ExecutionPlan
+    ) -> list[Any]:
+        """Prepare effective shared parts once (uploads/registries), vectorized or single.
+
+        Mirrors vectorized preparation in both paths to keep behavior symmetrical.
+        """
+        return await self._prepare_effective_parts(
+            adapter, plan, list(getattr(plan, "shared_parts", ()))
+        )
+
+    def _combine_shared_with_call(
+        self, shared: list[Any], call_parts: tuple[Any, ...]
+    ) -> tuple[Any, ...]:
+        """Combine effective shared parts with per-call parts for execution."""
+        return tuple(shared) + tuple(call_parts)
+
     async def _resolve_cache(
         self,
         adapter: GenerationAdapter,
         plan: ExecutionPlan,
-        effective_parts: list[Any],
         primary: APICall,
     ) -> tuple[str | None, ExplicitCachePlan | None]:
         """Resolve the cache name to use for this execution.
@@ -494,10 +494,13 @@ class APIHandler(BaseAsyncHandler[PlannedCommand, FinalizedCommand, APIError]):
         exp_cache = getattr(plan, "explicit_cache", None)
         if exp_cache is not None and isinstance(adapter, CachingCapability):
             if getattr(exp_cache, "create", False):
+                # Select content parts relative to the primary call's api_parts
+                # (not the combined shared+call list) to preserve planner semantics.
+                pool = list(primary.api_parts)
                 content_parts = [
-                    effective_parts[i]
+                    pool[i]
                     for i in getattr(exp_cache, "contents_part_indexes", ())
-                    if 0 <= i < len(effective_parts)
+                    if 0 <= i < len(pool)
                 ]
                 reg_key = getattr(exp_cache, "deterministic_key", None)
                 if reg_key and self._cache_registry is not None:
@@ -547,11 +550,13 @@ class APIHandler(BaseAsyncHandler[PlannedCommand, FinalizedCommand, APIError]):
         primary_error_repr: str | None = None
         with self._telemetry("api.execute", model=primary.model_name):
             try:
+                # Convert Mapping to dict for the method that needs to modify it
+                api_config_dict: dict[str, object] = dict(primary.api_config)
                 raw_response = await self._generate_with_resilience(
                     adapter,
                     primary.model_name,
                     parts,
-                    primary.api_config,
+                    api_config_dict,
                     cache_name,
                     had_explicit_cache_plan=had_explicit_cache_plan,
                     planned_command=command,
@@ -637,8 +642,9 @@ class APIHandler(BaseAsyncHandler[PlannedCommand, FinalizedCommand, APIError]):
         )
 
     def _attach_token_validation(self, finalized: FinalizedCommand) -> None:
+        # FinalizedCommand guarantees telemetry_data is a dict, TokenEstimate validates its invariants
         estimate = finalized.planned.token_estimate
-        if not estimate or not isinstance(finalized.telemetry_data, dict):
+        if not estimate:
             return
         usage: dict[str, Any] = {}
         try:

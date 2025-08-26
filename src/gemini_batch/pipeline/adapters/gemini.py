@@ -125,6 +125,27 @@ class GoogleGenAIAdapter(GenerationAdapter):
         The SDK's shape can vary across versions; we defensively fall back to a
         minimal dict when constructing provider types fails.
         """
+        # Structured conversation history: render turns deterministically to text
+        # HistoryPart is validated by core types; render deterministically.
+        from gemini_batch.core.types import HistoryPart
+
+        if isinstance(part, HistoryPart):
+
+            def _render_history(turns: tuple[Any, ...]) -> str:
+                # HistoryPart.turns is tuple[ConversationTurn, ...]; question/answer are str
+                if not turns:
+                    return ""
+                lines: list[str] = []
+                for t in turns:
+                    lines.append(f"User: {t.question}")
+                    lines.append(f"Assistant: {t.answer}")
+                return "\n".join(lines)
+
+            rendered = _render_history(part.turns)
+            try:
+                return self._types.Part(text=rendered)
+            except Exception:  # pragma: no cover - SDK shape differences
+                return {"text": rendered}
         # Neutral text
         if hasattr(part, "text"):
             text_attr = cast("Any", part).text

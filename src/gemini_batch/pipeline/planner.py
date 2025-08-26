@@ -15,16 +15,18 @@ from gemini_batch.core.exceptions import ConfigurationError
 from gemini_batch.core.models import get_model_capabilities
 from gemini_batch.core.types import (
     APICall,
-    ConversationHistoryPart,
     ExecutionPlan,
     ExplicitCachePlan,
     Failure,
     FilePlaceholder,
+    HistoryPart,
+    InitialCommand,
     PlannedCommand,
     PromptBundle,
     RateConstraint,
     ResolvedCommand,
     Result,
+    Source,
     Success,
     TextPart,
     TokenEstimate,
@@ -40,6 +42,7 @@ from gemini_batch.telemetry import TelemetryContext
 
 if TYPE_CHECKING:
     from gemini_batch.config import FrozenConfig
+    from gemini_batch.core.types import APIPart
     from gemini_batch.telemetry import TelemetryContextProtocol
 
     from .tokens.adapters.base import EstimationAdapter  # pragma: no cover
@@ -129,21 +132,10 @@ class ExecutionPlanner(
             # per-prompt calls and shared context parts.
             user_prompts = tuple(prompt_bundle.user)
 
-            # Render conversation history into a structured part
-            history_turns = tuple(getattr(initial, "history", ()) or ())
-            shared_parts: list[Any] = []
-            if history_turns:
-                shared_parts.append(ConversationHistoryPart(turns=history_turns))
-            # Shared file placeholders (dedup/uploads handled by handler)
-            for s in command.resolved_sources:
-                if s.source_type == "file":
-                    from pathlib import Path
-
-                    shared_parts.append(
-                        FilePlaceholder(
-                            local_path=Path(str(s.identifier)), mime_type=s.mime_type
-                        )
-                    )
+            # Build shared parts (history + file placeholders) once
+            shared_parts, history_turns = self._build_shared_parts(
+                initial, command.resolved_sources
+            )
 
             # If more than one prompt, switch to vectorized planning
             if len(user_prompts) > 1:
@@ -168,6 +160,7 @@ class ExecutionPlanner(
                 )  # local import to avoid cycles
 
                 def _text_source(txt: str) -> Source:
+                    # Source validates itself - no redundant validation needed
                     return Source(
                         source_type="text",
                         identifier=txt,
@@ -178,16 +171,14 @@ class ExecutionPlanner(
 
                 # History as rendered text for estimation only
                 def _render_history(turns: tuple[Any, ...]) -> str:
+                    # ConversationTurn objects are already validated - question/answer are guaranteed to be strings
                     if not turns:
                         return ""
                     lines: list[str] = []
                     for t in turns:
-                        u = getattr(t, "question", None)
-                        a = getattr(t, "answer", None)
-                        if u:
-                            lines.append(f"User: {u}")
-                        if a:
-                            lines.append(f"Assistant: {a}")
+                        # Type system guarantees question and answer are strings
+                        lines.append(f"User: {t.question}")
+                        lines.append(f"Assistant: {t.answer}")
                     return "\n".join(lines)
 
                 history_text = _render_history(history_turns)
@@ -292,6 +283,7 @@ class ExecutionPlanner(
             # Estimate tokens for prompt and resolved sources (pure, adapter-based)
             with self._telemetry("planner.estimate", model=model_name):
                 # Fabricate a lightweight text Source for prompt estimation
+                # Source validates itself - no redundant validation needed
                 from gemini_batch.core.types import (
                     Source,  # local import to avoid cycles
                 )
@@ -361,17 +353,8 @@ class ExecutionPlanner(
             else:
                 cache_hint = None
 
-            # Build parts: prompt first, then map file sources to placeholders (MVP)
+            # Build parts: prompt first; file placeholders already in shared_parts
             parts: list[Any] = [TextPart(text=joined_prompt)]
-            for s in command.resolved_sources:
-                if s.source_type == "file":
-                    from pathlib import Path
-
-                    parts.append(
-                        FilePlaceholder(
-                            local_path=Path(str(s.identifier)), mime_type=s.mime_type
-                        )
-                    )
 
             # Create API config with system instruction when present
             api_config: dict[str, Any] = {}
@@ -395,6 +378,8 @@ class ExecutionPlanner(
             plan = ExecutionPlan(
                 primary_call=api_call,
                 fallback_call=None,
+                calls=(),
+                shared_parts=tuple(shared_parts),
                 rate_constraint=rate_constraint,
                 upload_tasks=upload_tasks,
                 explicit_cache=explicit_cache,
@@ -411,6 +396,30 @@ class ExecutionPlanner(
             return Failure(ConfigurationError(f"Failed to plan execution: {e}"))
 
     # --- Internal helpers ---
+    def _build_shared_parts(
+        self, initial: InitialCommand, resolved_sources: tuple[Source, ...]
+    ) -> tuple[list[APIPart], tuple[Any, ...]]:
+        """Build shared parts (history + file placeholders) for both paths.
+
+        Keeps handler preparation symmetrical for single and vectorized shapes.
+        """
+        # InitialCommand.history is validated by core types as a tuple
+        # of ConversationTurn, so use it directly without redundant guards.
+        history_turns = initial.history
+        parts: list[APIPart] = []
+        if history_turns:
+            parts.append(HistoryPart(turns=history_turns))
+        for s in resolved_sources:
+            if s.source_type == "file":
+                from pathlib import Path
+
+                parts.append(
+                    FilePlaceholder(
+                        local_path=Path(str(s.identifier)), mime_type=s.mime_type
+                    )
+                )
+        return parts, history_turns
+
     def _resolve_rate_constraint(
         self, config: FrozenConfig, model_name: str
     ) -> RateConstraint | None:
