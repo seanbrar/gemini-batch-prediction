@@ -9,14 +9,80 @@ invalid state transitions.
 from __future__ import annotations
 
 import dataclasses
+import inspect
+from pathlib import Path
+from types import MappingProxyType
 import typing
+
+# --- Minimal guard helpers (clarity > boilerplate) ---
+
+T = typing.TypeVar("T")
+
+
+def _freeze_mapping(
+    m: dict[str, T] | typing.Mapping[str, T] | None,
+) -> typing.Mapping[str, T] | None:
+    """Return an immutable mapping view or None.
+
+    Accepts dict or Mapping; wraps dicts in MappingProxyType while preserving type.
+    """
+    if m is None or isinstance(m, MappingProxyType):
+        return m
+    return MappingProxyType(dict(m))
+
+
+def _is_tuple_of(value: object, typ: type | tuple[type, ...]) -> bool:
+    return isinstance(value, tuple) and all(isinstance(v, typ) for v in value)
+
+
+def _require(
+    *,
+    condition: bool,
+    message: str,
+    exc: type[Exception] = ValueError,
+    field_name: str | None = None,
+) -> None:
+    """Centralized validation with optional field context for clearer errors."""
+    if not condition:
+        if field_name:
+            enhanced_message = f"{field_name}: {message}"
+            raise exc(enhanced_message)
+        raise exc(message)
+
+
+def _require_zero_arg_callable(func: typing.Any, field_name: str) -> None:
+    """Validate callable takes no arguments for predictable execution."""
+    _require(
+        condition=callable(func),
+        message="must be callable",
+        field_name=field_name,
+        exc=TypeError,
+    )
+
+    # Validate signature if introspectable
+    try:
+        sig = inspect.signature(func)
+        has_required_params = any(
+            p.kind in (p.POSITIONAL_ONLY, p.POSITIONAL_OR_KEYWORD, p.KEYWORD_ONLY)
+            for p in sig.parameters.values()
+        )
+        _require(
+            condition=not has_required_params,
+            message="must be a zero-argument callable",
+            field_name=field_name,
+            exc=TypeError,
+        )
+    except (ValueError, RuntimeError):
+        # Some callables may not have introspectable signatures; acceptable
+        # Note: Only catch signature inspection errors, not validation failures
+        pass
+
 
 # Note: This import is for type-checking/static analysis only and ensures
 # external dependency accounting tests detect the SDK dependency without
 # introducing a runtime import in core modules.
 if typing.TYPE_CHECKING:  # pragma: no cover - import for dependency visibility only
     from collections.abc import Callable
-    from pathlib import Path
 
     # Ensure external dependency visibility for tests without runtime import
     from google.genai import types as genai_types  # noqa: F401
@@ -32,14 +98,14 @@ TSuccess = typing.TypeVar("TSuccess")
 TFailure = typing.TypeVar("TFailure", bound=Exception)
 
 
-@dataclasses.dataclass(frozen=True)
+@dataclasses.dataclass(frozen=True, slots=True)
 class Success[TSuccess]:
     """A successful result in the pipeline."""
 
     value: TSuccess
 
 
-@dataclasses.dataclass(frozen=True)
+@dataclasses.dataclass(frozen=True, slots=True)
 class Failure[TFailure]:
     """A failure in the pipeline, containing the error."""
 
@@ -51,7 +117,7 @@ Result = Success[TSuccess] | Failure[TFailure]
 # --- Core Data Models ---
 
 
-@dataclasses.dataclass(frozen=True)
+@dataclasses.dataclass(frozen=True, slots=True)
 class ConversationTurn:
     """A single turn in a conversation history."""
 
@@ -59,8 +125,29 @@ class ConversationTurn:
     answer: str
     is_error: bool = False
 
+    def __post_init__(self) -> None:
+        """Validate invariants for type safety."""
+        _require(
+            condition=isinstance(self.question, str),
+            message="must be str",
+            field_name="question",
+            exc=TypeError,
+        )
+        _require(
+            condition=isinstance(self.answer, str),
+            message="must be str",
+            field_name="answer",
+            exc=TypeError,
+        )
+        # Prevent degenerate conversation turns
+        _require(
+            condition=not (self.question.strip() == "" and self.answer.strip() == ""),
+            message="cannot both be empty (after stripping whitespace)",
+            field_name="question and answer",
+        )
 
-@dataclasses.dataclass(frozen=True)
+
+@dataclasses.dataclass(frozen=True, slots=True)
 class Source:
     """A structured representation of a single input source.
 
@@ -74,8 +161,50 @@ class Source:
     size_bytes: int
     content_loader: Callable[[], bytes]  # A function to get content on demand
 
+    def __post_init__(self) -> None:
+        """Validate Source invariants and loader signature."""
+        _require(
+            condition=self.source_type in ("text", "youtube", "arxiv", "file"),
+            message=f"must be one of ['text','youtube','arxiv','file'], got {self.source_type!r}",
+            field_name="source_type",
+        )
+        _require(
+            condition=isinstance(self.identifier, str | Path),
+            message="must be str | Path",
+            field_name="identifier",
+            exc=TypeError,
+        )
+        # Additional validation for Path identifiers
+        if isinstance(self.identifier, Path):
+            _require(
+                condition=str(self.identifier).strip() != "",
+                message="Path cannot be empty",
+                field_name="identifier",
+            )
+        elif isinstance(self.identifier, str):
+            _require(
+                condition=self.identifier.strip() != "",
+                message="cannot be empty string",
+                field_name="identifier",
+            )
 
-@dataclasses.dataclass(frozen=True)
+        _require(
+            condition=isinstance(self.mime_type, str) and self.mime_type.strip() != "",
+            message="must be a non-empty str",
+            field_name="mime_type",
+            exc=TypeError,
+        )
+        _require(
+            condition=isinstance(self.size_bytes, int) and self.size_bytes >= 0,
+            message="must be an int >= 0",
+            field_name="size_bytes",
+        )
+
+        # Use the dedicated helper for callable validation
+        _require_zero_arg_callable(self.content_loader, "content_loader")
+
+
+@dataclasses.dataclass(frozen=True, slots=True)
 class PromptBundle:
     """Immutable container for assembled prompts with provenance.
 
@@ -89,9 +218,50 @@ class PromptBundle:
         str, ...
     ]  # Transformed user prompts (prefix/suffix applied), count preserved
     system: str | None = None  # Optional system instruction
-    hints: dict[str, typing.Any] = dataclasses.field(
+    hints: typing.Mapping[str, typing.Any] = dataclasses.field(
         default_factory=dict
     )  # Provenance flags (has_sources, user_from, etc.)
+
+    def __post_init__(self) -> None:
+        """Validate and freeze prompt bundle components."""
+        # Ensure user prompts are strings and not empty
+        _require(
+            condition=_is_tuple_of(self.user, str),
+            message="must be a tuple[str, ...]",
+            field_name="user",
+            exc=TypeError,
+        )
+        _require(
+            condition=len(self.user) > 0,
+            message="must contain at least one prompt",
+            field_name="user",
+        )
+        # Validate that user prompts are not all empty
+        non_empty_prompts = [p for p in self.user if p.strip()]
+        _require(
+            condition=len(non_empty_prompts) > 0,
+            message="must contain at least one non-empty prompt",
+            field_name="user",
+        )
+
+        _require(
+            condition=self.system is None or isinstance(self.system, str),
+            message="must be a str or None",
+            field_name="system",
+            exc=TypeError,
+        )
+        # System prompt should not be empty string if provided
+        if self.system is not None:
+            _require(
+                condition=self.system.strip() != "",
+                message="cannot be empty string when provided",
+                field_name="system",
+            )
+
+        # Freeze hints mapping to prevent downstream mutation
+        frozen = _freeze_mapping(self.hints)
+        if frozen is not None:
+            object.__setattr__(self, "hints", frozen)
 
 
 # --- Typed Command States ---
@@ -99,7 +269,7 @@ class PromptBundle:
 # each stage of the pipeline.
 
 
-@dataclasses.dataclass(frozen=True)
+@dataclasses.dataclass(frozen=True, slots=True)
 class TokenEstimate:
     """Range-based token estimate with confidence.
 
@@ -111,27 +281,44 @@ class TokenEstimate:
     expected_tokens: int
     max_tokens: int
     confidence: float
-    breakdown: dict[str, TokenEstimate] | None = None
+    breakdown: typing.Mapping[str, TokenEstimate] | None = None
 
     def __post_init__(self) -> None:
         """Validate invariants for ordering and bounds."""
-        if self.min_tokens < 0:
-            raise ValueError(f"min_tokens must be >= 0, got {self.min_tokens}")
-        if self.max_tokens < self.min_tokens:
-            raise ValueError(
-                f"max_tokens must be >= min_tokens, got min_tokens={self.min_tokens}, max_tokens={self.max_tokens}"
-            )
-        if self.expected_tokens < 0:
-            raise ValueError(
-                f"expected_tokens must be >= 0, got {self.expected_tokens}"
-            )
-        if not (0.0 <= self.confidence <= 1.0):
-            raise ValueError(
-                f"confidence must be within [0.0, 1.0], got {self.confidence}"
-            )
+        _require(
+            condition=isinstance(self.min_tokens, int) and self.min_tokens >= 0,
+            message=f"must be an int >= 0, got {self.min_tokens}",
+            field_name="min_tokens",
+        )
+        _require(
+            condition=isinstance(self.expected_tokens, int)
+            and self.expected_tokens >= 0,
+            message=f"must be an int >= 0, got {self.expected_tokens}",
+            field_name="expected_tokens",
+        )
+        _require(
+            condition=isinstance(self.max_tokens, int) and self.max_tokens >= 0,
+            message=f"must be an int >= 0, got {self.max_tokens}",
+            field_name="max_tokens",
+        )
+        _require(
+            condition=self.min_tokens <= self.expected_tokens <= self.max_tokens,
+            message=f"require min <= expected <= max, got {self.min_tokens} <= {self.expected_tokens} <= {self.max_tokens}",
+            field_name="token ordering",
+        )
+        _require(
+            condition=isinstance(self.confidence, int | float)
+            and 0.0 <= self.confidence <= 1.0,
+            message=f"must be numeric within [0.0, 1.0], got {self.confidence}",
+            field_name="confidence",
+        )
+        # Freeze nested breakdown map if provided
+        frozen = _freeze_mapping(self.breakdown)
+        if frozen is not None:
+            object.__setattr__(self, "breakdown", frozen)
 
 
-@dataclasses.dataclass(frozen=True)
+@dataclasses.dataclass(frozen=True, slots=True)
 class InitialCommand:
     """The initial state of a request, created by the user."""
 
@@ -143,8 +330,49 @@ class InitialCommand:
     # Pipeline stages interpret hints in a fail-soft manner (unknown hints ignored).
     hints: tuple[object, ...] | None = None
 
+    def __post_init__(self) -> None:
+        """Validate InitialCommand invariants."""
+        _require(
+            condition=isinstance(self.sources, tuple),
+            message="must be a tuple",
+            field_name="sources",
+            exc=TypeError,
+        )
+        _require(
+            condition=_is_tuple_of(self.prompts, str),
+            message="must be a tuple[str, ...]",
+            field_name="prompts",
+            exc=TypeError,
+        )
+        # Prompts must not be empty for a valid command
+        _require(
+            condition=len(self.prompts) > 0,
+            message="must contain at least one prompt",
+            field_name="prompts",
+        )
+        # Validate prompts are not all whitespace
+        non_empty_prompts = [p for p in self.prompts if p.strip()]
+        _require(
+            condition=len(non_empty_prompts) > 0,
+            message="must contain at least one non-empty prompt",
+            field_name="prompts",
+        )
 
-@dataclasses.dataclass(frozen=True)
+        _require(
+            condition=_is_tuple_of(self.history, ConversationTurn),
+            message="must be a tuple[ConversationTurn, ...]",
+            field_name="history",
+            exc=TypeError,
+        )
+        _require(
+            condition=self.hints is None or isinstance(self.hints, tuple),
+            message="must be a tuple[object, ...] or None",
+            field_name="hints",
+            exc=TypeError,
+        )
+
+
+@dataclasses.dataclass(frozen=True, slots=True)
 class ResolvedCommand:
     """The state after sources have been resolved."""
 
@@ -155,7 +383,7 @@ class ResolvedCommand:
 # --- Library-owned neutral API payload types ---
 
 
-@dataclasses.dataclass(frozen=True)
+@dataclasses.dataclass(frozen=True, slots=True)
 class TextPart:
     """A minimal library-owned representation of a text part.
 
@@ -165,20 +393,41 @@ class TextPart:
 
     text: str
 
+    def __post_init__(self) -> None:
+        """Validate TextPart invariants."""
+        _require(
+            condition=isinstance(self.text, str),
+            message="text must be a str",
+            exc=TypeError,
+        )
+
 
 # Neutral union of API parts; extendable without leaking provider types
-type APIPart = TextPart | "FileRefPart" | "FilePlaceholder"
+type APIPart = TextPart | "FileRefPart" | "FilePlaceholder" | "HistoryPart"
 
 
-@dataclasses.dataclass(frozen=True)
+@dataclasses.dataclass(frozen=True, slots=True)
 class FileRefPart:
     """Provider-agnostic reference to uploaded content."""
 
     uri: str
     mime_type: str | None = None
 
+    def __post_init__(self) -> None:
+        """Validate FileRefPart invariants."""
+        _require(
+            condition=isinstance(self.uri, str) and self.uri != "",
+            message="uri must be a non-empty str",
+            exc=TypeError,
+        )
+        _require(
+            condition=self.mime_type is None or isinstance(self.mime_type, str),
+            message="mime_type must be a str or None",
+            exc=TypeError,
+        )
 
-@dataclasses.dataclass(frozen=True)
+
+@dataclasses.dataclass(frozen=True, slots=True)
 class FilePlaceholder:
     """Placeholder for a local file intended to be uploaded by the provider.
 
@@ -188,12 +437,94 @@ class FilePlaceholder:
     local_path: Path
     mime_type: str | None = None
 
+    def __post_init__(self) -> None:
+        """Validate FilePlaceholder invariants."""
+        _require(
+            condition=isinstance(self.local_path, Path),
+            message="local_path must be a pathlib.Path",
+            exc=TypeError,
+        )
+        _require(
+            condition=self.mime_type is None or isinstance(self.mime_type, str),
+            message="mime_type must be a str or None",
+            exc=TypeError,
+        )
 
-@dataclasses.dataclass(frozen=True)
+
+@dataclasses.dataclass(frozen=True, slots=True)
+class HistoryPart:
+    """Structured conversation history to prepend to prompts.
+
+    The pipeline preserves this structured part intact. Provider adapters are
+    responsible for rendering it into provider-specific types (e.g., into a
+    textual representation when needed). This keeps the planner/handler
+    data-centric and decoupled from provider SDK details.
+    """
+
+    turns: tuple[ConversationTurn, ...]
+
+    def __post_init__(self) -> None:
+        """Validate HistoryPart shape."""
+        _require(
+            condition=_is_tuple_of(self.turns, ConversationTurn),
+            message="turns must be a tuple[ConversationTurn, ...]",
+            exc=TypeError,
+        )
+
+    @classmethod
+    def from_raw_history(cls, raw_turns: typing.Any) -> typing.Self:
+        """Validate and normalize raw history data into a HistoryPart.
+
+        Accepted item shapes per turn (strict):
+        - ConversationTurn instance (used as-is)
+        - Mapping with string keys 'question' and 'answer' whose values are str
+        - Object with string attributes 'question' and 'answer'
+
+        Empty or None input yields an empty history. Invalid items raise
+        ValueError/TypeError with precise index and reason. Both fields cannot
+        be empty strings simultaneously.
+        """
+        if not raw_turns:
+            return cls(turns=())
+
+        validated: list[ConversationTurn] = []
+        for i, raw in enumerate(raw_turns):
+            try:
+                if isinstance(raw, ConversationTurn):
+                    q_val: object | None = raw.question
+                    a_val: object | None = raw.answer
+                elif isinstance(raw, dict):
+                    # Prefer concise structural handling; mapping pattern keeps it clear.
+                    q_val = raw.get("question")
+                    a_val = raw.get("answer")
+                else:
+                    q_val = getattr(raw, "question", None)
+                    a_val = getattr(raw, "answer", None)
+
+                if not isinstance(q_val, str) or not isinstance(a_val, str):
+                    raise TypeError("'question' and 'answer' must be str")
+                if q_val == "" and a_val == "":
+                    raise ValueError("question and answer cannot both be empty")
+
+                # After the checks above, both are str for type checkers
+                validated.append(ConversationTurn(question=q_val, answer=a_val))
+            except Exception as e:
+                raise ValueError(f"Invalid conversation turn at index {i}: {e}") from e
+
+        return cls(turns=tuple(validated))
+
+
+@dataclasses.dataclass(frozen=True, slots=True)
 class RateConstraint:
     """Immutable rate limit specification.
 
-    All rates are per-minute. Tokens-per-minute may be omitted.
+    All rates are per-minute.
+
+    Attributes:
+        requests_per_minute (int): Number of requests allowed per minute (>0).
+        tokens_per_minute (int | None): Optional tokens-per-minute (>0 if provided).
+        min_interval_ms (int): Minimum interval between requests in milliseconds (>=0).
+        burst_factor (float): Multiplier for burst capacity (>=1.0).
     """
 
     requests_per_minute: int
@@ -202,21 +533,72 @@ class RateConstraint:
     burst_factor: float = 1.0
 
     def __post_init__(self) -> None:
-        """Clamp provided values to safe minimums."""
-        if self.requests_per_minute <= 0:
-            object.__setattr__(self, "requests_per_minute", 1)
-        if self.tokens_per_minute is not None and self.tokens_per_minute <= 0:
-            object.__setattr__(self, "tokens_per_minute", None)
-        if self.burst_factor < 1.0:
-            object.__setattr__(self, "burst_factor", 1.0)
+        """Validate provided values; reject invalid inputs explicitly.
+
+        Use the centralized `_require` helpers for consistent, contextual
+        validation errors (type vs value concerns separated where helpful).
+        """
+        # requests_per_minute: must be int and > 0
+        _require(
+            condition=isinstance(self.requests_per_minute, int),
+            message="must be an int",
+            field_name="requests_per_minute",
+            exc=TypeError,
+        )
+        _require(
+            condition=self.requests_per_minute > 0,
+            message="must be > 0",
+            field_name="requests_per_minute",
+        )
+
+        # tokens_per_minute: optional int > 0 when provided
+        _require(
+            condition=self.tokens_per_minute is None
+            or isinstance(self.tokens_per_minute, int),
+            message="must be an int or None",
+            field_name="tokens_per_minute",
+            exc=TypeError,
+        )
+        if self.tokens_per_minute is not None:
+            _require(
+                condition=self.tokens_per_minute > 0,
+                message="must be > 0 when provided",
+                field_name="tokens_per_minute",
+            )
+
+        # min_interval_ms: int >= 0  # noqa: ERA001
+        _require(
+            condition=isinstance(self.min_interval_ms, int),
+            message="must be an int",
+            field_name="min_interval_ms",
+            exc=TypeError,
+        )
+        _require(
+            condition=self.min_interval_ms >= 0,
+            message="must be >= 0",
+            field_name="min_interval_ms",
+        )
+
+        # burst_factor: numeric (int|float) and >= 1.0
+        _require(
+            condition=isinstance(self.burst_factor, int | float),
+            message="must be numeric (int|float)",
+            field_name="burst_factor",
+            exc=TypeError,
+        )
+        _require(
+            condition=self.burst_factor >= 1.0,
+            message="must be >= 1.0",
+            field_name="burst_factor",
+        )
 
 
 # For the minimal slice, a generation config is simply a mapping. We keep it
 # library-owned and translate to provider-specific types at the API seam.
-GenerationConfigDict = dict[str, object]
+GenerationConfigDict = typing.Mapping[str, object]
 
 
-@dataclasses.dataclass(frozen=True)
+@dataclasses.dataclass(frozen=True, slots=True)
 class APICall:
     """A description of a single API call to be made."""
 
@@ -227,8 +609,37 @@ class APICall:
     # this name. Callers must remain correct when caching is unsupported.
     cache_name_to_use: str | None = None
 
+    def __post_init__(self) -> None:
+        """Validate APICall invariants and freeze config mapping."""
+        _require(
+            condition=isinstance(self.model_name, str) and self.model_name != "",
+            message="model_name must be a non-empty str",
+            exc=TypeError,
+        )
+        _require(
+            condition=isinstance(self.api_parts, tuple),
+            message="api_parts must be a tuple",
+            exc=TypeError,
+        )
+        valid_types = (TextPart, FileRefPart, FilePlaceholder, HistoryPart)
+        for idx, part in enumerate(self.api_parts):
+            _require(
+                condition=isinstance(part, valid_types),
+                message=f"api_parts[{idx}] has invalid type {type(part)}; expected one of {valid_types!r}",
+                exc=TypeError,
+            )
+        frozen = _freeze_mapping(self.api_config)
+        if frozen is not None:
+            object.__setattr__(self, "api_config", frozen)
+        _require(
+            condition=self.cache_name_to_use is None
+            or isinstance(self.cache_name_to_use, str),
+            message="cache_name_to_use must be a str or None",
+            exc=TypeError,
+        )
 
-@dataclasses.dataclass(frozen=True)
+
+@dataclasses.dataclass(frozen=True, slots=True)
 class ExecutionPlan:
     """Instructions for executing API calls.
 
@@ -238,14 +649,57 @@ class ExecutionPlan:
 
     primary_call: APICall
     fallback_call: APICall | None = None  # For when batching fails
+    # Vectorized execution: N independent calls with shared context
+    calls: tuple[APICall, ...] = ()
+    shared_parts: tuple[APIPart, ...] = ()
+    shared_cache: ExplicitCachePlan | None = None
     # Optional rate limiting constraint
     rate_constraint: RateConstraint | None = None
     # Optional pre-generation actions
     upload_tasks: tuple[UploadTask, ...] = ()
     explicit_cache: ExplicitCachePlan | None = None
 
+    def __post_init__(self) -> None:
+        """Validate plan collections and optionals."""
+        # Basic integrity checks on collections
+        _require(
+            condition=_is_tuple_of(self.calls, APICall),
+            message="calls must be a tuple[APICall, ...]",
+            exc=TypeError,
+        )
+        _require(
+            condition=_is_tuple_of(
+                self.shared_parts, (TextPart, FileRefPart, FilePlaceholder, HistoryPart)
+            ),
+            message="shared_parts must be a tuple[APIPart, ...]",
+            exc=TypeError,
+        )
+        _require(
+            condition=self.shared_cache is None
+            or isinstance(self.shared_cache, ExplicitCachePlan),
+            message="shared_cache must be ExplicitCachePlan or None",
+            exc=TypeError,
+        )
+        _require(
+            condition=self.rate_constraint is None
+            or isinstance(self.rate_constraint, RateConstraint),
+            message="rate_constraint must be RateConstraint or None",
+            exc=TypeError,
+        )
+        _require(
+            condition=_is_tuple_of(self.upload_tasks, UploadTask),
+            message="upload_tasks must be a tuple[UploadTask, ...]",
+            exc=TypeError,
+        )
+        _require(
+            condition=self.explicit_cache is None
+            or isinstance(self.explicit_cache, ExplicitCachePlan),
+            message="explicit_cache must be ExplicitCachePlan or None",
+            exc=TypeError,
+        )
 
-@dataclasses.dataclass(frozen=True)
+
+@dataclasses.dataclass(frozen=True, slots=True)
 class UploadTask:
     """Instruction to upload a local file and substitute an API part."""
 
@@ -254,8 +708,30 @@ class UploadTask:
     mime_type: str | None = None
     required: bool = True
 
+    def __post_init__(self) -> None:
+        """Validate UploadTask invariants."""
+        _require(
+            condition=isinstance(self.part_index, int) and self.part_index >= 0,
+            message="part_index must be an int >= 0",
+        )
+        _require(
+            condition=isinstance(self.local_path, Path),
+            message="local_path must be a pathlib.Path",
+            exc=TypeError,
+        )
+        _require(
+            condition=self.mime_type is None or isinstance(self.mime_type, str),
+            message="mime_type must be a str or None",
+            exc=TypeError,
+        )
+        _require(
+            condition=isinstance(self.required, bool),
+            message="required must be a bool",
+            exc=TypeError,
+        )
 
-@dataclasses.dataclass(frozen=True)
+
+@dataclasses.dataclass(frozen=True, slots=True)
 class ExplicitCachePlan:
     """Instruction to create/use explicit cached content for context."""
 
@@ -269,17 +745,54 @@ class ExplicitCachePlan:
     # Deterministic key used to look up/store provider cache name in registry
     deterministic_key: str | None = None
 
+    def __post_init__(self) -> None:
+        """Validate explicit cache definition."""
+        _require(
+            condition=isinstance(self.create, bool),
+            message="create must be a bool",
+            exc=TypeError,
+        )
+        _require(
+            condition=self.cache_name is None or isinstance(self.cache_name, str),
+            message="cache_name must be a str or None",
+            exc=TypeError,
+        )
+        _require(
+            condition=_is_tuple_of(self.contents_part_indexes, int)
+            and all(i >= 0 for i in self.contents_part_indexes),
+            message="contents_part_indexes must be a tuple of non-negative integers",
+            exc=TypeError,
+        )
+        _require(
+            condition=isinstance(self.include_system_instruction, bool),
+            message="include_system_instruction must be a bool",
+            exc=TypeError,
+        )
+        _require(
+            condition=self.ttl_seconds is None
+            or (isinstance(self.ttl_seconds, int) and self.ttl_seconds > 0),
+            message="ttl_seconds must be an int > 0 when provided",
+        )
+        _require(
+            condition=self.deterministic_key is None
+            or isinstance(self.deterministic_key, str),
+            message="deterministic_key must be a str or None",
+            exc=TypeError,
+        )
 
-@dataclasses.dataclass(frozen=True)
+
+@dataclasses.dataclass(frozen=True, slots=True)
 class PlannedCommand:
     """The state after an execution plan has been created."""
 
     resolved: ResolvedCommand
     execution_plan: ExecutionPlan
     token_estimate: TokenEstimate | None = None
+    # Per-call estimates for vectorized plans
+    per_call_estimates: tuple[TokenEstimate, ...] = ()
 
 
-@dataclasses.dataclass(frozen=True)
+@dataclasses.dataclass(frozen=True, slots=True)
 class FinalizedCommand:
     """The state after API calls have been executed."""
 

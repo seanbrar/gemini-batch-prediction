@@ -68,6 +68,77 @@ def _normalize_json_answers(data: list[Any]) -> list[str]:
 # --- Built-in Transforms ---
 
 
+def batch_response_transform() -> TransformSpec:
+    """Extract answers from internal batch response format: {'batch': [...]}.
+
+    - Matcher: top-level mapping with a non-empty ``batch`` list/tuple.
+    - Extractor: coerce each item to text using simple, pure rules:
+      - direct string
+      - common text fields ("text", "content", "answer", "response", "message")
+      - minimal provider-normalized shape (candidates/content/parts[0].text)
+      - object with ``.text`` attribute
+      Unknown items yield an empty string to preserve positional mapping.
+    """
+
+    def matcher(raw: Any) -> bool:
+        if not isinstance(raw, dict):
+            return False
+        batch_data = raw.get("batch")
+        return isinstance(batch_data, list | tuple) and len(batch_data) > 0
+
+    def _coerce_item_text(item: Any) -> str | None:
+        # Use structural pattern matching for clarity and determinism.
+        match item:
+            case str() as txt:
+                return txt
+            case {"text": str(txt)}:
+                return txt
+            case {"content": str(txt)}:
+                return txt
+            case {"answer": str(txt)}:
+                return txt
+            case {"response": str(txt)}:
+                return txt
+            case {"message": str(txt)}:
+                return txt
+            # Minimal provider-normalized fallback:
+            case {
+                "candidates": [
+                    {"content": {"parts": [{"text": str(txt)}, *_rest_parts]}},
+                    *_rest_candidates,
+                ]
+            }:
+                return txt
+            case _:
+                # Object with a text attribute
+                if hasattr(item, "text"):
+                    t = item.text
+                    if isinstance(t, str):
+                        return t
+                return None
+
+    def extractor(raw: Any, _ctx: dict[str, Any]) -> dict[str, Any]:
+        batch_data = raw.get("batch") if isinstance(raw, dict) else ()
+        answers: list[str] = []
+        if isinstance(batch_data, list | tuple):
+            for item in batch_data:
+                text = _coerce_item_text(item)
+                answers.append(text.strip() if isinstance(text, str) else "")
+        # Deterministic, always succeeds for matched inputs; preserve count
+        return {
+            "answers": answers,
+            "confidence": 0.85,
+            "structured_data": {"batch": batch_data},
+        }
+
+    return TransformSpec(
+        name="batch_response",
+        matcher=matcher,
+        extractor=extractor,
+        priority=95,  # before general-purpose transforms
+    )
+
+
 def json_array_transform() -> TransformSpec:
     """Return a `TransformSpec` that extracts from JSON arrays.
 
@@ -357,6 +428,7 @@ def default_transforms() -> list[TransformSpec]:
     higher priority to ensure they're tried first.
     """
     return [
+        batch_response_transform(),
         json_array_transform(),
         provider_normalized_transform(),
         markdown_list_transform(),
