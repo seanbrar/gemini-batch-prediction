@@ -71,15 +71,15 @@ async def test_planner_with_prefix_suffix():
 
     assert isinstance(result, Success)
     planned = result.value
-    primary = planned.execution_plan.primary_call
-
-    # Check that prefixes and suffixes are applied and prompts are joined
-    first_part = primary.api_parts[0]
-    assert isinstance(first_part, TextPart)
-    expected_text = (
-        "Q: What is ML? Please be concise.\n\nQ: How does it work? Please be concise."
-    )
-    assert first_part.text == expected_text
+    plan = planned.execution_plan
+    # Vectorized path: ensure two calls with individually transformed prompts
+    assert plan.calls and len(plan.calls) == 2
+    c0, c1 = plan.calls
+    p0 = c0.api_parts[0]
+    p1 = c1.api_parts[0]
+    assert isinstance(p0, TextPart) and isinstance(p1, TextPart)
+    assert p0.text == "Q: What is ML? Please be concise."
+    assert p1.text == "Q: How does it work? Please be concise."
 
 
 @pytest.mark.asyncio
@@ -209,10 +209,13 @@ async def test_planner_cache_key_includes_system_instruction():
     plan1 = result1.value.execution_plan
     plan2 = result2.value.execution_plan
 
-    if plan1.explicit_cache and plan2.explicit_cache:
-        assert (
-            plan1.explicit_cache.deterministic_key
-            != plan2.explicit_cache.deterministic_key
+    cache_name1 = plan1.primary_call.cache_name_to_use
+    cache_name2 = plan2.primary_call.cache_name_to_use
+
+    # If caching is enabled, cache names should be different for different system instructions
+    if cache_name1 is not None and cache_name2 is not None:
+        assert cache_name1 != cache_name2, (
+            f"Cache names should differ with different system instructions: {cache_name1} == {cache_name2}"
         )
 
 

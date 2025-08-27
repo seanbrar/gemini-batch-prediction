@@ -7,16 +7,20 @@ base_tokens x bias_factor with a simple confidence-based range.
 from __future__ import annotations
 
 from dataclasses import dataclass
+import logging
 
 from gemini_batch.core.types import Source, TokenEstimate
+
+logger = logging.getLogger(__name__)
 
 # Provider knowledge (not configuration)
 HEURISTICS: dict[str, float] = {
     # source_type -> tokens per byte (<= 1.0) or fixed tokens (> 1.0)
-    "text": 1 / 4.2,  # ~4.2 chars per token
-    "image": 1 / 500,  # empirical pre-bias
-    "video": 1 / 2000,  # empirical pre-bias
-    "file": 1 / 1000,  # generic files
+    # Tuned using token_accuracy_analysis.md to reduce systematic overestimation.
+    "text": 1 / 4.2,  # ~4.2 chars per token (kept)
+    "image": 1 / 750,  # was 1/500
+    "video": 1 / 2500,  # was 1/2000
+    "file": 1 / 1200,  # was 1/1000 (generic file/PDFs)
     "youtube": 225,  # fixed estimate
     "arxiv": 7500,  # fixed estimate
 }

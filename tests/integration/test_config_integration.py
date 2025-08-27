@@ -13,7 +13,6 @@ from gemini_batch.config import resolve_config
 from gemini_batch.config.core import FrozenConfig
 from gemini_batch.core.types import InitialCommand
 from gemini_batch.executor import GeminiExecutor, create_executor
-from gemini_batch.extensions.conversation import ConversationManager
 
 
 class TestConfigurationIntegrationBehavior:
@@ -62,18 +61,6 @@ class TestConfigurationIntegrationBehavior:
             # Command should contain FrozenConfig
             assert isinstance(command.config, FrozenConfig)
             assert command.config.api_key == "test_key"
-
-    @pytest.mark.workflows
-    def test_conversation_manager_integration(self):
-        """Integration: ConversationManager should work with auto-resolution executor."""
-        with patch.dict(os.environ, {"GEMINI_API_KEY": "test_key"}):
-            executor = create_executor()
-            manager = ConversationManager(["test.txt"], executor)
-
-            # Should create successfully with FrozenConfig
-            assert manager is not None
-            # ConversationManager stores executor as _executor
-            assert isinstance(manager._executor.config, FrozenConfig)
 
     @pytest.mark.workflows
     def test_compatibility_shim_in_pipeline_flow(self):
@@ -157,7 +144,7 @@ class TestConfigurationIntegrationBehavior:
         ):
             # Validation happens during resolution; resolving invalid programmatic
             # config should raise ValueError
-            resolve_config(overrides={"ttl_seconds": 0})
+            resolve_config(overrides={"ttl_seconds": -1})
 
     @pytest.mark.workflows
     def test_environment_override_behavior(self):

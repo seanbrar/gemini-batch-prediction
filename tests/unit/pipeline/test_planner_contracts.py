@@ -26,12 +26,16 @@ async def test_planner_produces_parts_on_prompts():
 
     assert isinstance(result, Success)
     planned = result.value
-    primary = planned.execution_plan.primary_call
-    assert primary.api_parts
-    # Joined with blank line between prompts
-    first_part = primary.api_parts[0]
-    assert hasattr(first_part, "text")
-    assert first_part.text == "p1\n\np2"
+    plan = planned.execution_plan
+    # Vectorized path: two independent calls, primary_call mirrors the first call
+    assert plan.calls and len(plan.calls) == 2
+    first_call = plan.calls[0]
+    assert first_call.api_parts and hasattr(first_call.api_parts[0], "text")
+    assert getattr(first_call.api_parts[0], "text") == "p1"
+    # primary_call is kept for back-compat but should match the first call
+    assert plan.primary_call.model_name == first_call.model_name
+    assert plan.primary_call.api_config == first_call.api_config
+    assert plan.primary_call.api_parts == first_call.api_parts
 
 
 @pytest.mark.asyncio
