@@ -13,6 +13,7 @@ from gemini_batch.core.types import (
 )
 from gemini_batch.pipeline.api_handler import APIHandler
 from gemini_batch.pipeline.base import BaseAsyncHandler
+from gemini_batch.pipeline.cache_stage import CacheStage
 from gemini_batch.pipeline.planner import ExecutionPlanner
 from gemini_batch.pipeline.rate_limit_handler import RateLimitHandler
 from gemini_batch.pipeline.registries import CacheRegistry, FileRegistry
@@ -78,6 +79,12 @@ class GeminiExecutor:
         ]
 
         handlers += [
+            CacheStage(
+                registries={
+                    "cache": self._cache_registry,
+                },
+                adapter_factory=adapter_factory,
+            ),
             APIHandler(
                 telemetry=None,
                 registries={

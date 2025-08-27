@@ -1,10 +1,9 @@
 """Hint Capsules for extension-to-core communication.
 
 Precedence (cache)
-- Planning: `CacheHint` influences the planner's `ExplicitCachePlan` and
-  optional `APICall.cache_name_to_use`. Best-effort; unknown hints are ignored.
-- Execution: `ExecutionCacheName` overrides the cache name used for the API
-  attempt. Best-effort; does not mutate the plan.
+- Execution: `CacheHint` and `CachePolicyHint` are applied by the CacheStage
+  at execution time to reuse or create caches; `ExecutionCacheName` overrides
+  the cache name used for the API attempt. Best-effort; does not mutate the plan.
 
 This module defines immutable hint types that extensions can use to express
 intent to the pipeline without coupling the core to domain-specific logic.
@@ -132,5 +131,40 @@ class ExecutionCacheName:
             raise ValueError("ExecutionCacheName.cache_name must be a non-empty string")
 
 
+@dataclasses.dataclass(frozen=True, slots=True)
+class CachePolicyHint:
+    """Focused policy overrides for cache planning.
+
+    All fields are optional; absent fields keep defaults resolved from config.
+    Semantics are conservative and planner-scoped only.
+
+    Attributes:
+        first_turn_only: When True, attempt cache create only on first turn (history empty).
+        respect_floor: When True, apply floor skip with confidence cut.
+        conf_skip_floor: Confidence threshold [0,1] to skip when below floor.
+        min_tokens_floor: Override floor in tokens; None uses model capabilities.
+    """
+
+    first_turn_only: bool | None = None
+    respect_floor: bool | None = None
+    conf_skip_floor: float | None = None
+    min_tokens_floor: int | None = None
+
+    def __post_init__(self) -> None:
+        """Validate cache policy hint parameters after initialization."""
+        if self.conf_skip_floor is not None:
+            val = float(self.conf_skip_floor)
+            if not (0.0 <= val <= 1.0):
+                raise ValueError("conf_skip_floor must be within [0.0, 1.0]")
+        if self.min_tokens_floor is not None and int(self.min_tokens_floor) < 0:
+            raise ValueError("min_tokens_floor must be >= 0 when provided")
+
+
 # Union type for all supported hints (public capsule surface)
-type Hint = CacheHint | EstimationOverrideHint | ResultHint | ExecutionCacheName
+type Hint = (
+    CacheHint
+    | EstimationOverrideHint
+    | ResultHint
+    | ExecutionCacheName
+    | CachePolicyHint
+)
