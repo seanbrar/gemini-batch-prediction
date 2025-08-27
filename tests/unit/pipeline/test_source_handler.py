@@ -125,9 +125,9 @@ class TestSourceHandlerContracts:
         throwing exceptions. The pipeline should not crash.
         """
         handler = SourceHandler()
-        # Create a command that is likely to cause an error (e.g., empty sources)
+        # Create a command that will cause an error (non-existent file)
         problematic_command = InitialCommand(
-            sources=(),
+            sources=("/non/existent/file/path.txt",),
             prompts=("test",),
             config=resolve_config(overrides={"api_key": "test-key"}),
         )

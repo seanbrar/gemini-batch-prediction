@@ -21,6 +21,7 @@ from gemini_batch.core.types import (
 )
 from gemini_batch.executor import create_executor
 from gemini_batch.extensions.conversation import Conversation
+from gemini_batch.extensions.conversation_types import ConversationState
 from gemini_batch.pipeline.hints import CacheHint, EstimationOverrideHint, ResultHint
 from gemini_batch.pipeline.planner import ExecutionPlanner
 from gemini_batch.pipeline.result_builder import ResultBuilder
@@ -109,9 +110,13 @@ class TestNoOpGuarantees:
         )
 
         # Cache decisions should be identical
-        cache_no = result_no_hints.value.execution_plan.explicit_cache
-        cache_none = result_none_hints.value.execution_plan.explicit_cache
-        cache_empty = result_empty_hints.value.execution_plan.explicit_cache
+        cache_no = result_no_hints.value.execution_plan.primary_call.cache_name_to_use
+        cache_none = (
+            result_none_hints.value.execution_plan.primary_call.cache_name_to_use
+        )
+        cache_empty = (
+            result_empty_hints.value.execution_plan.primary_call.cache_name_to_use
+        )
 
         assert (cache_no is None) == (cache_none is None) == (cache_empty is None)
 
@@ -194,23 +199,25 @@ class TestNoOpGuarantees:
 
         # Same conversation setup, one with cache, one without
         conv_no_cache = Conversation.start(executor, sources=())
-        conv_with_cache = Conversation.start(executor, sources=()).with_cache(
-            key="noop-test"
+        # Create conversation state with cache key for comparison
+        cached_state = ConversationState(
+            sources=(), turns=(), cache_key="noop-test", cache_artifacts=("artifact1",)
         )
+        conv_with_cache = Conversation(cached_state, executor)
 
         # Ask the same question
         result_no_cache = await conv_no_cache.ask("test question")
         result_with_cache = await conv_with_cache.ask("test question")
 
-        # Both should succeed
-        assert result_no_cache.state.last is not None
-        assert result_with_cache.state.last is not None
-        assert result_no_cache.state.last.error is False
-        assert result_with_cache.state.last.error is False
+        # Both should succeed and have turns
+        assert len(result_no_cache.state.turns) == 1
+        assert len(result_with_cache.state.turns) == 1
+        assert result_no_cache.state.turns[0].error is False
+        assert result_with_cache.state.turns[0].error is False
 
         # Both should have valid responses (deterministic mock may vary slightly)
-        assert len(result_no_cache.state.last.assistant) > 0
-        assert len(result_with_cache.state.last.assistant) > 0
+        assert len(result_no_cache.state.turns[0].assistant) > 0
+        assert len(result_with_cache.state.turns[0].assistant) > 0
 
     @pytest.mark.asyncio
     async def test_end_to_end_no_op_guarantee(self):
