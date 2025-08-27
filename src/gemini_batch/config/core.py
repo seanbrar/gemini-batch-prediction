@@ -215,9 +215,9 @@ class ConfigScope:
 
     def __exit__(
         self,
-        exc_type: type[BaseException] | None,
-        exc_val: BaseException | None,
-        exc_tb: TracebackType | None,
+        _: type[BaseException] | None,
+        __: BaseException | None,
+        ___: TracebackType | None,
     ) -> Literal[False]:
         """Exit the context and restore previous ambient configuration."""
         if self._token is not None:

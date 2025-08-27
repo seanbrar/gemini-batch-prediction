@@ -73,9 +73,9 @@ class _NoOpTelemetryContext:
 
     def __exit__(
         self,
-        exc_type: type[BaseException] | None,
-        exc_value: BaseException | None,
-        exc_tb: TracebackType | None,
+        _: type[BaseException] | None,
+        __: BaseException | None,
+        ___: TracebackType | None,
     ) -> bool | None:
         return None
 
