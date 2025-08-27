@@ -1,7 +1,11 @@
 """Execution planning stage of the pipeline.
 
-This module contains the handler responsible for creating execution plans
-from resolved commands, determining how to process the request efficiently.
+This handler compiles an ``ExecutionPlan`` from a ``ResolvedCommand``.
+
+Design goals (per the architecture rubric):
+- Keep the planner dumb and provider-agnostic; delegate to adapters.
+- Prefer small, explicit helpers over inline branching.
+- Be data-centric: operate on immutable inputs and return pure artifacts.
 """
 
 from __future__ import annotations
@@ -12,11 +16,9 @@ import logging
 from typing import TYPE_CHECKING, Any, cast
 
 from gemini_batch.core.exceptions import ConfigurationError
-from gemini_batch.core.models import get_model_capabilities
 from gemini_batch.core.types import (
     APICall,
     ExecutionPlan,
-    ExplicitCachePlan,
     Failure,
     FilePlaceholder,
     HistoryPart,
@@ -33,14 +35,14 @@ from gemini_batch.core.types import (
     UploadTask,
 )
 from gemini_batch.pipeline.base import BaseAsyncHandler
-from gemini_batch.pipeline.hints import CacheHint, EstimationOverrideHint
+from gemini_batch.pipeline.hints import EstimationOverrideHint
 from gemini_batch.pipeline.prompts import assemble_prompts
-from gemini_batch.pipeline.tokens.adapters.gemini import (
-    GeminiEstimationAdapter,
-)
+from gemini_batch.pipeline.tokens.adapters.gemini import GeminiEstimationAdapter
 from gemini_batch.telemetry import TelemetryContext
 
 if TYPE_CHECKING:
+    from collections.abc import Iterable
+
     from gemini_batch.config import FrozenConfig
     from gemini_batch.core.types import APIPart
     from gemini_batch.telemetry import TelemetryContextProtocol
@@ -55,13 +57,10 @@ class ExecutionPlanner(
 ):
     """Creates execution plans from resolved commands (minimal slice).
 
-    Minimal responsibilities implemented now:
-    - Assemble prompt text from the initial command
-    - Create a trivial APICall with no caching decisions
-    - Package into an ExecutionPlan and return a PlannedCommand
-
-    Future iterations will add token estimation, caching strategies, and
-    payload/file decisions per the architecture spec.
+    Responsibilities:
+    - Assemble prompts (adapter: ``assemble_prompts``)
+    - Estimate tokens (adapter: ``EstimationAdapter``)
+    - Attach rate limits for real API runs (model limits adapter)
     """
 
     def __init__(
@@ -74,9 +73,7 @@ class ExecutionPlanner(
         Defaults to a Gemini-specific estimation adapter. Telemetry is optional
         and incurs zero overhead when not provided or disabled.
         """
-        # Adapter is library-owned and provider-neutral at this seam.
-        # Use a precise type annotation to keep mypy strict without importing
-        # the protocol at runtime.
+        # Adapter is provider-neutral at this seam.
         self._adapter: EstimationAdapter
         if estimation_adapter is not None:
             self._adapter = estimation_adapter
@@ -105,22 +102,10 @@ class ExecutionPlanner(
         try:
             initial = command.initial
             config = initial.config
-            model_name: str = str(config.model or "gemini-2.0-flash")
+            model_name: str = self._model_name(config)
 
-            # --- Hints (kept optional and fail-soft) ---
-            hints = tuple(getattr(initial, "hints", ()) or ())
-            cacheh = next((h for h in hints if isinstance(h, CacheHint)), None)
-            overh = next(
-                (h for h in hints if isinstance(h, EstimationOverrideHint)), None
-            )
-
-            # Emit minimal hint telemetry
-            with self._telemetry("planner.hints") as tele:
-                tele.gauge("hints_seen", len(hints))
-                if cacheh:
-                    tele.gauge("cache_hint", 1)
-                if overh:
-                    tele.gauge("estimation_override", 1)
+            # Hints are optional and fail-soft
+            hints, _cacheh_unused, overh = self._extract_hints(initial)
 
             # Assemble prompts using the prompt assembly system
             try:
@@ -140,9 +125,7 @@ class ExecutionPlanner(
             # If more than one prompt, switch to vectorized planning
             if len(user_prompts) > 1:
                 # Build per-prompt calls. System instruction is carried in api_config
-                api_cfg_base: dict[str, Any] = {}
-                if prompt_bundle.system:
-                    api_cfg_base["system_instruction"] = prompt_bundle.system
+                api_cfg_base: dict[str, Any] = self._api_config(prompt_bundle.system)
 
                 calls = tuple(
                     APICall(
@@ -155,88 +138,38 @@ class ExecutionPlanner(
                 )
 
                 # Token estimation: compute shared (history + sources) once, then per-prompt
-                from gemini_batch.core.types import (
-                    Source,
-                )  # local import to avoid cycles
+                history_text = self._history_to_text(history_turns)
+                # Shared estimate is history-only; sources are accounted per-call
+                shared_estimate = (
+                    self._estimate_text_and_sources(history_text, ())
+                    if history_text
+                    else None
+                )
 
-                def _text_source(txt: str) -> Source:
-                    # Source validates itself - no redundant validation needed
-                    return Source(
-                        source_type="text",
-                        identifier=txt,
-                        mime_type="text/plain",
-                        size_bytes=len(txt.encode("utf-8")),
-                        content_loader=lambda: txt.encode("utf-8"),
-                    )
-
-                # History as rendered text for estimation only
-                def _render_history(turns: tuple[Any, ...]) -> str:
-                    # ConversationTurn objects are already validated - question/answer are guaranteed to be strings
-                    if not turns:
-                        return ""
-                    lines: list[str] = []
-                    for t in turns:
-                        # Type system guarantees question and answer are strings
-                        lines.append(f"User: {t.question}")
-                        lines.append(f"Assistant: {t.answer}")
-                    return "\n".join(lines)
-
-                history_text = _render_history(history_turns)
-                shared_estimates: list[TokenEstimate] = []
-                if history_text:
-                    shared_estimates.append(
-                        self._adapter.estimate(_text_source(history_text))
-                    )
-                source_estimates = [
-                    self._adapter.estimate(s) for s in command.resolved_sources
-                ]
-
+                sources_agg = self._aggregate_sources(command.resolved_sources)
                 per_call: list[TokenEstimate] = []
                 for p in user_prompts:
-                    p_est = self._adapter.estimate(_text_source(p))
-                    agg = self._adapter.aggregate(
-                        [*shared_estimates, p_est, *source_estimates]
+                    pieces: list[TokenEstimate] = []
+                    if shared_estimate is not None:
+                        pieces.append(shared_estimate)
+                    pieces.append(self._estimate_text_and_sources(p, ()))
+                    if sources_agg is not None:
+                        pieces.append(sources_agg)
+                    per_call.append(
+                        self._apply_estimation_override(
+                            self._adapter.aggregate(pieces), overh
+                        )
                     )
-                    per_call.append(self._apply_estimation_override(agg, overh))
 
-                total_estimate: TokenEstimate | None = None
-                if per_call:
-                    total_estimate = self._adapter.aggregate(per_call)
-                    total_estimate = self._apply_estimation_override(
-                        total_estimate, overh
+                total_estimate: TokenEstimate | None = (
+                    self._apply_estimation_override(
+                        self._adapter.aggregate(per_call), overh
                     )
+                    if per_call
+                    else None
+                )
 
-                # Shared cache plan only for shared parts
-                shared_cache: ExplicitCachePlan | None = None
-                if history_text or command.resolved_sources:
-                    key_payload = {
-                        "model": model_name,
-                        "system": prompt_bundle.system,
-                        "history": history_text,
-                        "sources": [
-                            {
-                                "id": str(s.identifier),
-                                "mt": s.mime_type,
-                                "sz": s.size_bytes,
-                            }
-                            for s in command.resolved_sources
-                        ],
-                    }
-                    key = hashlib.sha256(
-                        json.dumps(key_payload, sort_keys=True).encode()
-                    ).hexdigest()
-                    reuse_only = bool(cacheh and cacheh.reuse_only)
-                    ttl = (
-                        cacheh.ttl_seconds if cacheh is not None else config.ttl_seconds
-                    )
-                    shared_cache = ExplicitCachePlan(
-                        create=not reuse_only,
-                        cache_name=None,
-                        contents_part_indexes=tuple(range(len(shared_parts))),
-                        include_system_instruction=True,
-                        ttl_seconds=ttl,
-                        deterministic_key=(cacheh.deterministic_key if cacheh else key),
-                    )
+                # Planner remains pure: no vendor SDK/token counting here
 
                 # Rate limits applied only for real API usage
                 rate_constraint = self._resolve_rate_constraint(config, model_name)
@@ -250,10 +183,8 @@ class ExecutionPlanner(
                     fallback_call=None,
                     calls=calls,
                     shared_parts=tuple(shared_parts),
-                    shared_cache=shared_cache,
                     rate_constraint=rate_constraint,
                     upload_tasks=(),
-                    explicit_cache=None,
                 )
                 planned = PlannedCommand(
                     resolved=command,
@@ -266,106 +197,41 @@ class ExecutionPlanner(
             # --- Single-call path ---
             joined_prompt = "\n\n".join(user_prompts)
 
-            # Emit prompt assembly telemetry
+            # Minimal prompt telemetry (keep planner lean)
             with self._telemetry("planner.prompt") as tele:
-                tele.gauge("user_from", prompt_bundle.hints.get("user_from", "unknown"))
-                tele.gauge(
-                    "system_from", prompt_bundle.hints.get("system_from", "none")
-                )
-                if prompt_bundle.system:
-                    tele.gauge("system_len", len(prompt_bundle.system))
-                tele.gauge("user_total_len", sum(len(p) for p in prompt_bundle.user))
-                if system_file := prompt_bundle.hints.get("system_file"):
-                    tele.gauge("system_file", system_file)
-                if user_file := prompt_bundle.hints.get("user_file"):
-                    tele.gauge("user_file", user_file)
+                tele.gauge("user_count", len(prompt_bundle.user))
 
             # Estimate tokens for prompt and resolved sources (pure, adapter-based)
             with self._telemetry("planner.estimate", model=model_name):
-                # Fabricate a lightweight text Source for prompt estimation
-                # Source validates itself - no redundant validation needed
-                from gemini_batch.core.types import (
-                    Source,  # local import to avoid cycles
-                )
-
-                prompt_source = Source(
-                    source_type="text",
-                    identifier=joined_prompt,
-                    mime_type="text/plain",
-                    size_bytes=len(joined_prompt.encode("utf-8")),
-                    content_loader=lambda: joined_prompt.encode("utf-8"),
-                )
-
-                source_estimates = [
-                    self._adapter.estimate(s) for s in command.resolved_sources
+                parts: list[TokenEstimate] = [
+                    self._estimate_text_and_sources(joined_prompt, ())
                 ]
-                prompt_estimate = self._adapter.estimate(prompt_source)
-                combined_estimates = [prompt_estimate, *source_estimates]
-                aggregated: TokenEstimate = self._adapter.aggregate(combined_estimates)
-
-                # Apply conservative, planner-scoped overrides (no provider coupling)
+                src_agg = self._aggregate_sources(command.resolved_sources)
+                if src_agg is not None:
+                    parts.append(src_agg)
+                aggregated = self._adapter.aggregate(parts)
                 aggregated = self._apply_estimation_override(aggregated, overh)
+                total_estimate = self._normalize_prompt_breakdown(aggregated)
 
-                # Normalize breakdown to include a stable 'prompt' key.
-                # Adapters usually return the prompt as the first item; we
-                # re-label it to 'prompt' to keep downstream consumers stable.
-                breakdown: dict[str, TokenEstimate] | None = None
-                if aggregated.breakdown:
-                    breakdown = {}
-                    for idx, (k, v) in enumerate(aggregated.breakdown.items()):
-                        # The adapter labels as source_0, source_1, ... based on input order
-                        breakdown["prompt" if idx == 0 else k] = v
-                total_estimate = TokenEstimate(
-                    min_tokens=aggregated.min_tokens,
-                    expected_tokens=aggregated.expected_tokens,
-                    max_tokens=aggregated.max_tokens,
-                    confidence=aggregated.confidence,
-                    breakdown=breakdown,
-                )
+            # Planner purity: no vendor calls or SDK use here
 
             # Upload tasks are not planned until a richer parts mapping exists.
             # For now, the API handler infers uploads from placeholders.
             upload_tasks: tuple[UploadTask, ...] = ()
 
-            # Caching decision: conservative based on max_tokens
-            explicit_cache: ExplicitCachePlan | None = None
-            # Honor either the planner policy OR an explicit CacheHint
-            if self._should_cache(total_estimate, config) or cacheh is not None:
-                key = self._deterministic_cache_key(
-                    command, joined_prompt, prompt_bundle.system
-                )
-                # In this minimal slice, cache the prompt (part index 0) and include system_instruction when present
-                explicit_cache = ExplicitCachePlan(
-                    create=not (cacheh and cacheh.reuse_only),
-                    cache_name=None,
-                    contents_part_indexes=(0,),
-                    include_system_instruction=True,
-                    ttl_seconds=(
-                        cacheh.ttl_seconds if cacheh is not None else config.ttl_seconds
-                    ),
-                    deterministic_key=(
-                        cacheh.deterministic_key if cacheh is not None else key
-                    ),
-                )
-                # For backward compatibility with tests expecting a cache hint
-                # provide a deterministic cache_name_to_use hint.
-                cache_hint = self._generate_cache_name(command, prompt_bundle.system)
-            else:
-                cache_hint = None
+            # No cache planning. Caches are resolved during execution by CacheStage.
 
             # Build parts: prompt first; file placeholders already in shared_parts
             parts: list[Any] = [TextPart(text=joined_prompt)]
 
             # Create API config with system instruction when present
-            api_config: dict[str, Any] = {}
-            if prompt_bundle.system:
-                api_config["system_instruction"] = prompt_bundle.system
+            api_config: dict[str, Any] = self._api_config(prompt_bundle.system)
 
             api_call = APICall(
                 model_name=model_name,
                 api_parts=tuple(parts),
                 api_config=api_config,
-                cache_name_to_use=cache_hint,
+                cache_name_to_use=None,
             )
 
             # Resolve rate limits (vendor-neutral via core.models) only for real API runs.
@@ -382,7 +248,6 @@ class ExecutionPlanner(
                 shared_parts=tuple(shared_parts),
                 rate_constraint=rate_constraint,
                 upload_tasks=upload_tasks,
-                explicit_cache=explicit_cache,
             )
             planned = PlannedCommand(
                 resolved=command,
@@ -418,7 +283,80 @@ class ExecutionPlanner(
                         local_path=Path(str(s.identifier)), mime_type=s.mime_type
                     )
                 )
+            elif s.source_type == "text":
+                # Add text sources to shared parts for vectorized execution
+                parts.append(TextPart(text=str(s.identifier)))
         return parts, history_turns
+
+    # --- Small, explicit helpers (pure) ---
+    def _extract_hints(
+        self, initial: InitialCommand
+    ) -> tuple[tuple[Any, ...], None, EstimationOverrideHint | None]:
+        hints = tuple(getattr(initial, "hints", ()) or ())
+        # Planner no longer interprets cache hints; leave to execution stage
+        overh = next((h for h in hints if isinstance(h, EstimationOverrideHint)), None)
+        return hints, None, overh
+
+    def _history_to_text(self, turns: tuple[Any, ...]) -> str:
+        if not turns:
+            return ""
+        lines: list[str] = []
+        for t in turns:
+            lines.append(f"User: {t.question}")
+            lines.append(f"Assistant: {t.answer}")
+        return "\n".join(lines)
+
+    def _estimate_text_and_sources(
+        self, text: str, sources: Iterable[Source]
+    ) -> TokenEstimate:
+        # Local import to avoid cycles
+        from gemini_batch.core.types import Source as _Source
+
+        if text:
+            prompt_source = _Source(
+                source_type="text",
+                identifier=text,
+                mime_type="text/plain",
+                size_bytes=len(text.encode("utf-8")),
+                content_loader=lambda: text.encode("utf-8"),
+            )
+            estimates = [self._adapter.estimate(prompt_source)]
+        else:
+            estimates = []
+        estimates.extend(self._adapter.estimate(s) for s in sources)
+        if not estimates:
+            return TokenEstimate(
+                min_tokens=0,
+                expected_tokens=0,
+                max_tokens=0,
+                confidence=1.0,
+                breakdown=None,
+            )
+        return self._adapter.aggregate(estimates)
+
+    def _aggregate_sources(self, sources: Iterable[Source]) -> TokenEstimate | None:
+        """Aggregate token estimate for a collection of sources.
+
+        Returns None when empty to keep call sites explicit about inclusion.
+        """
+        estimates = [self._adapter.estimate(s) for s in sources]
+        if not estimates:
+            return None
+        return self._adapter.aggregate(estimates)
+
+    def _normalize_prompt_breakdown(self, aggregated: TokenEstimate) -> TokenEstimate:
+        breakdown: dict[str, TokenEstimate] | None = None
+        if aggregated.breakdown:
+            breakdown = {}
+            for idx, (k, v) in enumerate(aggregated.breakdown.items()):
+                breakdown["prompt" if idx == 0 else k] = v
+        return TokenEstimate(
+            min_tokens=aggregated.min_tokens,
+            expected_tokens=aggregated.expected_tokens,
+            max_tokens=aggregated.max_tokens,
+            confidence=aggregated.confidence,
+            breakdown=breakdown,
+        )
 
     def _resolve_rate_constraint(
         self, config: FrozenConfig, model_name: str
@@ -432,18 +370,17 @@ class ExecutionPlanner(
         if not config.use_real_api:
             return None
 
-        try:
-            from gemini_batch.core.models import get_rate_limits
+        from gemini_batch.core.models import get_rate_limits
 
-            limits = get_rate_limits(config.tier, model_name)
-            if limits is not None:
-                return RateConstraint(
-                    requests_per_minute=limits.requests_per_minute,
-                    tokens_per_minute=limits.tokens_per_minute,
-                )
-        except Exception as e:
-            log.exception("Failed to resolve rate constraint: %s", e)
+        limits = get_rate_limits(config.tier, model_name)
+        if limits is not None:
+            return RateConstraint(
+                requests_per_minute=limits.requests_per_minute,
+                tokens_per_minute=limits.tokens_per_minute,
+            )
         return None
+
+    # (Vendor token policy helpers removed to keep planner pure)
 
     def _apply_estimation_override(
         self, estimate: TokenEstimate, override_hint: EstimationOverrideHint | None
@@ -480,21 +417,7 @@ class ExecutionPlanner(
             breakdown=estimate.breakdown,
         )
 
-    def _should_cache(self, estimate: TokenEstimate, config: Any) -> bool:
-        """Decide whether to use caching based on model capabilities.
-
-        Uses explicit caching threshold when available, otherwise falls back
-        to implicit threshold. Finally, falls back to 4096 if model is unknown.
-        """
-        model = str(config.model or "gemini-2.0-flash")
-        capabilities = get_model_capabilities(model)
-        threshold = 4096
-        if capabilities and capabilities.caching:
-            if capabilities.caching.explicit_minimum_tokens:
-                threshold = int(capabilities.caching.explicit_minimum_tokens)
-            elif capabilities.caching.implicit_minimum_tokens:
-                threshold = int(capabilities.caching.implicit_minimum_tokens)
-        return estimate.max_tokens >= threshold
+    # Cache decision helpers removed: now handled by CacheStage at execution time
 
     def _generate_cache_name(
         self, command: ResolvedCommand, system_instruction: str | None = None
@@ -566,3 +489,33 @@ class ExecutionPlanner(
         }
         data = json.dumps(payload, sort_keys=True, separators=(",", ":")).encode()
         return hashlib.sha256(data).hexdigest()
+
+    def _deterministic_shared_cache_key(
+        self,
+        model_name: str,
+        system_instruction: str | None,
+        history_text: str,
+        sources: Iterable[Source],
+    ) -> str:
+        payload = {
+            "model": model_name,
+            "system": system_instruction,
+            "history": history_text,
+            "sources": [
+                {
+                    "id": str(s.identifier),
+                    "mt": s.mime_type,
+                    "sz": s.size_bytes,
+                }
+                for s in sources
+            ],
+        }
+        return hashlib.sha256(
+            json.dumps(payload, sort_keys=True, separators=(",", ":")).encode()
+        ).hexdigest()
+
+    def _model_name(self, config: FrozenConfig) -> str:
+        return config.model
+
+    def _api_config(self, system_instruction: str | None) -> dict[str, Any]:
+        return {"system_instruction": system_instruction} if system_instruction else {}

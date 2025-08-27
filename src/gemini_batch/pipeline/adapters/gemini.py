@@ -58,15 +58,65 @@ class GoogleGenAIAdapter(GenerationAdapter):
     async def upload_file_local(
         self,
         path: os.PathLike[str] | str,
-        mime_type: str | None,  # noqa: ARG002
+        mime_type: str | None,
     ) -> Any:
-        """Upload a file using the provider SDK and return its handle."""
+        """Upload a file using the provider SDK and return a neutral handle.
+
+        Returns a library-owned `FileRefPart` (preferred) or a minimal mapping
+        with a `uri` key so the API handler can substitute it reliably.
+        """
         loop = asyncio.get_running_loop()
 
         def _upload() -> Any:
             return self._client.files.upload(file=os.fspath(path))
 
-        return await loop.run_in_executor(self._executor, _upload)
+        uploaded = await loop.run_in_executor(self._executor, _upload)
+
+        # Normalize provider file object into neutral FileRefPart when possible
+        try:
+            from gemini_batch.core.types import (
+                FileRefPart,  # local import to avoid cycles
+            )
+
+            # Prefer SDK "uri" attribute for full URI, fall back to "name" for short format
+            # The full URI is more reliable for content generation
+            uri_attr = getattr(uploaded, "uri", None)
+            if isinstance(uri_attr, str) and uri_attr.strip():
+                return FileRefPart(
+                    uri=uri_attr, mime_type=mime_type, raw_provider_data=uploaded
+                )
+            # Fallback to name attribute (short format)
+            name_attr = getattr(uploaded, "name", None)
+            if isinstance(name_attr, str) and name_attr.strip():
+                return FileRefPart(
+                    uri=name_attr, mime_type=mime_type, raw_provider_data=uploaded
+                )
+            # Dict-like response variants
+            if isinstance(uploaded, dict):
+                # Prefer full URI over short name format
+                if isinstance(uploaded.get("uri"), str):
+                    return FileRefPart(
+                        uri=uploaded["uri"],
+                        mime_type=mime_type,
+                        raw_provider_data=uploaded,
+                    )
+                if isinstance(uploaded.get("name"), str):
+                    return FileRefPart(
+                        uri=uploaded["name"],
+                        mime_type=mime_type,
+                        raw_provider_data=uploaded,
+                    )
+        except Exception:  # pragma: no cover - never fail upload due to normalization
+            logger.debug(
+                "upload normalization failed; returning raw object", exc_info=True
+            )
+
+        # Fallback: return a minimal mapping the handler can coerce later
+        # Attempt to surface some identifier as `uri`
+        candidate = getattr(uploaded, "name", None) or getattr(uploaded, "uri", None)
+        if isinstance(candidate, str) and candidate.strip():
+            return {"uri": candidate, "mime_type": mime_type}
+        return uploaded
 
     async def create_cache(
         self,
@@ -155,7 +205,10 @@ class GoogleGenAIAdapter(GenerationAdapter):
                 return {"text": str(text_attr)}
         # Neutral file reference
         try:
-            from gemini_batch.core.types import FileRefPart  # local to avoid cycles
+            from gemini_batch.core.types import (  # local to avoid cycles
+                FileInlinePart,
+                FileRefPart,
+            )
 
             if isinstance(part, FileRefPart):
                 # Prefer SDK type; fall back to a simple dict with well-known key
@@ -166,8 +219,17 @@ class GoogleGenAIAdapter(GenerationAdapter):
                     )
                 except Exception:  # pragma: no cover - SDK variability
                     return {"file_uri": part.uri, "mime_type": part.mime_type}
+            if isinstance(part, FileInlinePart):
+                try:
+                    return self._types.Part(
+                        inline_data=self._types.Blob(
+                            mime_type=part.mime_type, data=bytes(part.data)
+                        )
+                    )
+                except Exception:  # pragma: no cover
+                    return {"inline_data": True, "mime_type": part.mime_type}
         except Exception:  # pragma: no cover - type import issues shouldn't break
-            logger.exception("Failed to convert file reference part")
+            logger.exception("Failed to convert part")
         return part
 
     def _to_provider_config(self, api_config: dict[str, object]) -> Any:
@@ -179,6 +241,23 @@ class GoogleGenAIAdapter(GenerationAdapter):
 
                 with suppress(Exception):
                     setattr(cfg, key, value)
+            # Tighten: never silently drop critical keys like cached_content.
+            # If the typed config cannot carry it, fall back to dict config.
+            if "cached_content" in api_config:
+                try:
+                    if not hasattr(cfg, "cached_content"):
+                        return api_config
+                    applied = getattr(cfg, "cached_content", None)
+                    expected = api_config.get("cached_content")
+                    # If a non-empty cached_content was requested but not applied, use dict
+                    if expected not in (None, "", False) and applied in (
+                        None,
+                        "",
+                        False,
+                    ):
+                        return api_config
+                except Exception:  # pragma: no cover - be robust to SDK shape issues
+                    return api_config
             return cfg
         except Exception:  # pragma: no cover
             return api_config
