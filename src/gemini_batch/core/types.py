@@ -203,6 +203,61 @@ class Source:
         # Use the dedicated helper for callable validation
         _require_zero_arg_callable(self.content_loader, "content_loader")
 
+    # --- Ergonomic constructors for common cases ---
+    @classmethod
+    def from_text(cls, content: str, identifier: str | None = None) -> Source:
+        """Create a text `Source` from a string.
+
+        Args:
+            content: Text content to analyze.
+            identifier: Optional identifier; defaults to a snippet of the content.
+
+        Returns:
+            A `Source` representing UTF-8 encoded text.
+        """
+        _require(
+            condition=isinstance(content, str),
+            message="must be a str",
+            field_name="content",
+            exc=TypeError,
+        )
+        encoded = content.encode("utf-8")
+        display = identifier if identifier is not None else content[:100]
+        return cls(
+            source_type="text",
+            identifier=display,
+            mime_type="text/plain",
+            size_bytes=len(encoded),
+            content_loader=lambda: encoded,
+        )
+
+    @classmethod
+    def from_file(cls, path: str | Path) -> Source:
+        """Create a file `Source` from a local filesystem path.
+
+        Args:
+            path: Path to a local file.
+
+        Returns:
+            A `Source` that lazily loads the file bytes.
+        """
+        file_path = Path(path)
+        _require(
+            condition=file_path.is_file(),
+            message="path must point to an existing file",
+            field_name="path",
+        )
+        import mimetypes
+
+        mime_type, _ = mimetypes.guess_type(str(file_path))
+        return cls(
+            source_type="file",
+            identifier=file_path,
+            mime_type=mime_type or "application/octet-stream",
+            size_bytes=file_path.stat().st_size,
+            content_loader=lambda: file_path.read_bytes(),
+        )
+
 
 @dataclasses.dataclass(frozen=True, slots=True)
 class PromptBundle:
@@ -364,6 +419,42 @@ class InitialCommand:
             message="must be a tuple[object, ...] or None",
             field_name="hints",
             exc=TypeError,
+        )
+
+    # Strict construction helper for friendlier early failures
+    @classmethod
+    def strict(
+        cls,
+        *,
+        sources: tuple[typing.Any, ...],
+        prompts: tuple[str, ...],
+        config: FrozenConfig,
+        history: tuple[ConversationTurn, ...] = (),
+        hints: tuple[object, ...] | None = None,
+    ) -> InitialCommand:
+        """Construct an `InitialCommand` ensuring at least one non-empty prompt.
+
+        This surfaces prompt validity issues at creation time rather than during
+        prompt assembly, improving onboarding and error locality.
+        """
+        _require(
+            condition=isinstance(prompts, tuple)
+            and all(isinstance(p, str) for p in prompts),
+            message="prompts must be a tuple[str, ...]",
+            field_name="prompts",
+            exc=TypeError,
+        )
+        _require(
+            condition=any((p or "").strip() for p in prompts),
+            message="must contain at least one non-empty prompt",
+            field_name="prompts",
+        )
+        return cls(
+            sources=sources,
+            prompts=prompts,
+            config=config,
+            history=history,
+            hints=hints,
         )
 
 

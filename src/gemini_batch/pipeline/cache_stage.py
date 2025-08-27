@@ -18,11 +18,13 @@ import dataclasses
 import logging
 from typing import TYPE_CHECKING, Any, cast
 
+from gemini_batch.constants import INLINE_CACHE_MAX_BYTES
 from gemini_batch.core.exceptions import APIError
 from gemini_batch.core.models import get_model_capabilities
 from gemini_batch.core.types import (
     APICall,
     ExecutionPlan,
+    Failure,
     PlannedCommand,
     Result,
     Success,
@@ -106,9 +108,9 @@ class CacheStage(BaseAsyncHandler[PlannedCommand, PlannedCommand, APIError]):
             updated_command = dataclasses.replace(command, execution_plan=updated_plan)
             return Success(updated_command)
         except APIError as e:
-            return Result(error=e)
+            return Failure(e)
         except Exception as e:
-            return Result(error=APIError(f"Cache stage failed: {e}"))
+            return Failure(APIError(f"Cache stage failed: {e}"))
 
     # --- Internal helpers ---
     async def _resolve_or_create_cache_name(
@@ -130,9 +132,9 @@ class CacheStage(BaseAsyncHandler[PlannedCommand, PlannedCommand, APIError]):
             "str | None", plan.primary_call.api_config.get("system_instruction")
         )
 
-        # Inline file placeholders for caching payload
+        # Inline file placeholders for caching payload via a dedicated shaper
         shared_parts = list(getattr(plan, "shared_parts", ()) or ())
-        inline_parts = _inline_file_placeholders(shared_parts)
+        inline_parts = _shape_cache_payload(shared_parts)
         if not inline_parts:
             return None
 
@@ -141,10 +143,11 @@ class CacheStage(BaseAsyncHandler[PlannedCommand, PlannedCommand, APIError]):
         if not cfg.enable_caching and cache_hint is None:
             return None
 
-        reg_key = (
-            cache_hint.deterministic_key
-            if cache_hint
-            else det_shared_key(model_name, system_instruction, command)
+        reg_key = _compute_cache_key(
+            model_name=model_name,
+            system_instruction=system_instruction,
+            command=command,
+            cache_hint=cache_hint,
         )
 
         # Reuse from registry if available
@@ -194,6 +197,21 @@ def _inline_file_placeholders(parts: list[Any]) -> list[Any]:
     for p in parts:
         if isinstance(p, FilePlaceholder):
             try:
+                # Skip inlining very large files to avoid memory spikes
+                try:
+                    size = p.local_path.stat().st_size
+                except Exception:
+                    size = None
+                if size is not None and size > INLINE_CACHE_MAX_BYTES:
+                    logger.debug(
+                        "Skipping inline caching for large file: %s (%d bytes > %d limit)",
+                        p.local_path.name,
+                        size,
+                        INLINE_CACHE_MAX_BYTES,
+                    )
+                    inline.append(p)
+                    continue
+
                 data = p.local_path.read_bytes()
                 inline.append(
                     FileInlinePart(
@@ -207,6 +225,29 @@ def _inline_file_placeholders(parts: list[Any]) -> list[Any]:
         else:
             inline.append(p)
     return inline
+
+
+def _shape_cache_payload(parts: list[Any]) -> list[Any]:
+    """Shape shared parts into a cache-friendly payload.
+
+    Currently, this inlines file placeholders up to a size threshold.
+    Future strategies (e.g., references) can be added here without touching
+    policy or identity computation.
+    """
+    return _inline_file_placeholders(parts)
+
+
+def _compute_cache_key(
+    *,
+    model_name: str,
+    system_instruction: str | None,
+    command: PlannedCommand,
+    cache_hint: CacheHint | None,
+) -> str:
+    """Compute deterministic cache key from hint or shared-context identity."""
+    if cache_hint and (cache_hint.deterministic_key or "").strip():
+        return cache_hint.deterministic_key
+    return det_shared_key(model_name, system_instruction, command)
 
 
 def _with_cache_name(call: APICall, cache_name: str) -> APICall:

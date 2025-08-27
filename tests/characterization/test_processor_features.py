@@ -11,7 +11,7 @@ from typing import Any
 
 import pytest
 
-from gemini_batch.exceptions import BatchProcessingError
+from gemini_batch.core.exceptions import APIError
 
 
 def _remove_timing_fields(output_dict: dict[str, Any]) -> dict[str, Any]:
@@ -43,7 +43,7 @@ def test_batch_processor_fallback_behavior(golden, mock_gemini_client, batch_pro
     questions = golden["input"]["questions"]
 
     mock_gemini_client.generate_content.side_effect = [
-        BatchProcessingError("Simulated API failure for batch call."),
+        APIError("Simulated API failure for batch call."),
         {
             "text": json.dumps(["Answer from individual call 1."]),
             "usage": {

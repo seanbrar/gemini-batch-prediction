@@ -3,7 +3,7 @@ from __future__ import annotations
 import pytest
 
 from gemini_batch.executor import create_executor
-from gemini_batch.extensions.conversation import Exchange
+from gemini_batch.extensions import Exchange
 from gemini_batch.extensions.conversation_engine import ConversationEngine
 from gemini_batch.extensions.conversation_store import JSONStore
 

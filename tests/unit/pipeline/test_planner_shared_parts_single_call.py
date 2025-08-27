@@ -7,17 +7,24 @@ the primary call parts.
 
 from __future__ import annotations
 
+from typing import TYPE_CHECKING
+
 import pytest
 
 from gemini_batch.config import resolve_config
 from gemini_batch.core.types import InitialCommand, ResolvedCommand
 from gemini_batch.pipeline.planner import ExecutionPlanner
 
+if TYPE_CHECKING:
+    from pathlib import Path
+
 pytestmark = pytest.mark.unit
 
 
 @pytest.mark.asyncio
-async def test_single_call_shared_parts_carry_files_only_prompt_in_api_parts(tmp_path) -> None:
+async def test_single_call_shared_parts_carry_files_only_prompt_in_api_parts(
+    tmp_path: Path,
+) -> None:
     # Arrange: one file source, single prompt
     file_path = tmp_path / "doc.pdf"
     file_path.write_bytes(b"%PDF-1.4 test")
@@ -42,4 +49,3 @@ async def test_single_call_shared_parts_carry_files_only_prompt_in_api_parts(tmp
 
     assert any(isinstance(p, FilePlaceholder) for p in plan.shared_parts)
     assert all(isinstance(p, TextPart) for p in plan.primary_call.api_parts)
-

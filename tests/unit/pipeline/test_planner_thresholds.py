@@ -34,9 +34,8 @@ async def test_planner_uses_model_thresholds_from_core_models():
     # let test fail naturally if not success
     planned = result.value  # type: ignore[union-attr]
 
-    # When threshold is applied and caching is enabled, a cache name may be present
-    cache_name = planned.execution_plan.primary_call.cache_name_to_use
     # Note: Current implementation may not generate cache names in all scenarios
+    # When threshold is applied and caching is enabled, a cache name may be present
     # This test verifies the pipeline completes successfully with caching enabled
     assert planned.execution_plan.primary_call is not None, (
         "Primary call should be present"
