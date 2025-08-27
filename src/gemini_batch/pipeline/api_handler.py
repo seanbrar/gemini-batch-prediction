@@ -34,12 +34,12 @@ from gemini_batch.core.types import (
     Success,
 )
 from gemini_batch.pipeline.adapters.base import (
-    CachingCapability,
     ExecutionHintsAware,
     GenerationAdapter,
     UploadsCapability,
 )
 from gemini_batch.pipeline.base import BaseAsyncHandler
+from gemini_batch.pipeline.cache_identity import det_shared_key
 from gemini_batch.pipeline.execution_state import ExecutionHints
 from gemini_batch.pipeline.hints import CacheHint, ExecutionCacheName
 from gemini_batch.telemetry import TelemetryContext
@@ -47,7 +47,6 @@ from gemini_batch.telemetry import TelemetryContext
 if TYPE_CHECKING:
     from collections.abc import Callable
 
-    from gemini_batch.core.types import ExplicitCachePlan
     from gemini_batch.pipeline.registries import SimpleRegistry
     from gemini_batch.telemetry import TelemetryContextProtocol
 
@@ -89,7 +88,6 @@ class APIHandler(BaseAsyncHandler[PlannedCommand, FinalizedCommand, APIError]):
         """Handle the planned command and return a finalized command."""
         try:
             plan = command.execution_plan
-            reg_key: str | None = None
             # Vectorized execution path: iterate calls with shared context
             if getattr(plan, "calls", ()):  # non-empty tuple
                 adapter = self._select_adapter(command)
@@ -97,43 +95,7 @@ class APIHandler(BaseAsyncHandler[PlannedCommand, FinalizedCommand, APIError]):
                 # Prepare shared parts once (uploads/registries)
                 effective_shared = await self._prepare_shared_parts(adapter, plan)
 
-                # Resolve/create shared cache once if supported
-                cache_name_ctx: str | None = None
-                exp_shared = getattr(plan, "shared_cache", None)
-                if exp_shared is not None and isinstance(adapter, CachingCapability):
-                    # Registry lookup by deterministic key
-                    reg_key = getattr(exp_shared, "deterministic_key", None)
-                    if reg_key and self._cache_registry is not None:
-                        try:
-                            cached_name = self._cache_registry.get(reg_key)
-                        except Exception:
-                            cached_name = None
-                        if isinstance(cached_name, str):
-                            cache_name_ctx = cached_name
-                    # Create if allowed and not found
-                    if not cache_name_ctx and getattr(exp_shared, "create", False):
-                        sys_inst = None
-                        try:
-                            first_call = plan.calls[0]
-                            sys_inst = cast(
-                                "str | None",
-                                first_call.api_config.get("system_instruction"),
-                            )
-                        except Exception:
-                            sys_inst = None
-                        created = await adapter.create_cache(
-                            model_name=plan.calls[0].model_name,
-                            content_parts=tuple(effective_shared),
-                            system_instruction=sys_inst,
-                            ttl_seconds=getattr(exp_shared, "ttl_seconds", None),
-                        )
-                        if isinstance(created, str):
-                            cache_name_ctx = created
-                            if reg_key and self._cache_registry is not None:
-                                from contextlib import suppress
-
-                                with suppress(Exception):
-                                    self._cache_registry.set(reg_key, created)
+                # Cache name is provided by CacheStage via APICall.cache_name_to_use
 
                 raw_list: list[dict[str, Any]] = []
                 per_prompt_usage: list[dict[str, Any]] = []
@@ -174,8 +136,8 @@ class APIHandler(BaseAsyncHandler[PlannedCommand, FinalizedCommand, APIError]):
                             command,
                             call,
                             tuple(combined_parts),
-                            cache_name_ctx,
-                            had_explicit_cache_plan=(exp_shared is not None),
+                            call.cache_name_to_use,
+                            had_explicit_cache_plan=bool(call.cache_name_to_use),
                         )
                     raw_list.append(raw)
                     per_prompt_usage.append(
@@ -237,55 +199,13 @@ class APIHandler(BaseAsyncHandler[PlannedCommand, FinalizedCommand, APIError]):
             effective_parts = list(
                 self._combine_shared_with_call(effective_shared, primary.api_parts)
             )
+            # Apply uploads to combined parts (indices are relative to primary.api_parts)
+            effective_parts = await self._prepare_effective_parts(
+                adapter, plan, effective_parts
+            )
 
-            # 3) Resolve cache name (explicit or hint)
-            cache_name, exp_cache = await self._resolve_cache(adapter, plan, primary)
-
-            # Best-effort: persist cache artifacts metadata using the registry's
-            # metadata channel when available (keeps primary values homogeneous).
-            try:
-                reg = self._cache_registry
-                if reg is not None and cache_name:
-                    # Read artifacts from the first CacheHint on the initial command
-                    initial = command.resolved.initial
-                    ch = next(
-                        (
-                            h
-                            for h in (getattr(initial, "hints", ()) or ())
-                            if isinstance(h, CacheHint)
-                        ),
-                        None,
-                    )
-                    reg_key = getattr(
-                        getattr(plan, "explicit_cache", None), "deterministic_key", None
-                    )
-                    if ch is not None and reg_key:
-                        try:
-                            from gemini_batch.pipeline.registries import CacheRegistry
-
-                            if isinstance(reg, CacheRegistry):
-                                reg.set_meta(
-                                    reg_key,
-                                    {
-                                        "cache_name": cache_name,
-                                        "artifacts": tuple(ch.artifacts),
-                                    },
-                                )
-                        except Exception as inner:
-                            logger.debug(
-                                "Cache metadata set_meta failed (key=%s): %s",
-                                reg_key,
-                                inner,
-                                exc_info=True,
-                            )
-            except Exception as e:
-                logger.debug(
-                    "Cache metadata write skipped (key=%s): %s",
-                    reg_key,
-                    e,
-                    exc_info=True,
-                )
-                # Strictly best-effort; never fail execution due to metadata write
+            # 3) Cache name provided by CacheStage or execution hint
+            cache_name = primary.cache_name_to_use
 
             # 4) Execute with resilience and optional fallback
             (
@@ -299,7 +219,7 @@ class APIHandler(BaseAsyncHandler[PlannedCommand, FinalizedCommand, APIError]):
                 primary,
                 tuple(effective_parts),
                 cache_name,
-                had_explicit_cache_plan=(exp_cache is not None),
+                had_explicit_cache_plan=bool(cache_name),
             )
 
             finalized = FinalizedCommand(planned=command, raw_api_response=raw_response)
@@ -439,7 +359,9 @@ class APIHandler(BaseAsyncHandler[PlannedCommand, FinalizedCommand, APIError]):
                     uri_attr = cast("Any", uploaded).uri
                     if isinstance(uri_attr, str):
                         coerced = FileRefPart(
-                            uri=uri_attr, mime_type=getattr(uploaded, "mime_type", None)
+                            uri=uri_attr,
+                            mime_type=getattr(uploaded, "mime_type", None),
+                            raw_provider_data=uploaded,
                         )
                 except Exception:
                     coerced = None
@@ -447,7 +369,9 @@ class APIHandler(BaseAsyncHandler[PlannedCommand, FinalizedCommand, APIError]):
                     u = uploaded.get("uri")
                     if isinstance(u, str):
                         coerced = FileRefPart(
-                            uri=u, mime_type=cast("Any", uploaded).get("mime_type")
+                            uri=u,
+                            mime_type=cast("Any", uploaded).get("mime_type"),
+                            raw_provider_data=uploaded,
                         )
                 effective_parts[idx] = coerced if coerced is not None else uploaded
 
@@ -460,9 +384,25 @@ class APIHandler(BaseAsyncHandler[PlannedCommand, FinalizedCommand, APIError]):
 
         Mirrors vectorized preparation in both paths to keep behavior symmetrical.
         """
-        return await self._prepare_effective_parts(
-            adapter, plan, list(getattr(plan, "shared_parts", ()))
-        )
+        # Important: Do NOT apply UploadTasks to shared parts; upload tasks are
+        # indexed relative to primary call's api_parts. Only sanitize history,
+        # but still allow upload inference for placeholders.
+        shared = list(getattr(plan, "shared_parts", ()))
+        from types import SimpleNamespace
+
+        from gemini_batch.core.types import HistoryPart
+
+        shared = [
+            p
+            for p in shared
+            if not (
+                isinstance(p, HistoryPart) and not tuple(getattr(p, "turns", ()) or ())
+            )
+        ]
+        # Reuse effective-parts helper to infer uploads from placeholders, while
+        # ignoring any plan-specified upload tasks by passing a dummy plan.
+        dummy_plan = SimpleNamespace(upload_tasks=())
+        return await self._prepare_effective_parts(adapter, dummy_plan, shared)
 
     def _combine_shared_with_call(
         self, shared: list[Any], call_parts: tuple[Any, ...]
@@ -470,70 +410,7 @@ class APIHandler(BaseAsyncHandler[PlannedCommand, FinalizedCommand, APIError]):
         """Combine effective shared parts with per-call parts for execution."""
         return tuple(shared) + tuple(call_parts)
 
-    async def _resolve_cache(
-        self,
-        adapter: GenerationAdapter,
-        plan: ExecutionPlan,
-        primary: APICall,
-    ) -> tuple[str | None, ExplicitCachePlan | None]:
-        """Resolve the cache name to use for this execution.
-
-        Precedence (fail-soft):
-        1) Start with any `APICall.cache_name_to_use` carried in the plan.
-        2) If an `ExplicitCachePlan` is present and the adapter supports caching,
-           consult the cache registry by deterministic key and, if missing,
-           create the cache from the selected content parts (optionally including
-           the system instruction). Store the created name in the registry.
-        3) If `ExplicitCachePlan.cache_name` is set but `create=False`, use it.
-
-        Returns a tuple of `(cache_name, explicit_cache_plan)` to inform retry
-        semantics upstream; callers may still apply an execution-time override
-        via `ExecutionCacheName` later.
-        """
-        cache_name = primary.cache_name_to_use
-        exp_cache = getattr(plan, "explicit_cache", None)
-        if exp_cache is not None and isinstance(adapter, CachingCapability):
-            if getattr(exp_cache, "create", False):
-                # Select content parts relative to the primary call's api_parts
-                # (not the combined shared+call list) to preserve planner semantics.
-                pool = list(primary.api_parts)
-                content_parts = [
-                    pool[i]
-                    for i in getattr(exp_cache, "contents_part_indexes", ())
-                    if 0 <= i < len(pool)
-                ]
-                reg_key = getattr(exp_cache, "deterministic_key", None)
-                if reg_key and self._cache_registry is not None:
-                    try:
-                        cached_name = self._cache_registry.get(reg_key)
-                    except Exception:
-                        cached_name = None
-                    if isinstance(cached_name, str):
-                        cache_name = cached_name
-                if not cache_name:
-                    created = await adapter.create_cache(
-                        model_name=primary.model_name,
-                        content_parts=tuple(content_parts),
-                        system_instruction=(
-                            cast(
-                                "str | None",
-                                primary.api_config.get("system_instruction"),
-                            )
-                            if getattr(exp_cache, "include_system_instruction", True)
-                            else None
-                        ),
-                        ttl_seconds=getattr(exp_cache, "ttl_seconds", None),
-                    )
-                    if isinstance(created, str):
-                        cache_name = created
-                        if reg_key and self._cache_registry is not None:
-                            from contextlib import suppress
-
-                            with suppress(Exception):
-                                self._cache_registry.set(reg_key, created)
-            elif getattr(exp_cache, "cache_name", None):
-                cache_name = exp_cache.cache_name
-        return cache_name, exp_cache
+    # Cache resolution is handled by CacheStage; no planning-time cache logic here
 
     async def _execute_with_resilience(
         self,
@@ -781,6 +658,13 @@ class APIHandler(BaseAsyncHandler[PlannedCommand, FinalizedCommand, APIError]):
                 tele.gauge("cache_intent_plan", 1 if intent_from_plan else 0)
                 tele.gauge("cache_intent_override", 1 if intent_from_override else 0)
                 tele.gauge("cache_applied", 1 if cache_applied else 0)
+                # If cache is applied, write metadata to registry (best-effort)
+                if cache_applied:
+                    self._write_cache_metadata(
+                        planned_command,
+                        cache_name,
+                        applied_via=("override" if intent_from_override else "plan"),
+                    )
                 return await adapter.generate(
                     model_name=model_name,
                     api_parts=parts,
@@ -854,6 +738,46 @@ class APIHandler(BaseAsyncHandler[PlannedCommand, FinalizedCommand, APIError]):
             or "temporarily" in text
             or "unavailable" in text
         )
+
+    # --- Cache metadata helpers ---
+    def _write_cache_metadata(
+        self, planned_command: PlannedCommand, cache_name: str, *, applied_via: str
+    ) -> None:
+        """Best-effort write of cache metadata to the cache registry.
+
+        Stores the applied cache name and any artifacts from CacheHint under the
+        deterministic shared-context key used by CacheStage. Unknown registry
+        types are ignored safely.
+        """
+        reg = self._cache_registry
+        if reg is None:
+            return
+        try:
+            initial = planned_command.resolved.initial
+            hints = tuple(getattr(initial, "hints", ()) or ())
+            cache_hint = next((h for h in hints if isinstance(h, CacheHint)), None)
+
+            plan = planned_command.execution_plan
+            model_name = plan.primary_call.model_name
+            sys_instr = plan.primary_call.api_config.get("system_instruction")
+            sys_text = str(sys_instr) if sys_instr is not None else None
+
+            key = det_shared_key(model_name, sys_text, planned_command)
+            setter = getattr(reg, "set_meta", None)
+            if callable(setter):
+                setter(
+                    key,
+                    {
+                        "cache_name": cache_name,
+                        "artifacts": tuple(cache_hint.artifacts) if cache_hint else (),
+                        "applied_via": "override"
+                        if applied_via == "override"
+                        else "plan",
+                    },
+                )
+        except Exception:
+            # Best-effort: never fail execution due to metadata
+            return
 
 
 class _MockAdapter(GenerationAdapter):
