@@ -344,19 +344,14 @@ class InitialCommand:
             field_name="prompts",
             exc=TypeError,
         )
-        # Prompts must not be empty for a valid command
+        # Ensure prompts structure is valid - content validation handled by prompt assembler
         _require(
-            condition=len(self.prompts) > 0,
-            message="must contain at least one prompt",
+            condition=self.prompts is not None,
+            message="prompts field cannot be None",
             field_name="prompts",
         )
-        # Validate prompts are not all whitespace
-        non_empty_prompts = [p for p in self.prompts if p.strip()]
-        _require(
-            condition=len(non_empty_prompts) > 0,
-            message="must contain at least one non-empty prompt",
-            field_name="prompts",
-        )
+        # Prompts validation is handled by the prompt assembler, which has access to
+        # configuration and can provide more specific error messages
 
         _require(
             condition=_is_tuple_of(self.history, ConversationTurn),
@@ -403,7 +398,9 @@ class TextPart:
 
 
 # Neutral union of API parts; extendable without leaking provider types
-type APIPart = TextPart | "FileRefPart" | "FilePlaceholder" | "HistoryPart"
+type APIPart = (
+    TextPart | "FileRefPart" | "FilePlaceholder" | "HistoryPart" | "FileInlinePart"
+)
 
 
 @dataclasses.dataclass(frozen=True, slots=True)
@@ -412,6 +409,8 @@ class FileRefPart:
 
     uri: str
     mime_type: str | None = None
+    # Preserve raw provider object for advanced use cases
+    raw_provider_data: typing.Any = None
 
     def __post_init__(self) -> None:
         """Validate FileRefPart invariants."""
@@ -423,6 +422,31 @@ class FileRefPart:
         _require(
             condition=self.mime_type is None or isinstance(self.mime_type, str),
             message="mime_type must be a str or None",
+            exc=TypeError,
+        )
+
+
+@dataclasses.dataclass(frozen=True, slots=True)
+class FileInlinePart:
+    """Neutral inline file content for provider-agnostic cache creation.
+
+    Carries raw bytes plus MIME type. Intended for opportunistic creation of
+    cached contents where reading the file once at execution time is acceptable.
+    """
+
+    mime_type: str
+    data: bytes
+
+    def __post_init__(self) -> None:
+        """Validate FileInlinePart invariants."""
+        _require(
+            condition=isinstance(self.mime_type, str) and self.mime_type.strip() != "",
+            message="mime_type must be a non-empty str",
+            exc=TypeError,
+        )
+        _require(
+            condition=isinstance(self.data, bytes | bytearray),
+            message="data must be bytes-like",
             exc=TypeError,
         )
 
@@ -621,7 +645,13 @@ class APICall:
             message="api_parts must be a tuple",
             exc=TypeError,
         )
-        valid_types = (TextPart, FileRefPart, FilePlaceholder, HistoryPart)
+        valid_types = (
+            TextPart,
+            FileRefPart,
+            FilePlaceholder,
+            HistoryPart,
+            FileInlinePart,
+        )
         for idx, part in enumerate(self.api_parts):
             _require(
                 condition=isinstance(part, valid_types),
@@ -652,12 +682,10 @@ class ExecutionPlan:
     # Vectorized execution: N independent calls with shared context
     calls: tuple[APICall, ...] = ()
     shared_parts: tuple[APIPart, ...] = ()
-    shared_cache: ExplicitCachePlan | None = None
     # Optional rate limiting constraint
     rate_constraint: RateConstraint | None = None
     # Optional pre-generation actions
     upload_tasks: tuple[UploadTask, ...] = ()
-    explicit_cache: ExplicitCachePlan | None = None
 
     def __post_init__(self) -> None:
         """Validate plan collections and optionals."""
@@ -669,15 +697,10 @@ class ExecutionPlan:
         )
         _require(
             condition=_is_tuple_of(
-                self.shared_parts, (TextPart, FileRefPart, FilePlaceholder, HistoryPart)
+                self.shared_parts,
+                (TextPart, FileRefPart, FilePlaceholder, HistoryPart, FileInlinePart),
             ),
             message="shared_parts must be a tuple[APIPart, ...]",
-            exc=TypeError,
-        )
-        _require(
-            condition=self.shared_cache is None
-            or isinstance(self.shared_cache, ExplicitCachePlan),
-            message="shared_cache must be ExplicitCachePlan or None",
             exc=TypeError,
         )
         _require(
@@ -691,12 +714,7 @@ class ExecutionPlan:
             message="upload_tasks must be a tuple[UploadTask, ...]",
             exc=TypeError,
         )
-        _require(
-            condition=self.explicit_cache is None
-            or isinstance(self.explicit_cache, ExplicitCachePlan),
-            message="explicit_cache must be ExplicitCachePlan or None",
-            exc=TypeError,
-        )
+        # No cache planning fields are present in ExecutionPlan.
 
 
 @dataclasses.dataclass(frozen=True, slots=True)
@@ -727,56 +745,6 @@ class UploadTask:
         _require(
             condition=isinstance(self.required, bool),
             message="required must be a bool",
-            exc=TypeError,
-        )
-
-
-@dataclasses.dataclass(frozen=True, slots=True)
-class ExplicitCachePlan:
-    """Instruction to create/use explicit cached content for context."""
-
-    create: bool = False
-    cache_name: str | None = None
-    contents_part_indexes: tuple[int, ...] = ()
-    # Whether to include system instruction text in the cached contents
-    include_system_instruction: bool = True
-    # Desired TTL in seconds for the cached content (provider may clamp/ignore)
-    ttl_seconds: int | None = None
-    # Deterministic key used to look up/store provider cache name in registry
-    deterministic_key: str | None = None
-
-    def __post_init__(self) -> None:
-        """Validate explicit cache definition."""
-        _require(
-            condition=isinstance(self.create, bool),
-            message="create must be a bool",
-            exc=TypeError,
-        )
-        _require(
-            condition=self.cache_name is None or isinstance(self.cache_name, str),
-            message="cache_name must be a str or None",
-            exc=TypeError,
-        )
-        _require(
-            condition=_is_tuple_of(self.contents_part_indexes, int)
-            and all(i >= 0 for i in self.contents_part_indexes),
-            message="contents_part_indexes must be a tuple of non-negative integers",
-            exc=TypeError,
-        )
-        _require(
-            condition=isinstance(self.include_system_instruction, bool),
-            message="include_system_instruction must be a bool",
-            exc=TypeError,
-        )
-        _require(
-            condition=self.ttl_seconds is None
-            or (isinstance(self.ttl_seconds, int) and self.ttl_seconds > 0),
-            message="ttl_seconds must be an int > 0 when provided",
-        )
-        _require(
-            condition=self.deterministic_key is None
-            or isinstance(self.deterministic_key, str),
-            message="deterministic_key must be a str or None",
             exc=TypeError,
         )
 
