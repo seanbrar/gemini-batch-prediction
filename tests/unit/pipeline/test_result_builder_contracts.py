@@ -309,16 +309,15 @@ class TestArchitecturalBoundaries:
         """Public API must expose only user-facing types."""
         import gemini_batch
 
-        # Only specific extraction types should be publicly exposed
+        # Only specific extraction types should be publicly exposed via gemini_batch.types
         extraction_exports = [
-            "ResultEnvelope",
-            "TransformSpec",
-            "Violation",
-            "ExtractionContract",
+            "ResultEnvelope",  # The stable result structure users receive
         ]
 
         for item in extraction_exports:
-            assert hasattr(gemini_batch, item), f"{item} should be in public API"
+            assert hasattr(gemini_batch.types, item), (
+                f"{item} should be in public gemini_batch.types API"
+            )
 
         # Internal extraction types should NOT be publicly exposed
         internal_types = [

@@ -22,7 +22,7 @@ async def test_planner_uses_model_thresholds_from_core_models():
         content_loader=lambda: b"",
     )
     initial = InitialCommand(
-        sources=("ignored",),
+        sources=(Source.from_text("ignored content"),),
         prompts=("p",),
         config=resolve_config(
             overrides={"api_key": "k", "model": model_name, "enable_caching": True}
@@ -37,6 +37,6 @@ async def test_planner_uses_model_thresholds_from_core_models():
     # Note: Current implementation may not generate cache names in all scenarios
     # When threshold is applied and caching is enabled, a cache name may be present
     # This test verifies the pipeline completes successfully with caching enabled
-    assert planned.execution_plan.primary_call is not None, (
+    assert planned.execution_plan.calls and len(planned.execution_plan.calls) > 0, (
         "Primary call should be present"
     )

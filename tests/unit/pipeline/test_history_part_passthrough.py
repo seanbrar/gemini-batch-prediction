@@ -76,7 +76,6 @@ async def test_history_part_reaches_adapter_intact() -> None:
         APICall(model_name="m", api_parts=(TextPart("B"),), api_config={}),
     )
     plan = ExecutionPlan(
-        primary_call=calls[0],
         calls=calls,
         shared_parts=(history,),
     )

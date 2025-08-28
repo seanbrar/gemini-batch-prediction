@@ -9,6 +9,7 @@ from gemini_batch.core.types import (
     InitialCommand,
     PlannedCommand,
     ResolvedCommand,
+    Source,
     Success,
     TextPart,
     TokenEstimate,
@@ -18,7 +19,7 @@ from gemini_batch.pipeline.api_handler import APIHandler
 
 def _planned_with_estimate(prompt_text: str, expected: int) -> PlannedCommand:
     initial = InitialCommand(
-        sources=("s",),
+        sources=(Source.from_text("s"),),
         prompts=(prompt_text,),
         config=resolve_config(overrides={"api_key": "k"}),
     )
@@ -28,7 +29,7 @@ def _planned_with_estimate(prompt_text: str, expected: int) -> PlannedCommand:
         api_parts=(TextPart(text=prompt_text),),
         api_config={},
     )
-    plan = ExecutionPlan(primary_call=call)
+    plan = ExecutionPlan(calls=(call,))
     estimate = TokenEstimate(
         min_tokens=expected // 2,
         expected_tokens=expected,

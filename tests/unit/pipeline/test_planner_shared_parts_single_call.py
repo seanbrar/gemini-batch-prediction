@@ -30,7 +30,10 @@ async def test_single_call_shared_parts_carry_files_only_prompt_in_api_parts(
     file_path.write_bytes(b"%PDF-1.4 test")
 
     cfg = resolve_config()
-    initial = InitialCommand(sources=(str(file_path),), prompts=("Hello?",), config=cfg)
+    from gemini_batch.core.types import Source
+
+    source = Source.from_file(file_path)
+    initial = InitialCommand(sources=(source,), prompts=("Hello?",), config=cfg)
     from gemini_batch.pipeline.source_handler import SourceHandler
 
     # Resolve sources via the SourceHandler to materialize Source objects
@@ -48,4 +51,4 @@ async def test_single_call_shared_parts_carry_files_only_prompt_in_api_parts(
     from gemini_batch.core.types import FilePlaceholder, TextPart
 
     assert any(isinstance(p, FilePlaceholder) for p in plan.shared_parts)
-    assert all(isinstance(p, TextPart) for p in plan.primary_call.api_parts)
+    assert all(isinstance(p, TextPart) for p in plan.calls[0].api_parts)

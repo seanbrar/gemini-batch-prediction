@@ -48,7 +48,7 @@ def create_mock_finalized_command(
     resolved = ResolvedCommand(initial=initial, resolved_sources=())
 
     execution_plan = ExecutionPlan(
-        primary_call=APICall(model_name="test-model", api_parts=(), api_config={})
+        calls=(APICall(model_name="test-model", api_parts=(), api_config={}),)
     )
 
     planned = PlannedCommand(resolved=resolved, execution_plan=execution_plan)
