@@ -73,6 +73,14 @@ class UploadPhase(str, Enum):
         return f"uploads.{phase.value}"
 
 
+# --- Telemetry scopes/keys (centralized to avoid typos) ---
+T_API_GENERATE = "api.generate"
+T_API_HINTS = "api.hints"
+T_API_RETRY_NO_CACHE = "api.retry_no_cache"
+T_API_GENERATE_RETRY = "api.generate_retry"
+T_API_GENERATE_RETRY_LOOP = "api.generate_retry_loop"
+
+
 class TelemetryUsage(TypedDict, total=False):
     """TypedDict for telemetry usage data structure."""
 
@@ -119,6 +127,11 @@ class APIHandler(BaseAsyncHandler[PlannedCommand, FinalizedCommand, APIError]):
         """Handle the planned command and return a finalized command."""
         try:
             plan = command.execution_plan
+            # Validate that all calls have non-empty api_parts
+            for call in plan.calls:
+                if not call.api_parts:
+                    raise APIError("API call must have at least one part")
+
             adapter = self._select_adapter(command)
             # Prepare shared parts once (uploads/registries)
             effective_shared = await self._prepare_shared_parts(adapter, plan)
@@ -451,7 +464,10 @@ class APIHandler(BaseAsyncHandler[PlannedCommand, FinalizedCommand, APIError]):
             try:
                 # Convert Mapping to dict for the method that needs to modify it
                 api_config_dict: dict[str, object] = dict(primary.api_config)
-                raw_response = await self._generate_with_resilience(
+                (
+                    raw_response,
+                    retried_without_cache,
+                ) = await self._generate_with_resilience(
                     adapter,
                     primary.model_name,
                     parts,
@@ -459,9 +475,6 @@ class APIHandler(BaseAsyncHandler[PlannedCommand, FinalizedCommand, APIError]):
                     cache_name,
                     had_explicit_cache_plan=had_explicit_cache_plan,
                     planned_command=command,
-                )
-                retried_without_cache = getattr(
-                    self, "_last_retry_without_cache", False
                 )
             except Exception as primary_error:
                 if command.execution_plan.fallback_call is None:
@@ -480,11 +493,15 @@ class APIHandler(BaseAsyncHandler[PlannedCommand, FinalizedCommand, APIError]):
                                 self._rebuild_for_fallback(command)
                             )
                         else:
+                            # Apply explicit no-cache hint for fallback path for uniformity
+                            self._apply_adapter_hints(adapter, None)
                             raw_response = await adapter.generate(
                                 model_name=fb.model_name,
                                 api_parts=tuple(fb.api_parts),
                                 api_config=dict(fb.api_config),
                             )
+                    # Fallback path does not imply primary no-cache retry
+                    retried_without_cache = False
                 except Exception as fallback_error:
                     raise APIError(
                         f"Fallback failed after primary error: {primary_error}; fallback error: {fallback_error}"
@@ -609,37 +626,13 @@ class APIHandler(BaseAsyncHandler[PlannedCommand, FinalizedCommand, APIError]):
         return cfg
 
     # --- Resilience helpers ---
-    async def _generate_with_resilience(
-        self,
-        adapter: GenerationAdapter,
-        model_name: str,
-        parts: tuple[APIPart, ...],
-        api_config: dict[str, object],
-        cache_name: str | None,
-        *,
-        had_explicit_cache_plan: bool,
-        planned_command: PlannedCommand,
-    ) -> dict[str, Any]:
-        """Generate with cache hinting and minimal retry logic.
+    def _read_execution_cache_override(
+        self, planned_command: PlannedCommand
+    ) -> tuple[str | None, bool]:
+        """Return (cache_name_override, overridden) from execution hints.
 
-        Behavior:
-        - If adapter is the mock, execute once deterministically (no retries).
-        - If a cache name is present (from plan or exec-time hint), apply it
-          and attempt generation.
-        - On error and when caching was intended (explicit plan or exec-time
-          override), retry once without cache and mark the retry in telemetry.
-        - For recognized transient errors, perform a small backoff loop (2 tries).
+        Best-effort: never raises. Emits a telemetry gauge in caller.
         """
-        # Reset flag visible to caller for telemetry
-        self._last_retry_without_cache = False
-
-        # Mock path remains deterministic and never retries
-        if isinstance(adapter, _MockAdapter):
-            with self._telemetry("api.generate", model=model_name):
-                return self._build_mock_response_from_parts(parts, planned_command)
-
-        # Read any execution-time cache override from hints (fail-soft)
-        cache_overridden_by_hint = False
         try:
             initial = planned_command.resolved.initial
             hints_tuple = tuple(getattr(initial, "hints", ()) or ())
@@ -652,18 +645,131 @@ class APIHandler(BaseAsyncHandler[PlannedCommand, FinalizedCommand, APIError]):
                 None,
             )
             if exec_cache:
-                cache_name = exec_cache
-                cache_overridden_by_hint = True
-                # Emit telemetry for cache override
-                with self._telemetry("api.hints") as tele:
-                    tele.gauge("exec_cache_override", 1)
-        except Exception as e:
+                return exec_cache, True
+        except Exception as e:  # pragma: no cover - defensive
             logger.debug(
-                "Failed to read execution cache name from hints: %s",
-                e,
-                exc_info=True,
+                "Failed to read execution cache name from hints: %s", e, exc_info=True
             )
-            # strictly best-effort; never fail on hints
+        return None, False
+
+    def _apply_adapter_hints(
+        self, adapter: GenerationAdapter, cached_content: str | None
+    ) -> None:
+        """Apply execution hints to adapter when supported (best-effort)."""
+        if isinstance(adapter, ExecutionHintsAware):
+            from contextlib import suppress
+
+            with suppress(Exception):
+                adapter.apply_hints(ExecutionHints(cached_content=cached_content))
+
+    async def _attempt_generate(
+        self,
+        adapter: GenerationAdapter,
+        model_name: str,
+        parts: tuple[APIPart, ...],
+        api_config: dict[str, object],
+        cache_name: str | None,
+    ) -> dict[str, Any]:
+        """Single generation attempt with optional cache application."""
+        self._apply_adapter_hints(adapter, cache_name)
+        return await adapter.generate(
+            model_name=model_name,
+            api_parts=parts,
+            api_config=self._with_cache(api_config, cache_name),
+        )
+
+    async def _retry_without_cache(
+        self,
+        adapter: GenerationAdapter,
+        model_name: str,
+        parts: tuple[APIPart, ...],
+        api_config: dict[str, object],
+    ) -> dict[str, Any]:
+        """One retry without cache, marking telemetry flag for caller."""
+        self._apply_adapter_hints(adapter, None)
+        return await adapter.generate(
+            model_name=model_name,
+            api_parts=parts,
+            api_config=dict(api_config),
+        )
+
+    async def _backoff_generate(
+        self,
+        adapter: GenerationAdapter,
+        model_name: str,
+        parts: tuple[APIPart, ...],
+        api_config: dict[str, object],
+        *,
+        attempts: int = 2,
+        base_delay: float = 0.5,
+        initial_error: Exception,
+    ) -> dict[str, Any]:
+        """Small backoff loop for transient errors; raises last error if exhausted."""
+        # If the initial error is not transient, don't retry pointlessly
+        if not self._is_transient_error(initial_error):
+            raise initial_error
+
+        last_error: Exception = initial_error
+        for i in range(attempts):
+            from random import random
+
+            sleep_for = base_delay * (2**i) * (1 + 0.25 * random())  # noqa: S311
+            await asyncio.sleep(sleep_for)
+            try:
+                with self._telemetry(
+                    T_API_GENERATE_RETRY, model=model_name, attempt=i + 1
+                ):
+                    return await adapter.generate(
+                        model_name=model_name,
+                        api_parts=parts,
+                        api_config=dict(api_config),
+                    )
+            except Exception as e:  # keep last error
+                # If the new error is not transient, raise immediately
+                if not self._is_transient_error(e):
+                    raise e
+                last_error = e
+        # Exhausted retries; raise the last transient error
+        raise last_error
+
+    async def _generate_with_resilience(
+        self,
+        adapter: GenerationAdapter,
+        model_name: str,
+        parts: tuple[APIPart, ...],
+        api_config: dict[str, object],
+        cache_name: str | None,
+        *,
+        had_explicit_cache_plan: bool,
+        planned_command: PlannedCommand,
+    ) -> tuple[dict[str, Any], bool]:
+        """Generate with cache hinting and minimal retry logic.
+
+        Behavior:
+        - If adapter is the mock, execute once deterministically (no retries).
+        - If a cache name is present (from plan or exec-time hint), apply it
+          and attempt generation.
+        - On error and when caching was intended (explicit plan or exec-time
+          override), retry once without cache and mark the retry in telemetry.
+        - For recognized transient errors, perform a small backoff loop (2 tries).
+        """
+        retried_without_cache = False
+
+        # Mock path remains deterministic and never retries
+        if isinstance(adapter, _MockAdapter):
+            with self._telemetry(T_API_GENERATE, model=model_name):
+                return self._build_mock_response_from_parts(
+                    parts, planned_command
+                ), retried_without_cache
+
+        # Read any execution-time cache override from hints (fail-soft)
+        cache_overridden_by_hint = False
+        override, overridden = self._read_execution_cache_override(planned_command)
+        if overridden:
+            cache_name = override
+            cache_overridden_by_hint = True
+            with self._telemetry(T_API_HINTS) as tele:
+                tele.gauge("exec_cache_override", 1)
 
         # Real path: attempt with cache hint first (if provided)
         last_error: Exception | None = None
@@ -676,13 +782,7 @@ class APIHandler(BaseAsyncHandler[PlannedCommand, FinalizedCommand, APIError]):
             intent_from_override = bool(cache_overridden_by_hint)
             cache_applied = cache_name is not None
 
-            hints = ExecutionHints(cached_content=cache_name)
-            if isinstance(adapter, ExecutionHintsAware):
-                from contextlib import suppress
-
-                with suppress(Exception):
-                    adapter.apply_hints(hints)
-            with self._telemetry("api.generate", model=model_name) as tele:
+            with self._telemetry(T_API_GENERATE, model=model_name) as tele:
                 # Lightweight, explicit gauges for clarity
                 tele.gauge("cache_intent_plan", 1 if intent_from_plan else 0)
                 tele.gauge("cache_intent_override", 1 if intent_from_override else 0)
@@ -694,11 +794,10 @@ class APIHandler(BaseAsyncHandler[PlannedCommand, FinalizedCommand, APIError]):
                         cast("str", cache_name),
                         applied_via=("override" if intent_from_override else "plan"),
                     )
-                return await adapter.generate(
-                    model_name=model_name,
-                    api_parts=parts,
-                    api_config=self._with_cache(api_config, cache_name),
+                raw = await self._attempt_generate(
+                    adapter, model_name, parts, api_config, cache_name
                 )
+                return raw, retried_without_cache
         except Exception as first_error:
             # Retry w/o cache only if caching was truly intended and applied:
             #   a) explicit cache plan AND a concrete cache name was applied; or
@@ -710,52 +809,37 @@ class APIHandler(BaseAsyncHandler[PlannedCommand, FinalizedCommand, APIError]):
                 intent_from_plan and cache_applied
             ) or intent_from_override
             if treat_as_explicit:
-                with self._telemetry("api.retry_no_cache", model=model_name):
-                    self._last_retry_without_cache = True
+                with self._telemetry(T_API_RETRY_NO_CACHE, model=model_name):
                     try:
-                        hints = ExecutionHints(cached_content=None)
-                        if isinstance(adapter, ExecutionHintsAware):
-                            from contextlib import suppress
-
-                            with suppress(Exception):
-                                adapter.apply_hints(hints)
-                        return await adapter.generate(
-                            model_name=model_name,
-                            api_parts=parts,
-                            api_config=dict(api_config),
+                        raw = await self._retry_without_cache(
+                            adapter, model_name, parts, api_config
                         )
+                        retried_without_cache = True
+                        return raw, retried_without_cache
                     except Exception:
                         # fall through to backoff retries on transient errors
                         last_error = first_error
             else:
                 last_error = first_error
 
-        # Backoff loop for transient errors (2 attempts)
-        attempts = 2
-        delay = 0.5
-        for i in range(attempts):
-            from random import random
-
-            if last_error is None or not self._is_transient_error(last_error):
-                break
-            sleep_for = (
-                delay * (2**i) * (1 + 0.25 * random())  # noqa: S311
-            )  # Cryptographic weakness is fine
-            await asyncio.sleep(sleep_for)
-            try:
-                with self._telemetry(
-                    "api.generate_retry", model=model_name, attempt=i + 1
-                ):
-                    return await adapter.generate(
-                        model_name=model_name,
-                        api_parts=parts,
-                        api_config=dict(api_config),
-                    )
-            except Exception as e:  # keep last error
-                last_error = e
-
-        # Exhausted retries
-        raise last_error
+        # Backoff transient errors (raises when exhausted)
+        with self._telemetry(T_API_GENERATE_RETRY_LOOP, model=model_name):
+            # Defensive: ensure non-None for typing without using assert.
+            initial_err: Exception = (
+                last_error
+                if last_error is not None
+                else Exception("initial error missing")
+            )
+            raw = await self._backoff_generate(
+                adapter,
+                model_name,
+                parts,
+                api_config,
+                attempts=2,
+                base_delay=0.5,
+                initial_error=initial_err,
+            )
+            return raw, retried_without_cache
 
     def _is_transient_error(self, err: Exception) -> bool:
         text = str(err).lower()
