@@ -17,14 +17,16 @@ leaking provider SDK details.
 from __future__ import annotations
 
 import asyncio
+from enum import Enum
 import logging
 import os
-from typing import TYPE_CHECKING, Any, cast
+from typing import TYPE_CHECKING, Any, TypedDict, cast
 
 # Removed ConfigCompatibilityShim import - no longer needed
 from gemini_batch.core.exceptions import APIError
 from gemini_batch.core.types import (
     APICall,
+    APIPart,
     ExecutionPlan,
     Failure,
     FilePlaceholder,
@@ -32,6 +34,8 @@ from gemini_batch.core.types import (
     PlannedCommand,
     Result,
     Success,
+    TextPart,
+    UploadTask,
 )
 from gemini_batch.pipeline.adapters.base import (
     ExecutionHintsAware,
@@ -54,6 +58,33 @@ if TYPE_CHECKING:
 # No import-time aliasing is required.
 
 logger = logging.getLogger(__name__)
+
+
+class UploadPhase(str, Enum):
+    """Upload processing phases with clear semantic meaning."""
+
+    PARTITION = "partition"  # Separate registry hits from pending uploads
+    UPLOAD = "upload"  # Perform concurrent uploads
+    REPLACE = "replace"  # Substitute parts with uploaded references
+
+    @classmethod
+    def get_telemetry_scope(cls, phase: UploadPhase) -> str:
+        """Get standardized telemetry scope name for phase."""
+        return f"uploads.{phase.value}"
+
+
+class TelemetryUsage(TypedDict, total=False):
+    """TypedDict for telemetry usage data structure."""
+
+    total_token_count: int
+
+
+class TelemetryMetrics(TypedDict, total=False):
+    """TypedDict for telemetry metrics data structure."""
+
+    per_prompt: tuple[dict[str, Any], ...]
+    vectorized_n_calls: int
+    per_call_meta: tuple[dict[str, Any], ...]
 
 
 class APIHandler(BaseAsyncHandler[PlannedCommand, FinalizedCommand, APIError]):
@@ -88,154 +119,18 @@ class APIHandler(BaseAsyncHandler[PlannedCommand, FinalizedCommand, APIError]):
         """Handle the planned command and return a finalized command."""
         try:
             plan = command.execution_plan
+            adapter = self._select_adapter(command)
             # Vectorized execution path: iterate calls with shared context
-            if getattr(plan, "calls", ()):  # non-empty tuple
-                adapter = self._select_adapter(command)
-
+            if plan.calls:  # non-empty tuple
                 # Prepare shared parts once (uploads/registries)
                 effective_shared = await self._prepare_shared_parts(adapter, plan)
-
-                # Cache name is provided by CacheStage via APICall.cache_name_to_use
-
-                raw_list: list[dict[str, Any]] = []
-                per_prompt_usage: list[dict[str, Any]] = []
-                per_call_meta: list[dict[str, Any]] = []
-                for call in plan.calls:
-                    combined_parts = self._combine_shared_with_call(
-                        effective_shared, call.api_parts
-                    )
-                    if isinstance(adapter, _MockAdapter):
-                        # Deterministic mock echo with per-prompt usage
-                        ptxt = ""
-                        for part in reversed(combined_parts):
-                            if hasattr(part, "text"):
-                                ptxt = cast("Any", part).text
-                                break
-                        raw = {
-                            "mock": True,
-                            "model": call.model_name,
-                            "text": f"echo: {ptxt}",
-                            "usage": {
-                                "prompt_token_count": max(len(ptxt) // 4 + 10, 0),
-                                "source_token_count": 0,
-                                "total_token_count": max(len(ptxt) // 4 + 10, 0),
-                            },
-                        }
-                        used_fallback = False
-                        retried_without_cache = False
-                        primary_error_repr = None
-                    else:
-                        # Use the same resilience path as single-call execution
-                        (
-                            raw,
-                            used_fallback,
-                            retried_without_cache,
-                            primary_error_repr,
-                        ) = await self._execute_with_resilience(
-                            adapter,
-                            command,
-                            call,
-                            tuple(combined_parts),
-                            call.cache_name_to_use,
-                            had_explicit_cache_plan=bool(call.cache_name_to_use),
-                        )
-                    raw_list.append(raw)
-                    per_prompt_usage.append(
-                        dict(cast("dict[str, Any]", raw.get("usage", {})))
-                    )
-                    meta: dict[str, Any] = {}
-                    if used_fallback:
-                        meta["used_fallback"] = True
-                    if retried_without_cache:
-                        meta["retried_without_cache"] = True
-                    if primary_error_repr:
-                        meta["primary_error"] = primary_error_repr
-                    per_call_meta.append(meta)
-
-                # Build finalized result with aggregated usage in telemetry
-                finalized = FinalizedCommand(
-                    planned=command,
-                    raw_api_response={
-                        "model": plan.calls[0].model_name,
-                        "batch": tuple(raw_list),
-                    },
+                finalized = await self._execute_vectorized_calls(
+                    adapter, command, plan, effective_shared
                 )
-                # Aggregate total tokens for validation/metrics
-                total_tokens = 0
-                for u in per_prompt_usage:
-                    try:
-                        total_tokens += int(u.get("total_token_count", 0) or 0)
-                    except Exception:
-                        total_tokens += 0
-
-                # Attach usage and per-prompt metrics prior to validation
-                finalized.telemetry_data.setdefault("usage", {})
-                cast("dict[str, Any]", finalized.telemetry_data["usage"]).update(
-                    {"total_token_count": total_tokens}
-                )
-                cast(
-                    "dict[str, Any]", finalized.telemetry_data.setdefault("metrics", {})
-                ).update(
-                    {
-                        "per_prompt": tuple(per_prompt_usage),
-                        "vectorized_n_calls": len(plan.calls),
-                        "per_call_meta": tuple(per_call_meta),
-                    }
-                )
-
-                # Token validation compares estimated aggregate to actual aggregate
-                self._attach_token_validation(finalized)
                 return Success(finalized)
 
-            primary = plan.primary_call
-            if not primary.api_parts:
-                return Failure(APIError("Execution plan has no parts to execute"))
-
-            # 1) Select provider adapter
-            adapter = self._select_adapter(command)
-
-            # 2) Prepare effective parts (uploads, inference, substitution)
-            effective_shared = await self._prepare_shared_parts(adapter, plan)
-            effective_parts = list(
-                self._combine_shared_with_call(effective_shared, primary.api_parts)
-            )
-            # Apply uploads to combined parts (indices are relative to primary.api_parts)
-            effective_parts = await self._prepare_effective_parts(
-                adapter, plan, effective_parts
-            )
-
-            # 3) Cache name provided by CacheStage or execution hint
-            cache_name = primary.cache_name_to_use
-
-            # 4) Execute with resilience and optional fallback
-            (
-                raw_response,
-                used_fallback,
-                retried_without_cache,
-                primary_error_repr,
-            ) = await self._execute_with_resilience(
-                adapter,
-                command,
-                primary,
-                tuple(effective_parts),
-                cache_name,
-                had_explicit_cache_plan=bool(cache_name),
-            )
-
-            finalized = FinalizedCommand(planned=command, raw_api_response=raw_response)
-            self._attach_token_validation(finalized)
-            self._attach_usage_data(finalized)
-            # Best-effort attachment of execution metadata
-            exec_meta = cast(
-                "dict[str, object]",
-                finalized.telemetry_data.setdefault("execution", {}),
-            )
-            if retried_without_cache:
-                exec_meta["retried_without_cache"] = True
-            if used_fallback:
-                exec_meta["used_fallback"] = True
-            if primary_error_repr:
-                exec_meta.setdefault("primary_error", primary_error_repr)
+            # Execute single-call path via helper for symmetry
+            finalized = await self._execute_single_call(adapter, command, plan)
             return Success(finalized)
         except APIError as e:
             return Failure(e)
@@ -261,154 +156,330 @@ class APIHandler(BaseAsyncHandler[PlannedCommand, FinalizedCommand, APIError]):
     async def _prepare_effective_parts(
         self,
         adapter: GenerationAdapter,
-        plan: ExecutionPlan,
-        base_parts: list[Any],
-    ) -> list[Any]:
-        effective_parts: list[Any] = list(base_parts)
-        # Remove empty HistoryPart entries: core types ensure `turns` is a
-        # tuple[ConversationTurn, ...], so this only filters genuinely empty
-        # histories and does not need import-time guards.
-        from gemini_batch.core.types import HistoryPart
+        base_parts: list[APIPart],
+        *,
+        upload_tasks: tuple[UploadTask, ...] | None = None,
+        infer_placeholders: bool = True,
+    ) -> list[APIPart]:
+        """Sanitize parts and perform upload substitution when supported.
 
-        effective_parts = [
-            p
-            for p in effective_parts
-            if not (
-                isinstance(p, HistoryPart) and not tuple(getattr(p, "turns", ()) or ())
-            )
-        ]
-        # A2: keep HistoryPart intact; adapters handle rendering natively
-        # No history downgrading here; adapters interpret structured parts directly
-        plan_uploads = getattr(plan, "upload_tasks", ())
-        # Infer uploads from placeholders when not explicitly planned
-        if not plan_uploads:
-            inferred: list[Any] = []
-            for idx, p in enumerate(effective_parts):
-                # APICall.api_parts is validated to contain only APIPart types, so type is guaranteed
-                if isinstance(p, FilePlaceholder):
-                    inferred.append(
-                        type(
-                            "_Task",
-                            (),
-                            {
-                                "part_index": idx,
-                                "local_path": p.local_path,
-                                "mime_type": p.mime_type,
-                                "required": False,
-                            },
-                        )()
-                    )
-            plan_uploads = tuple(inferred)
+        Callers pass explicit `upload_tasks` from the plan for per-call parts,
+        or an empty tuple for shared parts. When `infer_placeholders` is True,
+        FilePlaceholder entries are converted into inferred UploadTask entries.
+        """
+        effective_parts = self._sanitize_history_parts(list(base_parts))
 
-        if plan_uploads:
-            if not isinstance(adapter, UploadsCapability):
-                if any(getattr(t, "required", True) for t in plan_uploads):
-                    raise APIError("Uploads required but not supported by provider")
-                return effective_parts
+        # Determine upload tasks: prefer explicit, else infer from placeholders
+        tasks: tuple[UploadTask, ...] = upload_tasks or ()
+        if not tasks and infer_placeholders:
+            tasks = self._infer_upload_tasks(effective_parts)
 
-            # Phase 1: use registry or schedule uploads
-            to_replace: list[tuple[int, Any]] = []
-            pending: list[tuple[int, Any]] = []
-            for task in plan_uploads:
-                # UploadTask validates part_index >= 0, so no need to check lower bound
-                idx = task.part_index  # Already validated as int >= 0
-                if idx >= len(effective_parts):
-                    if getattr(task, "required", True):
-                        raise APIError(f"UploadTask index {idx} out of range")
-                    continue
-                local_id = os.fspath(task.local_path)
-                uploaded: Any | None = None
-                if self._file_registry is not None:
-                    try:
-                        uploaded = self._file_registry.get(local_id)
-                    except Exception:
-                        uploaded = None
-                if uploaded is not None:
-                    to_replace.append((idx, uploaded))
-                else:
-                    pending.append((idx, task))
+        # If nothing to upload or adapter lacks capability, return early
+        if not tasks:
+            return effective_parts
+        if not isinstance(adapter, UploadsCapability):
+            if any(t.required for t in tasks):
+                raise APIError("Uploads required but not supported by provider")
+            return effective_parts
 
-            async def _upload_one(i: int, t: Any) -> tuple[int, Any]:
-                result = await adapter.upload_file_local(
-                    t.local_path, getattr(t, "mime_type", None)
-                )
-                if self._file_registry is not None:
-                    from contextlib import suppress
+        # Phase 1: registry reuse vs pending uploads
+        with self._telemetry(UploadPhase.get_telemetry_scope(UploadPhase.PARTITION)):
+            to_replace, pending = self._partition_uploads(tasks, effective_parts)
 
-                    with suppress(Exception):
-                        self._file_registry.set(os.fspath(t.local_path), result)
-                return i, result
-
-            if pending:
-                uploaded_results = await asyncio.gather(
-                    *(_upload_one(i, t) for i, t in pending)
-                )
+        # Phase 2: perform uploads concurrently and update registry
+        if pending:
+            with self._telemetry(UploadPhase.get_telemetry_scope(UploadPhase.UPLOAD)):
+                uploaded_results = await self._upload_pending(adapter, pending)
                 to_replace.extend(uploaded_results)
 
-            # Phase 3: coerce and replace
-            from gemini_batch.core.types import (
-                FileRefPart,  # local import to avoid cycles
-            )
+        # Phase 3: coerce to FileRefPart where needed and replace in parts
+        with self._telemetry(UploadPhase.get_telemetry_scope(UploadPhase.REPLACE)):
+            return self._replace_parts(effective_parts, to_replace)
 
-            for idx, uploaded in to_replace:
-                if isinstance(uploaded, FileRefPart):
-                    effective_parts[idx] = uploaded
-                    continue
-                coerced = None
+    # ---- Focused helpers ----
+    def _sanitize_history_parts(self, parts: list[APIPart]) -> list[APIPart]:
+        from gemini_batch.core.types import HistoryPart
+
+        return [p for p in parts if not (isinstance(p, HistoryPart) and not p.turns)]
+
+    def _infer_upload_tasks(self, parts: list[APIPart]) -> tuple[UploadTask, ...]:
+        # Infer from FilePlaceholder instances in parts
+        inferred: list[UploadTask] = []
+        for idx, p in enumerate(parts):
+            if isinstance(p, FilePlaceholder):
+                inferred.append(
+                    UploadTask(
+                        part_index=idx,
+                        local_path=p.local_path,
+                        mime_type=p.mime_type,
+                        required=False,
+                    )
+                )
+        return tuple(inferred)
+
+    def _partition_uploads(
+        self, plan_uploads: tuple[UploadTask, ...], parts: list[APIPart]
+    ) -> tuple[list[tuple[int, Any]], list[tuple[int, UploadTask]]]:
+        to_replace: list[tuple[int, Any]] = []
+        pending: list[tuple[int, UploadTask]] = []
+        for task in plan_uploads:
+            idx = task.part_index
+            if idx >= len(parts):
+                if task.required:
+                    raise APIError(f"UploadTask index {idx} out of range")
+                continue
+            local_id = os.fspath(task.local_path)
+            uploaded: Any | None = None
+            if self._file_registry is not None:
                 try:
-                    uri_attr = cast("Any", uploaded).uri
-                    if isinstance(uri_attr, str):
-                        coerced = FileRefPart(
-                            uri=uri_attr,
-                            mime_type=getattr(uploaded, "mime_type", None),
-                            raw_provider_data=uploaded,
-                        )
+                    uploaded = self._file_registry.get(local_id)
                 except Exception:
-                    coerced = None
-                if coerced is None and isinstance(uploaded, dict) and "uri" in uploaded:
-                    u = uploaded.get("uri")
-                    if isinstance(u, str):
-                        coerced = FileRefPart(
-                            uri=u,
-                            mime_type=cast("Any", uploaded).get("mime_type"),
-                            raw_provider_data=uploaded,
-                        )
-                effective_parts[idx] = coerced if coerced is not None else uploaded
+                    uploaded = None
+            if uploaded is not None:
+                to_replace.append((idx, uploaded))
+            else:
+                pending.append((idx, task))
+        return to_replace, pending
 
-        return effective_parts
+    async def _upload_pending(
+        self, adapter: UploadsCapability, pending: list[tuple[int, UploadTask]]
+    ) -> list[tuple[int, Any]]:
+        async def _upload_one(i: int, t: UploadTask) -> tuple[int, Any]:
+            result = await adapter.upload_file_local(t.local_path, t.mime_type)
+            if self._file_registry is not None:
+                from contextlib import suppress
+
+                with suppress(Exception):
+                    self._file_registry.set(os.fspath(t.local_path), result)
+            return i, result
+
+        return await asyncio.gather(*(_upload_one(i, t) for i, t in pending))
+
+    def _coerce_to_file_ref(self, uploaded: Any) -> Any:
+        from gemini_batch.core.types import FileRefPart
+
+        if isinstance(uploaded, FileRefPart):
+            return uploaded
+        # Try attribute-based coercion
+        try:
+            uri_attr = cast("Any", uploaded).uri
+            if isinstance(uri_attr, str):
+                return FileRefPart(
+                    uri=uri_attr,
+                    mime_type=getattr(uploaded, "mime_type", None),
+                    raw_provider_data=uploaded,
+                )
+        except AttributeError:
+            pass
+        # Try mapping-based coercion
+        if (
+            isinstance(uploaded, dict)
+            and "uri" in uploaded
+            and isinstance(uploaded.get("uri"), str)
+        ):
+            return FileRefPart(
+                uri=uploaded["uri"],
+                mime_type=cast("Any", uploaded).get("mime_type"),
+                raw_provider_data=uploaded,
+            )
+        return uploaded
+
+    def _replace_parts(
+        self, parts: list[APIPart], replacements: list[tuple[int, Any]]
+    ) -> list[APIPart]:
+        effective = list(parts)
+        for idx, uploaded in replacements:
+            effective[idx] = self._coerce_to_file_ref(uploaded)
+        return effective
 
     async def _prepare_shared_parts(
         self, adapter: GenerationAdapter, plan: ExecutionPlan
-    ) -> list[Any]:
-        """Prepare effective shared parts once (uploads/registries), vectorized or single.
+    ) -> list[APIPart]:
+        """Prepare effective shared parts once (uploads/registries).
 
-        Mirrors vectorized preparation in both paths to keep behavior symmetrical.
+        UploadTasks are not applied to shared parts (indices are per-call), but
+        placeholder inference is allowed.
         """
-        # Important: Do NOT apply UploadTasks to shared parts; upload tasks are
-        # indexed relative to primary call's api_parts. Only sanitize history,
-        # but still allow upload inference for placeholders.
-        shared = list(getattr(plan, "shared_parts", ()))
-        from types import SimpleNamespace
-
-        from gemini_batch.core.types import HistoryPart
-
-        shared = [
-            p
-            for p in shared
-            if not (
-                isinstance(p, HistoryPart) and not tuple(getattr(p, "turns", ()) or ())
-            )
-        ]
-        # Reuse effective-parts helper to infer uploads from placeholders, while
-        # ignoring any plan-specified upload tasks by passing a dummy plan.
-        dummy_plan = SimpleNamespace(upload_tasks=())
-        return await self._prepare_effective_parts(adapter, dummy_plan, shared)
+        shared = list(plan.shared_parts)
+        return await self._prepare_effective_parts(
+            adapter,
+            shared,
+            upload_tasks=(),
+            infer_placeholders=True,
+        )
 
     def _combine_shared_with_call(
-        self, shared: list[Any], call_parts: tuple[Any, ...]
-    ) -> tuple[Any, ...]:
+        self, shared: list[APIPart], call_parts: tuple[APIPart, ...]
+    ) -> tuple[APIPart, ...]:
         """Combine effective shared parts with per-call parts for execution."""
         return tuple(shared) + tuple(call_parts)
+
+    async def _execute_single_call(
+        self, adapter: GenerationAdapter, command: PlannedCommand, plan: ExecutionPlan
+    ) -> FinalizedCommand:
+        """Execute the primary APICall with shared parts and attach telemetry."""
+        primary = plan.primary_call
+        if not primary.api_parts:
+            raise APIError("Execution plan has no parts to execute")
+
+        # Prepare effective parts
+        effective_shared = await self._prepare_shared_parts(adapter, plan)
+        effective_parts = list(
+            self._combine_shared_with_call(effective_shared, primary.api_parts)
+        )
+        effective_parts = await self._prepare_effective_parts(
+            adapter,
+            effective_parts,
+            upload_tasks=plan.upload_tasks,
+            infer_placeholders=True,
+        )
+
+        cache_name = primary.cache_name_to_use
+
+        (
+            raw_response,
+            used_fallback,
+            retried_without_cache,
+            primary_error_repr,
+        ) = await self._execute_with_resilience(
+            adapter,
+            command,
+            primary,
+            tuple(effective_parts),
+            cache_name,
+            had_explicit_cache_plan=bool(cache_name),
+        )
+
+        finalized = FinalizedCommand(planned=command, raw_api_response=raw_response)
+        self._attach_token_validation(finalized)
+        self._attach_usage_data(finalized)
+        exec_meta = cast(
+            "dict[str, object]", finalized.telemetry_data.setdefault("execution", {})
+        )
+        if retried_without_cache:
+            exec_meta["retried_without_cache"] = True
+        if used_fallback:
+            exec_meta["used_fallback"] = True
+        if primary_error_repr:
+            exec_meta.setdefault("primary_error", primary_error_repr)
+        return finalized
+
+    async def _execute_vectorized_calls(
+        self,
+        adapter: GenerationAdapter,
+        command: PlannedCommand,
+        plan: ExecutionPlan,
+        effective_shared: list[APIPart],
+    ) -> FinalizedCommand:
+        """Execute vectorized calls with shared context and aggregate telemetry."""
+        raw_list: list[dict[str, Any]] = []
+        per_prompt_usage: list[dict[str, Any]] = []
+        per_call_meta: list[dict[str, Any]] = []
+
+        for call in plan.calls:
+            combined_parts = self._combine_shared_with_call(
+                effective_shared, call.api_parts
+            )
+            if isinstance(adapter, _MockAdapter):
+                # Deterministic mock echo with per-prompt usage
+                ptxt = self._extract_text_from_parts(combined_parts)
+                raw = {
+                    "mock": True,
+                    "model": call.model_name,
+                    "text": f"echo: {ptxt}",
+                    "usage": {
+                        "prompt_token_count": max(len(ptxt) // 4 + 10, 0),
+                        "source_token_count": 0,
+                        "total_token_count": max(len(ptxt) // 4 + 10, 0),
+                    },
+                }
+                used_fallback = False
+                retried_without_cache = False
+                primary_error_repr = None
+            else:
+                # Use the same resilience path as single-call execution
+                (
+                    raw,
+                    used_fallback,
+                    retried_without_cache,
+                    primary_error_repr,
+                ) = await self._execute_with_resilience(
+                    adapter,
+                    command,
+                    call,
+                    tuple(combined_parts),
+                    call.cache_name_to_use,
+                    had_explicit_cache_plan=bool(call.cache_name_to_use),
+                )
+            raw_list.append(raw)
+            per_prompt_usage.append(dict(cast("dict[str, Any]", raw.get("usage", {}))))
+            meta: dict[str, Any] = {}
+            if used_fallback:
+                meta["used_fallback"] = True
+            if retried_without_cache:
+                meta["retried_without_cache"] = True
+            if primary_error_repr:
+                meta["primary_error"] = primary_error_repr
+            per_call_meta.append(meta)
+
+        # Build finalized result with aggregated usage in telemetry
+        finalized = FinalizedCommand(
+            planned=command,
+            raw_api_response={
+                "model": plan.calls[0].model_name,
+                "batch": tuple(raw_list),
+            },
+        )
+        # Attach usage and per-prompt metrics prior to validation
+        self._attach_vectorized_usage(
+            finalized,
+            per_prompt_usage=per_prompt_usage,
+            n_calls=len(plan.calls),
+            per_call_meta=per_call_meta,
+        )
+
+        # Token validation compares estimated aggregate to actual aggregate
+        self._attach_token_validation(finalized)
+        return finalized
+
+    def _extract_text_from_parts(self, parts: tuple[APIPart, ...]) -> str:
+        """Return the last text from parts when present, else empty string.
+
+        This mirrors the behavior used for mock vectorized responses and avoids
+        leaking provider-specific shapes.
+        """
+        for part in reversed(parts):
+            if isinstance(part, TextPart):
+                return part.text
+        return ""
+
+    def _attach_vectorized_usage(
+        self,
+        finalized: FinalizedCommand,
+        *,
+        per_prompt_usage: list[dict[str, Any]],
+        n_calls: int,
+        per_call_meta: list[dict[str, Any]],
+    ) -> None:
+        """Aggregate and attach vectorized usage and metrics to telemetry."""
+        total_tokens = self._sum_usage_total_tokens(per_prompt_usage)
+        usage = cast("TelemetryUsage", finalized.telemetry_data.setdefault("usage", {}))
+        usage["total_token_count"] = total_tokens
+        metrics = cast(
+            "TelemetryMetrics", finalized.telemetry_data.setdefault("metrics", {})
+        )
+        metrics["per_prompt"] = tuple(per_prompt_usage)
+        metrics["vectorized_n_calls"] = n_calls
+        metrics["per_call_meta"] = tuple(per_call_meta)
+
+    def _sum_usage_total_tokens(self, usage_list: list[dict[str, Any]]) -> int:
+        total = 0
+        for u in usage_list:
+            try:
+                total += int(u.get("total_token_count", 0) or 0)
+            except Exception:
+                total += 0
+        return total
 
     # Cache resolution is handled by CacheStage; no planning-time cache logic here
 
@@ -417,7 +488,7 @@ class APIHandler(BaseAsyncHandler[PlannedCommand, FinalizedCommand, APIError]):
         adapter: GenerationAdapter,
         command: PlannedCommand,
         primary: APICall,
-        parts: tuple[Any, ...],
+        parts: tuple[APIPart, ...],
         cache_name: str | None,
         *,
         had_explicit_cache_plan: bool,
@@ -474,7 +545,7 @@ class APIHandler(BaseAsyncHandler[PlannedCommand, FinalizedCommand, APIError]):
         return self._build_mock_response_from_parts(tuple(primary.api_parts), command)
 
     def _build_mock_response_from_parts(
-        self, parts: tuple[Any, ...], command: PlannedCommand
+        self, parts: tuple[APIPart, ...], command: PlannedCommand
     ) -> dict[str, Any]:
         first_text = ""
         if parts:
@@ -584,7 +655,7 @@ class APIHandler(BaseAsyncHandler[PlannedCommand, FinalizedCommand, APIError]):
         self,
         adapter: GenerationAdapter,
         model_name: str,
-        parts: tuple[Any, ...],
+        parts: tuple[APIPart, ...],
         api_config: dict[str, object],
         cache_name: str | None,
         *,
@@ -662,7 +733,7 @@ class APIHandler(BaseAsyncHandler[PlannedCommand, FinalizedCommand, APIError]):
                 if cache_applied:
                     self._write_cache_metadata(
                         planned_command,
-                        cache_name,
+                        cast("str", cache_name),
                         applied_via=("override" if intent_from_override else "plan"),
                     )
                 return await adapter.generate(
