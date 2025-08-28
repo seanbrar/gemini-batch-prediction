@@ -120,17 +120,11 @@ class APIHandler(BaseAsyncHandler[PlannedCommand, FinalizedCommand, APIError]):
         try:
             plan = command.execution_plan
             adapter = self._select_adapter(command)
-            # Vectorized execution path: iterate calls with shared context
-            if plan.calls:  # non-empty tuple
-                # Prepare shared parts once (uploads/registries)
-                effective_shared = await self._prepare_shared_parts(adapter, plan)
-                finalized = await self._execute_vectorized_calls(
-                    adapter, command, plan, effective_shared
-                )
-                return Success(finalized)
-
-            # Execute single-call path via helper for symmetry
-            finalized = await self._execute_single_call(adapter, command, plan)
+            # Prepare shared parts once (uploads/registries)
+            effective_shared = await self._prepare_shared_parts(adapter, plan)
+            finalized = await self._execute_vectorized_calls(
+                adapter, command, plan, effective_shared
+            )
             return Success(finalized)
         except APIError as e:
             return Failure(e)
@@ -317,52 +311,9 @@ class APIHandler(BaseAsyncHandler[PlannedCommand, FinalizedCommand, APIError]):
     async def _execute_single_call(
         self, adapter: GenerationAdapter, command: PlannedCommand, plan: ExecutionPlan
     ) -> FinalizedCommand:
-        """Execute the primary APICall with shared parts and attach telemetry."""
-        primary = plan.primary_call
-        if not primary.api_parts:
-            raise APIError("Execution plan has no parts to execute")
-
-        # Prepare effective parts
-        effective_shared = await self._prepare_shared_parts(adapter, plan)
-        effective_parts = list(
-            self._combine_shared_with_call(effective_shared, primary.api_parts)
-        )
-        effective_parts = await self._prepare_effective_parts(
-            adapter,
-            effective_parts,
-            upload_tasks=plan.upload_tasks,
-            infer_placeholders=True,
-        )
-
-        cache_name = primary.cache_name_to_use
-
-        (
-            raw_response,
-            used_fallback,
-            retried_without_cache,
-            primary_error_repr,
-        ) = await self._execute_with_resilience(
-            adapter,
-            command,
-            primary,
-            tuple(effective_parts),
-            cache_name,
-            had_explicit_cache_plan=bool(cache_name),
-        )
-
-        finalized = FinalizedCommand(planned=command, raw_api_response=raw_response)
-        self._attach_token_validation(finalized)
-        self._attach_usage_data(finalized)
-        exec_meta = cast(
-            "dict[str, object]", finalized.telemetry_data.setdefault("execution", {})
-        )
-        if retried_without_cache:
-            exec_meta["retried_without_cache"] = True
-        if used_fallback:
-            exec_meta["used_fallback"] = True
-        if primary_error_repr:
-            exec_meta.setdefault("primary_error", primary_error_repr)
-        return finalized
+        """Deprecated path; single-call executes through vectorized machinery."""
+        shared = await self._prepare_shared_parts(adapter, plan)
+        return await self._execute_vectorized_calls(adapter, command, plan, shared)
 
     async def _execute_vectorized_calls(
         self,
@@ -541,8 +492,8 @@ class APIHandler(BaseAsyncHandler[PlannedCommand, FinalizedCommand, APIError]):
         return raw_response, used_fallback, retried_without_cache, primary_error_repr
 
     def _build_mock_response(self, command: PlannedCommand) -> dict[str, Any]:
-        primary = command.execution_plan.primary_call
-        return self._build_mock_response_from_parts(tuple(primary.api_parts), command)
+        call0 = command.execution_plan.calls[0]
+        return self._build_mock_response_from_parts(tuple(call0.api_parts), command)
 
     def _build_mock_response_from_parts(
         self, parts: tuple[APIPart, ...], command: PlannedCommand
@@ -563,7 +514,7 @@ class APIHandler(BaseAsyncHandler[PlannedCommand, FinalizedCommand, APIError]):
 
         return {
             "mock": True,
-            "model": command.execution_plan.primary_call.model_name,
+            "model": command.execution_plan.calls[0].model_name,
             "text": f"echo: {first_text}",
             "usage": {
                 "prompt_token_count": prompt_tokens,
@@ -573,16 +524,23 @@ class APIHandler(BaseAsyncHandler[PlannedCommand, FinalizedCommand, APIError]):
         }
 
     def _rebuild_for_fallback(self, command: PlannedCommand) -> PlannedCommand:
-        """Return a PlannedCommand whose primary call is the fallback call.
+        """Return a PlannedCommand whose `calls` contain the fallback APICall.
 
-        This preserves immutability by constructing a shallow replacement shape.
+        Preserves immutability and carries over shared parts, rate constraints,
+        and upload tasks to maintain execution semantics in the fallback path.
         """
         plan = command.execution_plan
         if plan.fallback_call is None:
             return command
         from gemini_batch.core.types import ExecutionPlan as _Plan  # local import
 
-        new_plan = _Plan(primary_call=plan.fallback_call, fallback_call=None)
+        new_plan = _Plan(
+            calls=(plan.fallback_call,),
+            fallback_call=None,
+            shared_parts=plan.shared_parts,
+            rate_constraint=plan.rate_constraint,
+            upload_tasks=plan.upload_tasks,
+        )
         return PlannedCommand(
             resolved=command.resolved,
             execution_plan=new_plan,
@@ -829,8 +787,8 @@ class APIHandler(BaseAsyncHandler[PlannedCommand, FinalizedCommand, APIError]):
             cache_hint = next((h for h in hints if isinstance(h, CacheHint)), None)
 
             plan = planned_command.execution_plan
-            model_name = plan.primary_call.model_name
-            sys_instr = plan.primary_call.api_config.get("system_instruction")
+            model_name = plan.calls[0].model_name
+            sys_instr = plan.calls[0].api_config.get("system_instruction")
             sys_text = str(sys_instr) if sys_instr is not None else None
 
             key = det_shared_key(model_name, sys_text, planned_command)

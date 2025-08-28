@@ -6,13 +6,15 @@ underlying executor and command pipeline, without changing core behavior.
 
 from __future__ import annotations
 
-from pathlib import Path
-from typing import TYPE_CHECKING, Any
+from typing import TYPE_CHECKING
 
 from gemini_batch.config import FrozenConfig, resolve_config
 from gemini_batch.core.types import InitialCommand, Source
 from gemini_batch.executor import GeminiExecutor, create_executor
 from gemini_batch.pipeline.hints import CachePolicyHint, ResultHint
+
+if TYPE_CHECKING:  # pragma: no cover - typing only
+    from gemini_batch.types import ResultEnvelope
 
 if TYPE_CHECKING:  # import for typing only
     from collections.abc import Iterable
@@ -21,16 +23,17 @@ if TYPE_CHECKING:  # import for typing only
 async def run_simple(
     prompt: str,
     *,
-    source: str | Path | None = None,
+    source: Source | None = None,
     cfg: FrozenConfig | None = None,
     prefer_json: bool = False,
-) -> dict[str, Any]:
+) -> ResultEnvelope:
     """Run a simple query (optionally RAG on a single source).
 
     Args:
         prompt: The user prompt to execute.
-        source: Optional single source (text or path). Strings that resolve to
-            existing paths will be treated as files; otherwise treated as text.
+        source: A single explicit `types.Source`. Use `types.Source.from_text()`
+            for text content or `types.Source.from_file()` for files. Strings
+            are not accepted directly to avoid ambiguity.
         cfg: Optional frozen configuration. If omitted, `resolve_config()` is used.
         prefer_json: Hint the extractor to prefer JSON array when reasonable.
 
@@ -39,11 +42,19 @@ async def run_simple(
 
     Example:
         ```python
+        from gemini_batch import types
+
         # Simple text analysis
-        result = await run_simple("What is the main theme?", source="Long text...")
+        result = await run_simple(
+            "What is the main theme?",
+            source=types.Source.from_text("Long text..."),
+        )
 
         # File analysis
-        result = await run_simple("Summarize this document", source="report.pdf")
+        result = await run_simple(
+            "Summarize this document",
+            source=types.Source.from_file("report.pdf"),
+        )
         ```
 
     See Also:
@@ -53,13 +64,7 @@ async def run_simple(
     final_cfg = cfg or resolve_config()
     executor: GeminiExecutor = create_executor(final_cfg)
 
-    sources: tuple[Any, ...]
-    if source is None:
-        sources = ()
-    elif isinstance(source, Path) or Path(str(source)).exists():
-        sources = (Source.from_file(str(source)),)
-    else:
-        sources = (Source.from_text(str(source)),)
+    sources: tuple[Source, ...] = (source,) if source is not None else ()
 
     hints: list[object] = []
     if prefer_json:
@@ -76,13 +81,13 @@ async def run_simple(
 
 async def run_batch(
     prompts: Iterable[str],
-    sources: Iterable[str | Path] = (),
+    sources: Iterable[Source] = (),
     *,
     cfg: FrozenConfig | None = None,
     prefer_json: bool = False,
     enable_caching: bool | None = None,
     min_tokens_floor: int | None = None,
-) -> dict[str, Any]:
+) -> ResultEnvelope:
     """Run multiple prompts over one or many sources efficiently.
 
     Covers multi-question analysis, complex synthesis, and parallel batch by
@@ -90,12 +95,20 @@ async def run_batch(
 
     Args:
         prompts: One or more user prompts.
-        sources: Zero or more sources (text or file paths). Paths are detected.
+        sources: Zero or more explicit `types.Source` objects. Use
+            `types.Source.from_text()` for text content or
+            `types.Source.from_file()` for files. Strings are not accepted
+            directly to avoid ambiguity. For directories, use the explicit
+            helper `types.sources_from_directory(path)`.
         cfg: Optional frozen configuration; resolved if omitted.
         prefer_json: Hint extractor to prefer JSON array when reasonable.
-        enable_caching: Optional override for cache enablement behavior. When
-            True and provider supports caching, a cache may be created for
-            shared context. If None, uses config.
+        enable_caching: Optional override for cache enablement behavior.
+            - True: Force-enables caching for this call.
+            - False: Force-disables caching for this call.
+            - None (default): Use the value from resolved configuration
+              (e.g., pyproject.toml or environment variables).
+            Note: Caching may be enabled by default depending on your project
+            configuration. Set to False to be certain.
         min_tokens_floor: Optional cache policy floor override in tokens.
 
     Returns:
@@ -103,15 +116,25 @@ async def run_batch(
 
     Example:
         ```python
+        from gemini_batch import types
+
         # Multi-question analysis
         questions = ["What are the key themes?", "Who are the main characters?"]
-        result = await run_batch(questions, sources=["story.txt"])
+        result = await run_batch(
+            questions, sources=[types.Source.from_file("story.txt")]
+        )
 
         # Batch processing with caching
         result = await run_batch(
             prompts=["Analyze tone", "Extract quotes"],
-            sources=["large_document.pdf"],
+            sources=[types.Source.from_file("large_document.pdf")],
             enable_caching=True,
+        )
+
+        # Directory expansion (explicit helper)
+        result = await run_batch(
+            prompts=["Index files"],
+            sources=types.sources_from_directory("docs/"),
         )
         ```
 
@@ -122,14 +145,8 @@ async def run_batch(
     final_cfg = cfg or resolve_config()
     executor: GeminiExecutor = create_executor(final_cfg)
 
-    # Resolve sources eagerly using ergonomic constructors
-    resolved_sources: list[Any] = []
-    for s in sources:
-        ps = Path(str(s))
-        if ps.exists():
-            resolved_sources.append(Source.from_file(ps))
-        else:
-            resolved_sources.append(Source.from_text(str(s)))
+    # No implicit path detection; callers must pass explicit Sources
+    resolved_sources: list[Source] = list(sources)
 
     hints: list[object] = []
     if prefer_json:

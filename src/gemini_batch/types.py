@@ -24,6 +24,7 @@ See Also:
 
 from __future__ import annotations
 
+from gemini_batch.core.sources import sources_from_directory
 from gemini_batch.core.types import (
     APICall,
     ConversationTurn,
@@ -50,6 +51,7 @@ __all__ = [  # noqa: RUF022
     "InitialCommand",
     "ResultEnvelope",
     "Source",
+    "sources_from_directory",
     "TokenEstimate",
     # Pipeline execution types (for power users)
     "APICall",

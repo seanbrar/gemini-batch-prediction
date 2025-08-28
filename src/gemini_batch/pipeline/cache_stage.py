@@ -127,9 +127,11 @@ class CacheStage(BaseAsyncHandler[PlannedCommand, PlannedCommand, APIError]):
         Reuses registry entries when present; otherwise creates a cache if policy allows.
         """
         plan = command.execution_plan
-        model_name = plan.primary_call.model_name
+        # Use authoritative calls set; derived primary retained for back-compat
+        call0 = plan.calls[0]
+        model_name = call0.model_name
         system_instruction = cast(
-            "str | None", plan.primary_call.api_config.get("system_instruction")
+            "str | None", call0.api_config.get("system_instruction")
         )
 
         # Inline file placeholders for caching payload via a dedicated shaper
@@ -264,15 +266,8 @@ def _apply_cache_to_plan(plan: ExecutionPlan, cache_name: str) -> ExecutionPlan:
 
     Preserves all other fields (fallback, rate constraints, uploads).
     """
-    if getattr(plan, "calls", ()):  # vectorized path
-        updated_calls = tuple(_with_cache_name(c, cache_name) for c in plan.calls)
-        # Keep fallback_call unchanged to preserve semantics
-        return dataclasses.replace(
-            plan, calls=updated_calls, primary_call=updated_calls[0]
-        )
-    # single-call path
-    updated_primary = _with_cache_name(plan.primary_call, cache_name)
-    return dataclasses.replace(plan, primary_call=updated_primary)
+    updated_calls = tuple(_with_cache_name(c, cache_name) for c in plan.calls)
+    return dataclasses.replace(plan, calls=updated_calls)
 
 
 def _registry_get(reg: Any, key: str) -> Any | None:
