@@ -155,7 +155,7 @@ class Source:
     memory usage, ensuring content is only loaded when needed.
     """
 
-    source_type: typing.Literal["text", "youtube", "arxiv", "file"]
+    source_type: typing.Literal["text", "youtube", "arxiv", "file", "uri"]
     identifier: str | Path  # The original path, URL, or text identifier
     mime_type: str
     size_bytes: int
@@ -164,8 +164,11 @@ class Source:
     def __post_init__(self) -> None:
         """Validate Source invariants and loader signature."""
         _require(
-            condition=self.source_type in ("text", "youtube", "arxiv", "file"),
-            message=f"must be one of ['text','youtube','arxiv','file'], got {self.source_type!r}",
+            condition=self.source_type in ("text", "youtube", "arxiv", "file", "uri"),
+            message=(
+                "must be one of ['text','youtube','arxiv','file','uri'], got "
+                f"{self.source_type!r}"
+            ),
             field_name="source_type",
         )
         _require(
@@ -202,6 +205,239 @@ class Source:
 
         # Use the dedicated helper for callable validation
         _require_zero_arg_callable(self.content_loader, "content_loader")
+
+    # --- Ergonomic constructors for common cases ---
+    @classmethod
+    def from_text(cls, content: str, identifier: str | None = None) -> Source:
+        """Create a text `Source` from a string.
+
+        Args:
+            content: Text content to analyze.
+            identifier: Optional identifier; defaults to a snippet of the content.
+
+        Returns:
+            A `Source` representing UTF-8 encoded text.
+        """
+        _require(
+            condition=isinstance(content, str),
+            message="must be a str",
+            field_name="content",
+            exc=TypeError,
+        )
+        encoded = content.encode("utf-8")
+        display = identifier if identifier is not None else content[:100]
+        return cls(
+            source_type="text",
+            identifier=display,
+            mime_type="text/plain",
+            size_bytes=len(encoded),
+            content_loader=lambda: encoded,
+        )
+
+    @classmethod
+    def from_file(cls, path: str | Path) -> Source:
+        """Create a file `Source` from a local filesystem path.
+
+        Args:
+            path: Path to a local file.
+
+        Returns:
+            A `Source` that lazily loads the file bytes.
+        """
+        file_path = Path(path)
+        _require(
+            condition=file_path.is_file(),
+            message="path must point to an existing file",
+            field_name="path",
+        )
+        import mimetypes
+
+        mime_type, _ = mimetypes.guess_type(str(file_path))
+        return cls(
+            source_type="file",
+            identifier=file_path,
+            mime_type=mime_type or "application/octet-stream",
+            size_bytes=file_path.stat().st_size,
+            content_loader=lambda: file_path.read_bytes(),
+        )
+
+    @classmethod
+    def from_youtube(cls, url: str) -> Source:
+        """Create a YouTube `Source` that passes the URL directly to the API.
+
+        The URL is kept intact as the `identifier`. No network I/O occurs.
+        """
+        _require(
+            condition=isinstance(url, str),
+            message="must be a str",
+            field_name="url",
+            exc=TypeError,
+        )
+        normalized = url.strip()
+        _require(
+            condition=cls._is_youtube_url(normalized),
+            message="invalid YouTube URL; expected formats like https://www.youtube.com/watch?v=... or https://youtu.be/...",
+            field_name="url",
+        )
+        encoded = normalized.encode("utf-8")
+        return cls(
+            source_type="youtube",
+            identifier=normalized,
+            mime_type="video/youtube",
+            size_bytes=0,
+            content_loader=lambda: encoded,
+        )
+
+    @classmethod
+    def from_arxiv(cls, ref: str) -> Source:
+        """Create an arXiv PDF `Source` from an id or URL.
+
+        Accepts bare ids (e.g., "1706.03762", "cs.CL/9901001"), `abs` URLs,
+        and `pdf` URLs. Normalizes to a canonical PDF URL.
+        """
+        _require(
+            condition=isinstance(ref, str),
+            message="must be a str",
+            field_name="ref",
+            exc=TypeError,
+        )
+        normalized_url = cls._normalize_arxiv_to_pdf_url(ref.strip())
+        encoded = normalized_url.encode("utf-8")
+        return cls(
+            source_type="arxiv",
+            identifier=normalized_url,
+            mime_type="application/pdf",
+            size_bytes=0,
+            content_loader=lambda: encoded,
+        )
+
+    @classmethod
+    def from_uri(cls, uri: str, mime_type: str) -> Source:
+        """Create a generic URI-backed `Source` with explicit MIME type.
+
+        Prefer `from_youtube()` and `from_arxiv()` for those known shapes; this
+        constructor is for other URIs where the caller knows the MIME type.
+
+        Experimental: Support for arbitrary non-YouTube/arXiv URIs may evolve.
+        This method treats the URI as a direct provider reference (no I/O).
+        """
+        _require(
+            condition=isinstance(uri, str),
+            message="must be a str",
+            field_name="uri",
+            exc=TypeError,
+        )
+        _require(
+            condition=isinstance(mime_type, str) and mime_type.strip() != "",
+            message="must be a non-empty str",
+            field_name="mime_type",
+            exc=TypeError,
+        )
+        # Offer helpful redirection to specialized constructors
+        if cls._is_youtube_url(uri):
+            raise ValueError(
+                "YouTube URL detected. Use Source.from_youtube(url) for clarity."
+            )
+        if cls._looks_like_arxiv(uri):
+            raise ValueError(
+                "arXiv reference detected. Use Source.from_arxiv(ref) for normalization."
+            )
+        encoded = uri.encode("utf-8")
+        return cls(
+            source_type="uri",
+            identifier=uri,
+            mime_type=mime_type,
+            size_bytes=0,
+            content_loader=lambda: encoded,
+        )
+
+    # --- Pure helpers (kept close to Source for testability) ---
+    @staticmethod
+    def _is_youtube_url(url: str) -> bool:
+        u = url.lower()
+        if not (u.startswith(("http://", "https://"))):
+            return False
+        return (
+            "youtube.com/watch?v=" in u
+            or "youtu.be/" in u
+            or "youtube.com/embed/" in u
+            or "youtube.com/v/" in u
+            or ("youtube.com/" in u and "v=" in u)
+        )
+
+    @staticmethod
+    def _looks_like_arxiv(s: str) -> bool:
+        import re
+
+        u = s.strip()
+        ul = u.lower()
+        # Any obvious arXiv host reference
+        if "arxiv.org/" in ul or "export.arxiv.org/" in ul:
+            return True
+
+        # Modern bare id: 4 digits, dot, 4-5 digits, optional version vN
+        modern = re.compile(r"^\d{4}\.\d{4,5}(?:v\d+)?$")
+        # Legacy id: category tree and 7 digits, optional version vN
+        # Examples: cs/9901001, cs.CL/9901001, math.PR/9901001
+        legacy = re.compile(r"^[A-Za-z]+(?:\.[A-Za-z]+)?/\d{7}(?:v\d+)?$")
+        return bool(modern.match(u) or legacy.match(u))
+
+    @staticmethod
+    def _normalize_arxiv_to_pdf_url(ref: str) -> str:
+        """Normalize arXiv id or URL into canonical PDF URL.
+
+        Supported inputs:
+        - bare id: 1706.03762, 1706.03762v5
+        - legacy id with category: cs.CL/9901001 (with optional version)
+        - abs URL: https://arxiv.org/abs/1706.03762[vN]
+        - pdf URL: https://arxiv.org/pdf/1706.03762[vN].pdf
+
+        Returns canonical: https://arxiv.org/pdf/<id>.pdf (preserving version).
+        Raises ValueError for invalid shapes.
+        """
+        u = ref.strip()
+        if u == "":
+            raise ValueError("arXiv reference cannot be empty")
+
+        import re
+
+        lower = u.lower()
+        base = "https://arxiv.org/pdf/"
+
+        # URL inputs: accept arXiv hosts and /pdf/ or /abs/ shapes
+        if lower.startswith(("http://", "https://")):
+            if "arxiv.org/" not in lower and "export.arxiv.org/" not in lower:
+                raise ValueError("Unsupported arXiv URL host")
+            if "/pdf/" in lower:
+                # Already a PDF URL; ensure .pdf suffix present
+                return u if lower.endswith(".pdf") else (u + ".pdf")
+            if "/abs/" in lower:
+                ident = u.split("/abs/", 1)[1]
+                ident = ident.split("?", 1)[0]
+                ident = ident.strip("/")
+                _require(
+                    condition=bool(ident),
+                    message="invalid arXiv abs URL",
+                    field_name="ref",
+                )
+                return f"{base}{ident}.pdf"
+            raise ValueError("Unsupported arXiv URL; expected /abs/ or /pdf/")
+
+        # Bare identifiers: modern or legacy formats with optional version
+        modern = re.compile(r"^\d{4}\.\d{4,5}(?:v\d+)?$")
+        legacy = re.compile(r"^[A-Za-z]+(?:\.[A-Za-z]+)?/\d{7}(?:v\d+)?$")
+        ident = u.strip("/")
+        if not (modern.match(ident) or legacy.match(ident)):
+            raise ValueError(
+                "Invalid arXiv identifier; expected e.g. '1706.03762' or 'cs.CL/9901001'"
+            )
+        return f"{base}{ident}.pdf"
+
+
+# Note: Earlier versions exposed a `SourceInput` alias (str | Path | Source).
+# We now require explicit `Source` objects throughout the pipeline to maximize
+# clarity and prevent implicit inference. Callers should construct `Source`
+# via ergonomic constructors: `Source.from_text`, `Source.from_file`, etc.
 
 
 @dataclasses.dataclass(frozen=True, slots=True)
@@ -322,7 +558,7 @@ class TokenEstimate:
 class InitialCommand:
     """The initial state of a request, created by the user."""
 
-    sources: tuple[typing.Any, ...]
+    sources: tuple[Source, ...]
     prompts: tuple[str, ...]
     config: FrozenConfig
     history: tuple[ConversationTurn, ...] = dataclasses.field(default_factory=tuple)
@@ -364,6 +600,42 @@ class InitialCommand:
             message="must be a tuple[object, ...] or None",
             field_name="hints",
             exc=TypeError,
+        )
+
+    # Strict construction helper for friendlier early failures
+    @classmethod
+    def strict(
+        cls,
+        *,
+        sources: tuple[Source, ...],
+        prompts: tuple[str, ...],
+        config: FrozenConfig,
+        history: tuple[ConversationTurn, ...] = (),
+        hints: tuple[object, ...] | None = None,
+    ) -> InitialCommand:
+        """Construct an `InitialCommand` ensuring at least one non-empty prompt.
+
+        This surfaces prompt validity issues at creation time rather than during
+        prompt assembly, improving onboarding and error locality.
+        """
+        _require(
+            condition=isinstance(prompts, tuple)
+            and all(isinstance(p, str) for p in prompts),
+            message="prompts must be a tuple[str, ...]",
+            field_name="prompts",
+            exc=TypeError,
+        )
+        _require(
+            condition=any((p or "").strip() for p in prompts),
+            message="must contain at least one non-empty prompt",
+            field_name="prompts",
+        )
+        return cls(
+            sources=sources,
+            prompts=prompts,
+            config=config,
+            history=history,
+            hints=hints,
         )
 
 
@@ -673,13 +945,12 @@ class APICall:
 class ExecutionPlan:
     """Instructions for executing API calls.
 
-    This includes both the primary call and an optional fallback call
-    for when the primary call fails.
+    The authoritative call set is `calls`: one for sequential, many for vectorized.
+    An optional `fallback_call` may be used when a primary attempt fails.
     """
 
-    primary_call: APICall
     fallback_call: APICall | None = None  # For when batching fails
-    # Vectorized execution: N independent calls with shared context
+    # Authoritative execution set: N independent calls with shared context
     calls: tuple[APICall, ...] = ()
     shared_parts: tuple[APIPart, ...] = ()
     # Optional rate limiting constraint
@@ -714,6 +985,29 @@ class ExecutionPlan:
             message="upload_tasks must be a tuple[UploadTask, ...]",
             exc=TypeError,
         )
+        _require(
+            condition=len(self.calls) > 0,
+            message="calls must not be empty - at least one APICall is required",
+            field_name="calls",
+        )
+        # Enforce uniformity for vectorized execution invariants
+        first = self.calls[0]
+        first_model = first.model_name
+        first_sys = first.api_config.get("system_instruction")
+        for c in self.calls[1:]:
+            _require(
+                condition=c.model_name == first_model,
+                message="all calls must use the same model_name",
+                field_name="calls",
+            )
+            _require(
+                condition=c.api_config.get("system_instruction") == first_sys,
+                message=(
+                    "all calls must use the same system_instruction to ensure"
+                    " stable cache identity and telemetry semantics"
+                ),
+                field_name="calls",
+            )
         # No cache planning fields are present in ExecutionPlan.
 
 

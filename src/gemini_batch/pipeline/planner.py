@@ -174,12 +174,7 @@ class ExecutionPlanner(
                 # Rate limits applied only for real API usage
                 rate_constraint = self._resolve_rate_constraint(config, model_name)
 
-                # Primary call exists for back-compat but we do not rely on it
-                # in vectorized execution. Use the first per-prompt call.
-                primary_compat = calls[0]
-
                 plan = ExecutionPlan(
-                    primary_call=primary_compat,
                     fallback_call=None,
                     calls=calls,
                     shared_parts=tuple(shared_parts),
@@ -242,9 +237,8 @@ class ExecutionPlanner(
             rate_constraint = self._resolve_rate_constraint(config, model_name)
 
             plan = ExecutionPlan(
-                primary_call=api_call,
                 fallback_call=None,
-                calls=(),
+                calls=(api_call,),
                 shared_parts=tuple(shared_parts),
                 rate_constraint=rate_constraint,
                 upload_tasks=upload_tasks,
@@ -286,6 +280,12 @@ class ExecutionPlanner(
             elif s.source_type == "text":
                 # Add text sources to shared parts for vectorized execution
                 parts.append(TextPart(text=str(s.identifier)))
+            else:
+                # Any non-file, non-text source with a URL-like identifier is
+                # treated as a direct file reference for the provider.
+                from gemini_batch.core.types import FileRefPart
+
+                parts.append(FileRefPart(uri=str(s.identifier), mime_type=s.mime_type))
         return parts, history_turns
 
     # --- Small, explicit helpers (pure) ---

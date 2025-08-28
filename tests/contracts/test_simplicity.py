@@ -84,7 +84,6 @@ class TestSimplicityCompliance:
             exceptions.ConfigurationError,
             exceptions.SourceError,
             exceptions.MissingKeyError,
-            exceptions.NetworkError,
             exceptions.FileError,
             exceptions.ValidationError,
             exceptions.UnsupportedContentError,

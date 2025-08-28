@@ -159,7 +159,7 @@ class RateLimitHandler(
 
     def _default_key_extractor(self, command: PlannedCommand) -> tuple[str, ...]:
         plan = command.execution_plan
-        model = plan.primary_call.model_name
+        model = plan.calls[0].model_name
         provider = "unknown"
         lower = model.lower()
         if "gemini" in lower:

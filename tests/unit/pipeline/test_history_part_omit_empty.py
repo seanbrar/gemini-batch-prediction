@@ -46,7 +46,7 @@ async def test_empty_history_is_omitted_in_single_call() -> None:
 
     empty_history = HistoryPart(turns=())
     primary = APICall(model_name="m", api_parts=(TextPart("Hi"),), api_config={})
-    plan = ExecutionPlan(primary_call=primary, shared_parts=(empty_history,))
+    plan = ExecutionPlan(calls=(primary,), shared_parts=(empty_history,))
     planned = PlannedCommand(resolved=resolved, execution_plan=plan)
 
     adapter = _CapturePartsAdapter()

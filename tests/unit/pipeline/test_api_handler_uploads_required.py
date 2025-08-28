@@ -10,6 +10,7 @@ from gemini_batch.core.types import (
     InitialCommand,
     PlannedCommand,
     ResolvedCommand,
+    Source,
     Success,
     TextPart,
     UploadTask,
@@ -45,7 +46,7 @@ class _UploadCapableAdapter(_NoUploadAdapter):
 async def test_required_uploads_fail_when_provider_cannot_upload(tmp_path):
     (tmp_path / "f.txt").write_text("x", encoding="utf-8")
     initial = InitialCommand(
-        sources=("s",),
+        sources=(Source.from_text("s"),),
         prompts=("p",),
         config=resolve_config(overrides={"api_key": "k"}),
     )
@@ -54,7 +55,7 @@ async def test_required_uploads_fail_when_provider_cannot_upload(tmp_path):
         model_name="gemini-2.0-flash", api_parts=(TextPart("p"),), api_config={}
     )
     plan = ExecutionPlan(
-        primary_call=call,
+        calls=(call,),
         upload_tasks=(
             UploadTask(part_index=0, local_path=tmp_path / "f.txt", required=True),
         ),
@@ -73,7 +74,7 @@ async def test_required_uploads_fail_when_provider_cannot_upload(tmp_path):
 async def test_optional_uploads_skip_when_provider_cannot_upload(tmp_path):
     (tmp_path / "f.txt").write_text("x", encoding="utf-8")
     initial = InitialCommand(
-        sources=("s",),
+        sources=(Source.from_text("s"),),
         prompts=("p",),
         config=resolve_config(overrides={"api_key": "k"}),
     )
@@ -82,7 +83,7 @@ async def test_optional_uploads_skip_when_provider_cannot_upload(tmp_path):
         model_name="gemini-2.0-flash", api_parts=(TextPart("p"),), api_config={}
     )
     plan = ExecutionPlan(
-        primary_call=call,
+        calls=(call,),
         upload_tasks=(
             UploadTask(part_index=0, local_path=tmp_path / "f.txt", required=False),
         ),
@@ -98,7 +99,7 @@ async def test_optional_uploads_skip_when_provider_cannot_upload(tmp_path):
 async def test_required_uploads_succeed_when_provider_can_upload(tmp_path):
     (tmp_path / "f.txt").write_text("x", encoding="utf-8")
     initial = InitialCommand(
-        sources=("s",),
+        sources=(Source.from_text("s"),),
         prompts=("p",),
         config=resolve_config(overrides={"api_key": "k"}),
     )
@@ -107,7 +108,7 @@ async def test_required_uploads_succeed_when_provider_can_upload(tmp_path):
         model_name="gemini-2.0-flash", api_parts=(TextPart("p"),), api_config={}
     )
     plan = ExecutionPlan(
-        primary_call=call,
+        calls=(call,),
         upload_tasks=(
             UploadTask(part_index=0, local_path=tmp_path / "f.txt", required=True),
         ),

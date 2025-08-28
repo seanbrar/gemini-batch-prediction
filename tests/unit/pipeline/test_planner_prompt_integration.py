@@ -6,7 +6,13 @@ from tempfile import NamedTemporaryFile
 import pytest
 
 from gemini_batch.config import resolve_config
-from gemini_batch.core.types import InitialCommand, ResolvedCommand, Success, TextPart
+from gemini_batch.core.types import (
+    InitialCommand,
+    ResolvedCommand,
+    Source,
+    Success,
+    TextPart,
+)
 from gemini_batch.pipeline.planner import ExecutionPlanner
 
 pytestmark = pytest.mark.unit
@@ -34,7 +40,7 @@ async def test_planner_with_system_instruction():
 
     assert isinstance(result, Success)
     planned = result.value
-    primary = planned.execution_plan.primary_call
+    primary = planned.execution_plan.calls[0]
 
     # Check that system instruction is in API config
     assert (
@@ -89,21 +95,19 @@ async def test_planner_with_sources_block():
         overrides={
             "api_key": "test-key",
             "prompts.system": "You are helpful.",
-            "prompts.apply_if_sources": True,
+            "prompts.sources_policy": "append_or_replace",
             "prompts.sources_block": "Use the attached sources if relevant.",
         }
     )
 
     planner = ExecutionPlanner()
     initial = InitialCommand(
-        sources=("doc.txt",),
+        sources=(Source.from_text("doc.txt"),),
         prompts=("Summarize the content",),
         config=config,
     )
 
     # Create a realistic mock source
-    from gemini_batch.core.types import Source
-
     mock_source = Source(
         source_type="file",
         identifier="doc.txt",
@@ -117,7 +121,7 @@ async def test_planner_with_sources_block():
 
     assert isinstance(result, Success)
     planned = result.value
-    primary = planned.execution_plan.primary_call
+    primary = planned.execution_plan.calls[0]
 
     # Check that sources block is appended to system instruction
     expected_system = "You are helpful.\n\nUse the attached sources if relevant."
@@ -151,7 +155,7 @@ async def test_planner_with_system_file():
 
         assert isinstance(result, Success)
         planned = result.value
-        primary = planned.execution_plan.primary_call
+        primary = planned.execution_plan.calls[0]
 
         # Check that system instruction is loaded from file
         assert (
@@ -209,8 +213,8 @@ async def test_planner_cache_key_includes_system_instruction():
     plan1 = result1.value.execution_plan
     plan2 = result2.value.execution_plan
 
-    cache_name1 = plan1.primary_call.cache_name_to_use
-    cache_name2 = plan2.primary_call.cache_name_to_use
+    cache_name1 = plan1.calls[0].cache_name_to_use
+    cache_name2 = plan2.calls[0].cache_name_to_use
 
     # If caching is enabled, cache names should be different for different system instructions
     if cache_name1 is not None and cache_name2 is not None:
@@ -236,7 +240,7 @@ async def test_planner_no_system_instruction():
 
     assert isinstance(result, Success)
     planned = result.value
-    primary = planned.execution_plan.primary_call
+    primary = planned.execution_plan.calls[0]
 
     # No system instruction should be present
     assert primary.api_config.get("system_instruction") is None
@@ -270,7 +274,7 @@ async def test_planner_user_file_with_empty_initial_prompts():
 
         assert isinstance(result, Success)
         planned = result.value
-        primary = planned.execution_plan.primary_call
+        primary = planned.execution_plan.calls[0]
 
         # Check that prompt is loaded from user file
         first_part = primary.api_parts[0]

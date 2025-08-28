@@ -26,7 +26,7 @@ def _planned_with_constraint(rpm: int, tpm: int | None = None) -> PlannedCommand
     call = APICall(
         model_name="gemini-2.0-flash", api_parts=(TextPart("hi"),), api_config={}
     )
-    plan = ExecutionPlan(primary_call=call, rate_constraint=RateConstraint(rpm, tpm))
+    plan = ExecutionPlan(calls=(call,), rate_constraint=RateConstraint(rpm, tpm))
     return PlannedCommand(resolved=resolved, execution_plan=plan)
 
 
@@ -42,7 +42,7 @@ async def test_passthrough_without_constraint():
     call = APICall(
         model_name="gemini-2.0-flash", api_parts=(TextPart("hi"),), api_config={}
     )
-    plan = ExecutionPlan(primary_call=call, rate_constraint=None)
+    plan = ExecutionPlan(calls=(call,), rate_constraint=None)
     cmd = PlannedCommand(resolved=resolved, execution_plan=plan)
 
     result = await handler.handle(cmd)
@@ -96,7 +96,7 @@ async def test_key_extractor_normalizes_tier_enum_or_string():
     call1 = APICall(
         model_name="gemini-2.0-flash", api_parts=(TextPart("hi"),), api_config={}
     )
-    plan1 = ExecutionPlan(primary_call=call1)
+    plan1 = ExecutionPlan(calls=(call1,))
     cmd1 = PlannedCommand(resolved=resolved1, execution_plan=plan1)
     key1 = handler._default_key_extractor(cmd1)
     assert key1[2] == "free"
@@ -111,7 +111,7 @@ async def test_key_extractor_normalizes_tier_enum_or_string():
     call2 = APICall(
         model_name="gemini-2.0-flash", api_parts=(TextPart("hi"),), api_config={}
     )
-    plan2 = ExecutionPlan(primary_call=call2)
+    plan2 = ExecutionPlan(calls=(call2,))
     cmd2 = PlannedCommand(resolved=resolved2, execution_plan=plan2)
     key2 = handler._default_key_extractor(cmd2)
     assert key2[2] == "tier_1"

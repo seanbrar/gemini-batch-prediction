@@ -8,6 +8,7 @@ from gemini_batch.core.types import (
     InitialCommand,
     PlannedCommand,
     ResolvedCommand,
+    Source,
     Success,
     TextPart,
 )
@@ -17,7 +18,7 @@ from gemini_batch.pipeline.result_builder import ResultBuilder
 def make_finalized_with_raw(raw: object) -> FinalizedCommand:
     """Create a minimal valid FinalizedCommand for testing."""
     command = InitialCommand(
-        sources=("s",),
+        sources=(Source.from_text("s"),),
         prompts=("p",),
         config=resolve_config(overrides={"api_key": "k"}),
     )
@@ -25,7 +26,7 @@ def make_finalized_with_raw(raw: object) -> FinalizedCommand:
     api_call = APICall(
         model_name="gemini-2.0-flash", api_parts=(TextPart(text="p"),), api_config={}
     )
-    plan = ExecutionPlan(primary_call=api_call)
+    plan = ExecutionPlan(calls=(api_call,))
     planned = PlannedCommand(resolved=resolved, execution_plan=plan)
     return FinalizedCommand(planned=planned, raw_api_response=raw)
 

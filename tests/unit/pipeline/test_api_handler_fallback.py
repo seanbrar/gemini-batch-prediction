@@ -10,6 +10,7 @@ from gemini_batch.core.types import (
     InitialCommand,
     PlannedCommand,
     ResolvedCommand,
+    Source,
     Success,
     TextPart,
 )
@@ -24,7 +25,7 @@ def _make_planned(
     primary_text: str, fallback_text: str | None = None
 ) -> PlannedCommand:
     initial = InitialCommand(
-        sources=("s",),
+        sources=(Source.from_text("s"),),
         prompts=(primary_text,),
         config=resolve_config(overrides={"api_key": "test-key"}),
     )
@@ -43,7 +44,7 @@ def _make_planned(
         if fallback_text is not None
         else None
     )
-    plan = ExecutionPlan(primary_call=primary, fallback_call=fallback)
+    plan = ExecutionPlan(calls=(primary,), fallback_call=fallback)
     return PlannedCommand(resolved=resolved, execution_plan=plan)
 
 
@@ -135,7 +136,7 @@ async def test_api_handler_fallback_to_adapter_factory():
 
     handler = APIHandler(adapter_factory=_factory)
     initial = InitialCommand(
-        sources=("s",),
+        sources=(Source.from_text("s"),),
         prompts=("p",),
         config=resolve_config(overrides={"api_key": "test-key"}),
     )
@@ -143,7 +144,7 @@ async def test_api_handler_fallback_to_adapter_factory():
     call = APICall(
         model_name="gemini-2.0-flash", api_parts=(TextPart("p"),), api_config={}
     )
-    plan = ExecutionPlan(primary_call=call)
+    plan = ExecutionPlan(calls=(call,))
     planned = PlannedCommand(resolved=resolved, execution_plan=plan)
 
     result = await handler.handle(planned)

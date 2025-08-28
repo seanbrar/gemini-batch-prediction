@@ -9,6 +9,7 @@ from gemini_batch.core.types import (
     InitialCommand,
     PlannedCommand,
     ResolvedCommand,
+    Source,
     Success,
     TextPart,
 )
@@ -18,7 +19,7 @@ from gemini_batch.pipeline.api_handler import APIHandler
 
 def make_planned(prompts: tuple[str, ...]) -> PlannedCommand:
     initial = InitialCommand(
-        sources=("s",),
+        sources=(Source.from_text("s"),),
         prompts=prompts,
         config=resolve_config(overrides={"api_key": "k"}),
     )
@@ -28,10 +29,11 @@ def make_planned(prompts: tuple[str, ...]) -> PlannedCommand:
         api_parts=(TextPart(text="\n\n".join(prompts)),),
         api_config={},
     )
-    plan = ExecutionPlan(primary_call=call)
+    plan = ExecutionPlan(calls=(call,))
     return PlannedCommand(resolved=resolved, execution_plan=plan)
 
 
+@pytest.mark.unit
 @pytest.mark.asyncio
 async def test_api_handler_uses_planned_parts():
     handler = APIHandler()
@@ -41,26 +43,32 @@ async def test_api_handler_uses_planned_parts():
     finalized: FinalizedCommand = result.value
     raw = finalized.raw_api_response
     assert isinstance(raw, dict)
-    assert "echo: hello" in raw.get("text", "")
+    # The response is a batch with individual responses
+    batch = raw.get("batch", [])
+    assert len(batch) == 1
+    response = batch[0]
+    assert "echo: hello" in response.get("text", "")
 
 
+@pytest.mark.unit
 @pytest.mark.asyncio
 async def test_api_handler_fails_on_empty_parts():
     handler = APIHandler()
     initial = InitialCommand(
-        sources=("s",),
+        sources=(Source.from_text("s"),),
         prompts=("p",),
         config=resolve_config(overrides={"api_key": "k"}),
     )
     resolved = ResolvedCommand(initial=initial, resolved_sources=())
     empty_call = APICall(model_name="gemini-2.0-flash", api_parts=(), api_config={})
-    plan = ExecutionPlan(primary_call=empty_call)
+    plan = ExecutionPlan(calls=(empty_call,))
     planned = PlannedCommand(resolved=resolved, execution_plan=plan)
 
     result = await handler.handle(planned)
     assert isinstance(result, Failure)
 
 
+@pytest.mark.unit
 @pytest.mark.asyncio
 async def test_factory_requires_api_key_and_fails_explicitly():
     # Factory provided but no api_key in config should trigger explicit Failure
@@ -71,7 +79,7 @@ async def test_factory_requires_api_key_and_fails_explicitly():
 
     handler = APIHandler(adapter_factory=_factory)
     initial = InitialCommand(
-        sources=("s",),
+        sources=(Source.from_text("s"),),
         prompts=("p",),
         config=resolve_config(overrides={}),
     )
@@ -79,7 +87,7 @@ async def test_factory_requires_api_key_and_fails_explicitly():
     call = APICall(
         model_name="gemini-2.0-flash", api_parts=(TextPart("p"),), api_config={}
     )
-    plan = ExecutionPlan(primary_call=call)
+    plan = ExecutionPlan(calls=(call,))
     planned = PlannedCommand(resolved=resolved, execution_plan=plan)
 
     result = await handler.handle(planned)
