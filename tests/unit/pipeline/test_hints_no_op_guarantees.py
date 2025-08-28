@@ -110,13 +110,9 @@ class TestNoOpGuarantees:
         )
 
         # Cache decisions should be identical
-        cache_no = result_no_hints.value.execution_plan.primary_call.cache_name_to_use
-        cache_none = (
-            result_none_hints.value.execution_plan.primary_call.cache_name_to_use
-        )
-        cache_empty = (
-            result_empty_hints.value.execution_plan.primary_call.cache_name_to_use
-        )
+        cache_no = result_no_hints.value.execution_plan.calls[0].cache_name_to_use
+        cache_none = result_none_hints.value.execution_plan.calls[0].cache_name_to_use
+        cache_empty = result_empty_hints.value.execution_plan.calls[0].cache_name_to_use
 
         assert (cache_no is None) == (cache_none is None) == (cache_empty is None)
 
@@ -135,7 +131,7 @@ class TestNoOpGuarantees:
         call = APICall(
             model_name="gemini-2.0-flash", api_parts=(TextPart("test"),), api_config={}
         )
-        plan = ExecutionPlan(primary_call=call)
+        plan = ExecutionPlan(calls=(call,))
 
         # Mock response for consistent comparison
         mock_response = "Simple text response"
@@ -275,7 +271,7 @@ class TestNoOpGuarantees:
         call = APICall(
             model_name="gemini-2.0-flash", api_parts=(TextPart("test"),), api_config={}
         )
-        plan = ExecutionPlan(primary_call=call)
+        plan = ExecutionPlan(calls=(call,))
         planned = PlannedCommand(resolved=resolved, execution_plan=plan)
         finalized = FinalizedCommand(planned=planned, raw_api_response="test response")
 

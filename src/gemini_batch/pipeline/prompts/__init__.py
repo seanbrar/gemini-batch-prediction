@@ -1,9 +1,11 @@
 """Prompt assembly system for the pipeline.
 
-This module provides the PromptBundle data model and assembler functionality
-for composing prompts from configuration, files, and advanced builder hooks.
+This package provides the prompt assembler functionality for composing prompts
+from configuration, files, and advanced builder hooks. The assembled results
+are returned as `PromptBundle` from `gemini_batch.core.types`.
 """
 
 from .assembler import assemble_prompts
+from .config_types import PromptsConfig, SourcesPolicy
 
-__all__ = ["assemble_prompts"]
+__all__ = ["PromptsConfig", "SourcesPolicy", "assemble_prompts"]

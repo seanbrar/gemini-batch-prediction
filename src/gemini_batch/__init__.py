@@ -1,130 +1,35 @@
-"""Core components for the Gemini Batch Pipeline."""
+"""Gemini Batch: Efficient, scenario-first batch interactions with Gemini APIs."""
+
+from __future__ import annotations
 
 import importlib.metadata
 import logging
 
-# Core pipeline architecture imports
-from gemini_batch.core.exceptions import (
-    ConfigurationError,
-    FileError,
-    GeminiBatchError,
-    PipelineError,
-    SourceError,
-    UnsupportedContentError,
-    ValidationError,
-)
-from gemini_batch.core.models import (
-    APITier,
-    CachingCapabilities,
-    ModelCapabilities,
-    RateLimits,
-    can_use_caching,
-    get_model_capabilities,
-    get_rate_limits,
-)
-from gemini_batch.core.types import (
-    APICall,
-    ConversationTurn,
-    ExecutionPlan,
-    Failure,
-    FinalizedCommand,
-    InitialCommand,
-    PlannedCommand,
-    ResolvedCommand,
-    Result,
-    ResultEnvelope,
-    Source,
-    Success,
-    TokenEstimate,
-)
+from gemini_batch.core.exceptions import GeminiBatchError
 from gemini_batch.executor import GeminiExecutor, create_executor
+from gemini_batch.frontdoor import run_batch, run_simple
 
-# Visualization imports (now decoupled from legacy)
-from gemini_batch.extensions.visualization import (
-    create_efficiency_visualizations,
-    create_focused_efficiency_visualization,
-    run_efficiency_experiment,
-    visualize_scaling_results,
-)
-
-# Hint capsules for extension-to-core communication
-from gemini_batch.pipeline.hints import (
-    CacheHint,
-    EstimationOverrideHint,
-    ExecutionCacheName,
-    ResultHint,
-)
-
-# User-facing extraction types for customization
-from gemini_batch.pipeline.results.extraction import (
-    ExtractionContract,
-    TransformSpec,
-    Violation,
-)
-from gemini_batch.telemetry import TelemetryContext, TelemetryReporter
+# Curated public namespaces for clarity
+from . import exceptions as exceptions  # Re-exported public exceptions
+from . import types as types  # Re-exported public types
 
 # Version handling
 try:
     __version__ = importlib.metadata.version("gemini-batch")
-except importlib.metadata.PackageNotFoundError:
+except importlib.metadata.PackageNotFoundError:  # pragma: no cover - dev mode
     __version__ = "development"
 
-# Set up a null handler for the library's root logger.
-# This prevents 'No handler found' errors if the consuming app has no logging configured.
+# Set up a null handler for the library's root logger to be polite to apps
 logging.getLogger(__name__).addHandler(logging.NullHandler())
 
-# Public API
 __all__ = [  # noqa: RUF022
-    # Core Executor
+    # Primary entry points
     "GeminiExecutor",
     "create_executor",
-    # Telemetry (extension points)
-    "TelemetryContext",
-    "TelemetryReporter",
-    # Core Types & Data Models
-    "ConversationTurn",
-    "InitialCommand",
-    "ResolvedCommand",
-    "PlannedCommand",
-    "FinalizedCommand",
-    "APICall",
-    "ExecutionPlan",
-    "Source",
-    "Result",
-    "Success",
-    "Failure",
-    # Token estimation
-    "TokenEstimate",
-    # Result types
-    "ResultEnvelope",
-    # User-facing extraction customization
-    "TransformSpec",
-    "Violation",
-    "ExtractionContract",
-    # Hint Capsules
-    "CacheHint",
-    "EstimationOverrideHint",
-    "ResultHint",
-    "ExecutionCacheName",
-    # Model Capabilities
-    "ModelCapabilities",
-    "CachingCapabilities",
-    "RateLimits",
-    "APITier",
-    "get_model_capabilities",
-    "get_rate_limits",
-    "can_use_caching",
-    # Exceptions
+    "run_simple",
+    "run_batch",
+    # Root exception and curated namespaces
     "GeminiBatchError",
-    "PipelineError",
-    "ConfigurationError",
-    "SourceError",
-    "FileError",
-    "ValidationError",
-    "UnsupportedContentError",
-    # Visualization Extensions
-    "create_efficiency_visualizations",
-    "create_focused_efficiency_visualization",
-    "run_efficiency_experiment",
-    "visualize_scaling_results",
+    "types",
+    "exceptions",
 ]

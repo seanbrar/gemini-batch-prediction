@@ -1,7 +1,9 @@
 """The primary user-facing entry point for the pipeline."""
 
+from __future__ import annotations
+
 from time import perf_counter
-from typing import Any, cast
+from typing import TYPE_CHECKING, Any, cast
 
 from gemini_batch.config import FrozenConfig, resolve_config
 from gemini_batch.core.exceptions import GeminiBatchError, PipelineError
@@ -12,7 +14,6 @@ from gemini_batch.core.types import (
     Result,
 )
 from gemini_batch.pipeline.api_handler import APIHandler
-from gemini_batch.pipeline.base import BaseAsyncHandler
 from gemini_batch.pipeline.cache_stage import CacheStage
 from gemini_batch.pipeline.planner import ExecutionPlanner
 from gemini_batch.pipeline.rate_limit_handler import RateLimitHandler
@@ -20,6 +21,10 @@ from gemini_batch.pipeline.registries import CacheRegistry, FileRegistry
 from gemini_batch.pipeline.result_builder import ResultBuilder
 from gemini_batch.pipeline.source_handler import SourceHandler
 from gemini_batch.telemetry import TelemetryContext
+
+if TYPE_CHECKING:  # pragma: no cover - typing only
+    from gemini_batch.pipeline.base import BaseAsyncHandler
+    from gemini_batch.types import ResultEnvelope
 
 
 class GeminiExecutor:
@@ -97,7 +102,7 @@ class GeminiExecutor:
         ]
         return cast("list[BaseAsyncHandler[Any, Any, GeminiBatchError]]", handlers)
 
-    async def execute(self, _command: InitialCommand) -> dict[str, Any]:
+    async def execute(self, _command: InitialCommand) -> ResultEnvelope:
         """Execute a command through the pipeline.
 
         Args:
@@ -148,15 +153,18 @@ class GeminiExecutor:
                     existing_durations.update(stage_durations)
                 else:
                     metrics_container["durations"] = dict(stage_durations)
-            return current
+            return cast("ResultEnvelope", current)
         # Defensive fallback to avoid leaking internals; keep a uniform return shape.
-        return {
-            "success": False,
-            "answers": [],
-            "metrics": {},
-            "error": "Unexpected pipeline state",
-            "stage": last_stage_name,
-        }
+        return cast(
+            "ResultEnvelope",
+            {
+                "success": False,
+                "answers": [],
+                "metrics": {},
+                "error": "Unexpected pipeline state",
+                "stage": last_stage_name,
+            },
+        )
 
 
 def create_executor(

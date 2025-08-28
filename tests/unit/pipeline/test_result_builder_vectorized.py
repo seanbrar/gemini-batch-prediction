@@ -26,7 +26,7 @@ def _planned_with_prompts(n: int) -> PlannedCommand:
     from gemini_batch.core.types import APICall, ExecutionPlan, TextPart
 
     primary = APICall(model_name="m", api_parts=(TextPart("joined"),), api_config={})
-    plan = ExecutionPlan(primary_call=primary)
+    plan = ExecutionPlan(calls=(primary,))
     return PlannedCommand(resolved=resolved, execution_plan=plan)
 
 

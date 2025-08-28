@@ -8,6 +8,7 @@ from gemini_batch.core.types import (
     InitialCommand,
     PlannedCommand,
     ResolvedCommand,
+    Source,
     TextPart,
     TokenEstimate,
 )
@@ -18,7 +19,7 @@ pytestmark = pytest.mark.unit
 
 def make_planned_with_estimate(prompt_text: str, expected: int) -> PlannedCommand:
     initial = InitialCommand(
-        sources=("s",),
+        sources=(Source.from_text("test content"),),
         prompts=(prompt_text,),
         config=resolve_config(overrides={"api_key": "k"}),
     )
@@ -28,7 +29,7 @@ def make_planned_with_estimate(prompt_text: str, expected: int) -> PlannedComman
         api_parts=(TextPart(text=prompt_text),),
         api_config={},
     )
-    plan = ExecutionPlan(primary_call=call)
+    plan = ExecutionPlan(calls=(call,))
     # Give an estimate that should be reflected in usage.total_token_count approximately
     estimate = TokenEstimate(
         min_tokens=max(expected - 5, 0),
@@ -44,13 +45,16 @@ def make_planned_with_estimate(prompt_text: str, expected: int) -> PlannedComman
 @pytest.mark.asyncio
 async def test_api_handler_simulated_usage_matches_estimate_envelope():
     handler = APIHandler()
-    planned = make_planned_with_estimate("hello world", expected=64)
+    # Use a realistic estimate that matches mock adapter calculation
+    # Mock adapter calculates: max(len(text) // 4 + 10, 0) = 12 for "hello world"
+    planned = make_planned_with_estimate("hello world", expected=12)
     result = await handler.handle(planned)
     from gemini_batch.core.types import Success
 
     assert isinstance(result, Success)
     finalized: FinalizedCommand = result.value
-    usage = finalized.raw_api_response.get("usage", {})
+    usage = finalized.telemetry_data.get("usage", {})
+    assert isinstance(usage, dict)
     total = usage.get("total_token_count")
     assert isinstance(total, int)
     assert planned.token_estimate is not None

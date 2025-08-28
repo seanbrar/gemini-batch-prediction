@@ -40,16 +40,8 @@ class SourceError(GeminiBatchError):
 # --- Legacy Exceptions (to be phased out or mapped) ---
 
 
-class BatchProcessingError(Exception):
-    """Custom exception for batch processing errors."""
-
-
 class MissingKeyError(GeminiBatchError):
     """Raised when required API key or configuration key is missing."""
-
-
-class NetworkError(GeminiBatchError):
-    """Raised when network issues occur."""
 
 
 class FileError(GeminiBatchError):

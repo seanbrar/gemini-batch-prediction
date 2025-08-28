@@ -21,7 +21,7 @@ async def test_conversation_sequential_appends_per_prompt_turns() -> None:
     conv = Conversation.start(executor)
 
     prompts = ("First question?", "Second question?")
-    conv2, answers, metrics = await conv.run(PromptSet(prompts, "sequential"))
+    conv2, answers, metrics = await conv.run(PromptSet.sequential(*prompts))
 
     # Two new turns appended
     assert len(conv2.state.turns) == 2
@@ -34,4 +34,3 @@ async def test_conversation_sequential_appends_per_prompt_turns() -> None:
     # Per-prompt metrics present with two entries; totals contain numeric aggregates
     assert hasattr(metrics, "per_prompt") and len(metrics.per_prompt) == 2
     assert hasattr(metrics, "totals") and isinstance(metrics.totals, dict)
-

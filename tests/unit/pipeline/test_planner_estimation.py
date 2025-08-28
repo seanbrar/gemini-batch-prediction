@@ -30,7 +30,7 @@ async def test_planner_includes_prompt_in_token_estimate():
     assert estimate.breakdown is None or "prompt" in estimate.breakdown
 
     # Parts should contain the joined prompt
-    primary = planned.execution_plan.primary_call
+    primary = planned.execution_plan.calls[0]
     assert primary.api_parts
     # api_parts may contain FileRefPart/FilePlaceholder; ensure it's a TextPart
     first_part = primary.api_parts[0]
@@ -51,7 +51,7 @@ async def test_cache_key_is_deterministic_and_changes_with_prompts():
     )
 
     initial_a = InitialCommand(
-        sources=("ignored",),
+        sources=(Source.from_text("ignored content"),),
         prompts=("A",),
         config=resolve_config(
             overrides={
@@ -64,7 +64,7 @@ async def test_cache_key_is_deterministic_and_changes_with_prompts():
     resolved_a = ResolvedCommand(initial=initial_a, resolved_sources=(large_source,))
 
     initial_b = InitialCommand(
-        sources=("ignored",),
+        sources=(Source.from_text("ignored content"),),
         prompts=("A",),
         config=resolve_config(
             overrides={
@@ -84,8 +84,8 @@ async def test_cache_key_is_deterministic_and_changes_with_prompts():
     assert isinstance(result_b, Success)
     planned_b = result_b.value
 
-    cache_a = planned_a.execution_plan.primary_call.cache_name_to_use
-    cache_b = planned_b.execution_plan.primary_call.cache_name_to_use
+    cache_a = planned_a.execution_plan.calls[0].cache_name_to_use
+    cache_b = planned_b.execution_plan.calls[0].cache_name_to_use
     # If caching is enabled, cache names should be identical for identical inputs
     if cache_a is not None or cache_b is not None:
         assert cache_a == cache_b, (
@@ -94,7 +94,7 @@ async def test_cache_key_is_deterministic_and_changes_with_prompts():
 
     # Changing prompts should yield a different cache name
     initial_c = InitialCommand(
-        sources=("ignored",),
+        sources=(Source.from_text("ignored content"),),
         prompts=("B",),
         config=resolve_config(
             overrides={
@@ -108,7 +108,7 @@ async def test_cache_key_is_deterministic_and_changes_with_prompts():
     result_c = await planner.handle(resolved_c)
     assert isinstance(result_c, Success)
     planned_c = result_c.value
-    cache_c = planned_c.execution_plan.primary_call.cache_name_to_use
+    cache_c = planned_c.execution_plan.calls[0].cache_name_to_use
     # If caching is enabled, different prompts should yield different cache names
     if cache_c is not None and cache_a is not None:
         assert cache_c != cache_a, (

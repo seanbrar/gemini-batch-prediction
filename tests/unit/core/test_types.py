@@ -224,7 +224,10 @@ class TestCommandStateCompliance:
         """InitialCommand should be immutable by design."""
         config = resolve_config(overrides={"api_key": "test_key"})
         command = InitialCommand(
-            sources=("source1", "source2"),
+            sources=(
+                Source.from_text("source1"),
+                Source.from_text("source2"),
+            ),
             prompts=("prompt1", "prompt2"),
             config=config,
         )
@@ -238,7 +241,7 @@ class TestCommandStateCompliance:
         """InitialCommand should have sensible defaults for optional fields."""
         config = resolve_config(overrides={"api_key": "test_key"})
         command = InitialCommand(
-            sources=("source1",), prompts=("prompt1",), config=config
+            sources=(Source.from_text("source1"),), prompts=("prompt1",), config=config
         )
 
         assert command.history == ()
@@ -248,7 +251,7 @@ class TestCommandStateCompliance:
         """ResolvedCommand should contain the initial command for traceability."""
         config = resolve_config(overrides={"api_key": "test_key"})
         initial = InitialCommand(
-            sources=("source1",), prompts=("prompt1",), config=config
+            sources=(Source.from_text("source1"),), prompts=("prompt1",), config=config
         )
 
         def content_loader():
@@ -299,7 +302,7 @@ class TestCommandStateCompliance:
         )
 
         # Plan without fallback
-        plan1 = ExecutionPlan(primary_call=primary)
+        plan1 = ExecutionPlan(calls=(primary,))
         assert plan1.fallback_call is None
 
         # Plan with fallback
@@ -308,15 +311,21 @@ class TestCommandStateCompliance:
             api_parts=(TextPart(text="fallback"),),
             api_config={},
         )
-        plan2 = ExecutionPlan(primary_call=primary, fallback_call=fallback)
+        plan2 = ExecutionPlan(calls=(primary,), fallback_call=fallback)
         assert plan2.fallback_call == fallback
+
+    @pytest.mark.unit
+    def test_execution_plan_rejects_empty_calls(self):
+        """ExecutionPlan should reject empty calls tuple for architectural robustness."""
+        with pytest.raises(ValueError, match="calls: calls must not be empty"):
+            ExecutionPlan(calls=())
 
     @pytest.mark.unit
     def test_planned_command_contains_resolved_and_plan(self):
         """PlannedCommand should contain both resolved command and execution plan."""
         config = resolve_config(overrides={"api_key": "test_key"})
         initial = InitialCommand(
-            sources=("source1",), prompts=("prompt1",), config=config
+            sources=(Source.from_text("source1"),), prompts=("prompt1",), config=config
         )
 
         def content_loader():
@@ -336,10 +345,12 @@ class TestCommandStateCompliance:
         )
 
         execution_plan = ExecutionPlan(
-            primary_call=APICall(
-                model_name="gemini-2.0-flash",
-                api_parts=(TextPart(text="test"),),
-                api_config={},
+            calls=(
+                APICall(
+                    model_name="gemini-2.0-flash",
+                    api_parts=(TextPart(text="test"),),
+                    api_config={},
+                ),
             )
         )
 
@@ -353,7 +364,7 @@ class TestCommandStateCompliance:
         """FinalizedCommand should contain telemetry data for observability."""
         config = resolve_config(overrides={"api_key": "test_key"})
         initial = InitialCommand(
-            sources=("source1",), prompts=("prompt1",), config=config
+            sources=(Source.from_text("source1"),), prompts=("prompt1",), config=config
         )
 
         def content_loader():
@@ -373,10 +384,12 @@ class TestCommandStateCompliance:
         )
 
         execution_plan = ExecutionPlan(
-            primary_call=APICall(
-                model_name="gemini-2.0-flash",
-                api_parts=(TextPart(text="test"),),
-                api_config={},
+            calls=(
+                APICall(
+                    model_name="gemini-2.0-flash",
+                    api_parts=(TextPart(text="test"),),
+                    api_config={},
+                ),
             )
         )
 
@@ -429,7 +442,11 @@ class TestDataCentricityCompliance:
                 )
             elif cls == InitialCommand:
                 config = resolve_config(overrides={"api_key": "test"})
-                instance = cls(sources=("test",), prompts=("test",), config=config)
+                instance = cls(
+                    sources=(Source.from_text("test"),),
+                    prompts=("test",),
+                    config=config,
+                )
             else:
                 # Skip complex constructors for this test
                 continue
@@ -457,7 +474,7 @@ class TestDataCentricityCompliance:
         """Command transformations should be pure (no side effects)."""
         config = resolve_config(overrides={"api_key": "test_key"})
         original_command = InitialCommand(
-            sources=("source1",), prompts=("prompt1",), config=config
+            sources=(Source.from_text("source1"),), prompts=("prompt1",), config=config
         )
 
         # Make a copy to verify original isn't mutated

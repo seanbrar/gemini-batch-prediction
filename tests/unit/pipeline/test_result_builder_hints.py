@@ -41,7 +41,7 @@ class TestResultBuilderHints:
         call = APICall(
             model_name="gemini-2.0-flash", api_parts=(TextPart("test"),), api_config={}
         )
-        plan = ExecutionPlan(primary_call=call)
+        plan = ExecutionPlan(calls=(call,))
         planned = PlannedCommand(resolved=resolved, execution_plan=plan)
 
         # Mock response that could match JSON array transform
@@ -92,7 +92,7 @@ class TestResultBuilderHints:
         call = APICall(
             model_name="gemini-2.0-flash", api_parts=(TextPart("test"),), api_config={}
         )
-        plan = ExecutionPlan(primary_call=call)
+        plan = ExecutionPlan(calls=(call,))
         planned = PlannedCommand(resolved=resolved, execution_plan=plan)
 
         # Response that json_array transform can handle
@@ -126,7 +126,7 @@ class TestResultBuilderHints:
         call = APICall(
             model_name="gemini-2.0-flash", api_parts=(TextPart("test"),), api_config={}
         )
-        plan = ExecutionPlan(primary_call=call)
+        plan = ExecutionPlan(calls=(call,))
         planned = PlannedCommand(resolved=resolved, execution_plan=plan)
 
         # Response that isn't valid JSON
@@ -160,7 +160,7 @@ class TestResultBuilderHints:
         call = APICall(
             model_name="gemini-2.0-flash", api_parts=(TextPart("test"),), api_config={}
         )
-        plan = ExecutionPlan(primary_call=call)
+        plan = ExecutionPlan(calls=(call,))
         planned = PlannedCommand(resolved=resolved, execution_plan=plan)
 
         finalized = FinalizedCommand(
@@ -256,7 +256,7 @@ class TestResultBuilderHints:
         call = APICall(
             model_name="gemini-2.0-flash", api_parts=(TextPart("test"),), api_config={}
         )
-        plan = ExecutionPlan(primary_call=call)
+        plan = ExecutionPlan(calls=(call,))
         planned = PlannedCommand(resolved=resolved, execution_plan=plan)
 
         finalized = FinalizedCommand(
@@ -293,7 +293,7 @@ class TestResultBuilderHints:
         call = APICall(
             model_name="gemini-2.0-flash", api_parts=(TextPart("test"),), api_config={}
         )
-        plan = ExecutionPlan(primary_call=call)
+        plan = ExecutionPlan(calls=(call,))
         planned = PlannedCommand(resolved=resolved, execution_plan=plan)
 
         finalized = FinalizedCommand(

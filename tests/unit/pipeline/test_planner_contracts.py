@@ -5,6 +5,7 @@ from gemini_batch.core.types import (
     Failure,
     InitialCommand,
     ResolvedCommand,
+    Source,
     Success,
 )
 from gemini_batch.pipeline.planner import ExecutionPlanner
@@ -16,7 +17,7 @@ pytestmark = pytest.mark.contract
 async def test_planner_produces_parts_on_prompts():
     planner = ExecutionPlanner()
     initial = InitialCommand(
-        sources=("src",),
+        sources=(Source.from_text("src content"),),
         prompts=("p1", "p2"),
         config=resolve_config(overrides={"api_key": "k"}),
     )
@@ -31,18 +32,18 @@ async def test_planner_produces_parts_on_prompts():
     assert plan.calls and len(plan.calls) == 2
     first_call = plan.calls[0]
     assert first_call.api_parts and hasattr(first_call.api_parts[0], "text")
-    assert getattr(first_call.api_parts[0], "text") == "p1"
-    # primary_call is kept for back-compat but should match the first call
-    assert plan.primary_call.model_name == first_call.model_name
-    assert plan.primary_call.api_config == first_call.api_config
-    assert plan.primary_call.api_parts == first_call.api_parts
+    assert first_call.api_parts[0].text == "p1"
+    # calls[0] is the primary call in the new API
+    assert plan.calls[0].model_name == first_call.model_name
+    assert plan.calls[0].api_config == first_call.api_config
+    assert plan.calls[0].api_parts == first_call.api_parts
 
 
 @pytest.mark.asyncio
 async def test_planner_fails_on_empty_prompts():
     planner = ExecutionPlanner()
     initial = InitialCommand(
-        sources=("src",),
+        sources=(Source.from_text("src content"),),
         prompts=(),
         config=resolve_config(overrides={"api_key": "k"}),
     )

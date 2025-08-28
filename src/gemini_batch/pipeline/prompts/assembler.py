@@ -1,22 +1,36 @@
 """Default prompt assembler implementation.
 
-This module implements the pure function that assembles PromptBundle objects
-from ResolvedCommand inputs and configuration. It handles precedence rules,
-file reading, source-aware guidance, and advanced builder hooks while
-maintaining invariants and purity.
+Overview
+--------
+Pure function that assembles a ``PromptBundle`` from a ``ResolvedCommand``.
+It applies explicit, predictable precedence rules to combine inline values,
+files, and optional source-aware guidance. Advanced use-cases can provide a
+builder hook to replace the default logic entirely.
+
+Sharp edge: source-aware guidance
+--------------------------------
+Set ``prompts.sources_policy`` to one of:
+- ``never``: ignore ``sources_block`` entirely.
+- ``replace``: when sources exist, the system becomes ``sources_block``.
+- ``append_or_replace``: append if a base system exists; otherwise, replace.
+
+Inline or file-based ``prompts.system`` is never silently dropped without
+sources. Provenance is recorded in ``PromptBundle.hints``
+(``sources_policy``, ``sources_block_applied``, ``sources_block_skipped``).
 """
 
 from __future__ import annotations
 
 import importlib
 from pathlib import Path
-from typing import TYPE_CHECKING, Any
+from typing import Any, Literal, cast
 
 from gemini_batch.core.exceptions import ConfigurationError
 from gemini_batch.core.types import PromptBundle, ResolvedCommand
 
-if TYPE_CHECKING:
-    from gemini_batch.config import FrozenConfig
+from .config_types import PromptsConfig as _PromptsConfig
+from .config_types import extract_prompts_config
+from .plan import AssemblyPlan
 
 
 def assemble_prompts(
@@ -28,7 +42,7 @@ def assemble_prompts(
     precedence rules and invariants. It supports:
     - Inline configuration (system, prefix, suffix)
     - File inputs (system_file, user_file)
-    - Source-aware guidance (apply_if_sources, sources_block)
+    - Source-aware guidance (sources_policy, sources_block)
     - Advanced builder hooks (builder)
 
     Args:
@@ -45,136 +59,179 @@ def assemble_prompts(
     initial_prompts = command.initial.prompts
     has_sources = bool(command.resolved_sources)
 
-    # Extract prompts configuration from extra fields
-    prompts_config = _extract_prompts_config(config)
+    # Extract and validate prompts configuration from extra fields
+    prompts_cfg = extract_prompts_config(config.extra)
 
-    # Check for advanced builder hook first
-    if builder_path := prompts_config.get("builder"):
-        return _call_builder_hook(builder_path, command)
+    # Check for advanced builder hook first (explicit escape hatch)
+    if prompts_cfg.builder is not None:
+        return _call_builder_hook(prompts_cfg.builder, command, prompts_cfg)
 
-    # Default assembly logic
-    return _assemble_default(
-        initial_prompts,
+    # Plan-driven micro-transforms
+    plan = plan_for(
+        prompts_cfg,
         has_sources=has_sources,
-        prompts_config=prompts_config,
+        has_inline_prompts=bool(initial_prompts),
     )
+
+    system_1, hints_1 = t_resolve_system(plan, prompts_cfg)
+    system_2, hints_2 = t_apply_sources_policy(plan, system_1)
+    user_prompts, hints_3 = t_resolve_user_prompts(plan, prompts_cfg, initial_prompts)
+
+    hints = {
+        **hints_1,
+        **hints_2,
+        **hints_3,
+        "has_sources": has_sources,
+        "sources_policy": plan.sources_policy,
+        "sources_decision": plan.sources_action,
+    }
+    if prompts_cfg.unknown_keys:
+        hints["unknown_prompt_keys"] = prompts_cfg.unknown_keys
+    if system_2 is not None:
+        hints["system_len"] = len(system_2)
+    hints["user_total_len"] = sum(len(p) for p in user_prompts)
+
+    return PromptBundle(user=user_prompts, system=system_2, hints=hints)
 
 
 # --- Internal helpers ---
 
 
-def _extract_prompts_config(config: FrozenConfig) -> dict[str, Any]:
-    """Extract prompts configuration from config.extra with smart defaults."""
-    prompts_config = {}
-
-    # Look for prompts.* keys in config.extra
-    for key, value in config.extra.items():
-        if key.startswith("prompts."):
-            # Remove "prompts." prefix to get the actual config key
-            config_key = key[8:]  # len("prompts.") == 8
-            prompts_config[config_key] = value
-
-    return prompts_config
-
-
-def _assemble_default(
-    initial_prompts: tuple[str, ...],
+def plan_for(
+    cfg: _PromptsConfig,
     *,
     has_sources: bool,
-    prompts_config: dict[str, Any],
-) -> PromptBundle:
-    """Assemble prompts using default configuration-driven logic."""
-    hints: dict[str, Any] = {"has_sources": has_sources}
-
-    # --- System instruction assembly ---
-    system_instruction: str | None = None
-
-    # Precedence: inline system > system_file
-    if inline_system := prompts_config.get("system"):
-        system_instruction = str(inline_system).strip()
-        hints["system_from"] = "inline"
-    elif system_file := prompts_config.get("system_file"):
-        system_instruction = _read_prompt_file(system_file, prompts_config)
-        hints["system_from"] = "system_file"
-        hints["system_file"] = str(system_file)
-
-    # Apply source-aware guidance to system instruction
-    if (
-        system_instruction is not None
-        and prompts_config.get("apply_if_sources", False)
-        and has_sources
-    ):
-        sources_block = prompts_config.get("sources_block", "")
-        if sources_block:
-            system_instruction = f"{system_instruction}\n\n{sources_block}".strip()
-    elif (
-        system_instruction is None
-        and prompts_config.get("apply_if_sources", False)
-        and has_sources
-    ):
-        # If no system instruction but we have sources_block, use it as system
-        sources_block = prompts_config.get("sources_block", "")
-        if sources_block:
-            system_instruction = sources_block.strip()
-            hints["system_from"] = "sources_block"
-
-    # --- User prompts assembly ---
-    user_prompts: tuple[str, ...]
-    if initial_prompts:
-        # Apply prefix/suffix to existing prompts
-        prefix = prompts_config.get("prefix", "")
-        suffix = prompts_config.get("suffix", "")
-
-        user_prompts = tuple(
-            f"{prefix}{prompt}{suffix}".strip() for prompt in initial_prompts
-        )
-        hints["user_from"] = "initial"
+    has_inline_prompts: bool,
+) -> AssemblyPlan:
+    """Build a declarative plan from validated config and context."""
+    system_base: Literal["inline", "file"] | None
+    if cfg.system is not None:
+        system_base = "inline"
+    elif cfg.system_file is not None:
+        system_base = "file"
     else:
-        # Use user_file only when no initial prompts
-        user_file = prompts_config.get("user_file")
-        if user_file:
-            file_content = _read_prompt_file(user_file, prompts_config)
-            user_prompts = (file_content,)
-            hints["user_from"] = "user_file"
-            hints["user_file"] = str(user_file)
-        else:
-            # No prompts provided - this is a configuration error
-            raise ConfigurationError(
-                "No prompts provided. Either pass prompts to InitialCommand or set prompts.user_file"
-            )
+        system_base = None
 
-    # Add telemetry hints
-    if system_instruction:
-        hints["system_len"] = len(system_instruction)
-    hints["user_total_len"] = sum(len(p) for p in user_prompts)
+    user_strategy: Literal["inline", "from_file"] = (
+        "inline" if has_inline_prompts else "from_file"
+    )
 
-    return PromptBundle(
-        user=user_prompts,
-        system=system_instruction,
-        hints=hints,
+    # Precompute sources action to remove branching later
+    sources_block = cfg.sources_block
+    if not (has_sources and sources_block and cfg.sources_policy != "never"):
+        sources_action: Literal["none", "append", "replace"] = "none"
+    elif cfg.sources_policy == "replace":
+        sources_action = "replace"
+    else:  # append_or_replace
+        sources_action = "append" if system_base is not None else "replace"
+
+    return AssemblyPlan(
+        system_base=system_base,
+        user_strategy=user_strategy,
+        sources_policy=cfg.sources_policy,
+        sources_block=cfg.sources_block,
+        sources_action=sources_action,
+        prefix=cfg.prefix,
+        suffix=cfg.suffix,
     )
 
 
-def _read_prompt_file(file_path: str | Path, prompts_config: dict[str, Any]) -> str:
-    """Read a prompt file with just-in-time error handling."""
+def t_resolve_system(
+    plan: AssemblyPlan, cfg: _PromptsConfig
+) -> tuple[str | None, dict[str, Any]]:
+    """Resolve the base system according to the plan. Isolated file I/O."""
+    hints: dict[str, Any] = {}
+
+    if plan.system_base == "inline":
+        if cfg.system_file is not None:
+            hints["system_file_ignored"] = True
+        hints["system_from"] = "inline"
+        return cfg.system, hints
+
+    if plan.system_base == "file":
+        path = cast("str | Path", cfg.system_file)
+        system = _read_prompt_file(path, cfg)
+        hints["system_from"] = "system_file"
+        hints["system_file"] = str(path)
+        return system, hints
+
+    return None, hints
+
+
+def t_apply_sources_policy(
+    plan: AssemblyPlan, base_system: str | None
+) -> tuple[str | None, dict[str, Any]]:
+    """Apply source-aware guidance to the base system deterministically."""
+    hints: dict[str, Any] = {"sources_policy": plan.sources_policy}
+    sources_block = plan.sources_block
+
+    if plan.sources_action == "none" or not sources_block:
+        if sources_block:
+            hints["sources_block_skipped"] = True
+        return base_system, hints
+
+    if plan.sources_action == "replace":
+        hints["system_from"] = "sources_block"
+        hints["sources_block_applied"] = True
+        return sources_block, hints
+
+    # append
+    if base_system is not None:
+        hints["sources_block_applied"] = True
+        return f"{base_system}\n\n{sources_block}".strip(), hints
+
+    return base_system, hints
+
+
+def t_resolve_user_prompts(
+    plan: AssemblyPlan, cfg: _PromptsConfig, initial_prompts: tuple[str, ...]
+) -> tuple[tuple[str, ...], dict[str, Any]]:
+    """Derive user prompts either from inline inputs or a file."""
+    hints: dict[str, Any] = {}
+
+    if plan.user_strategy == "inline":
+        prefix, suffix = plan.prefix, plan.suffix
+        if prefix:
+            hints["prefix_len"] = len(prefix)
+        if suffix:
+            hints["suffix_len"] = len(suffix)
+        # Symmetry with system_file_ignored: surface when user_file is ignored
+        if cfg.user_file is not None:
+            hints["user_file_ignored"] = True
+        users = tuple(f"{prefix}{p}{suffix}".strip() for p in initial_prompts)
+        hints["user_from"] = "initial"
+        return users, hints
+
+    # from_file
+    if cfg.user_file is None:
+        raise ConfigurationError(
+            "No prompts provided. Either pass prompts to InitialCommand or set prompts.user_file"
+        )
+    content = _read_prompt_file(cfg.user_file, cfg)
+    hints["user_from"] = "user_file"
+    hints["user_file"] = str(cfg.user_file)
+    return (content,), hints
+
+
+def _read_prompt_file(file_path: str | Path, prompts_config: _PromptsConfig) -> str:
+    """Read a prompt file with size guard and clear errors.
+
+    Reads bytes first to enforce ``max_bytes`` precisely, then decodes using the
+    configured encoding. Trailing newlines can be stripped for ergonomics.
+    """
     path = Path(file_path)
 
-    # Extract configuration with smart defaults
-    encoding = prompts_config.get("encoding", "utf-8")
-    strip_newlines = prompts_config.get("strip", True)
-    max_bytes = prompts_config.get("max_bytes", 128_000)
+    # Extract configuration
+    encoding = prompts_config.encoding
+    strip_newlines = prompts_config.strip
+    max_bytes = prompts_config.max_bytes
 
-    # Try to read the file - let failures happen naturally, but make them actionable
+    # Read bytes, then decode to ensure byte-accurate size checks
     try:
-        content = path.read_text(encoding=encoding)
+        raw = path.read_bytes()
     except FileNotFoundError:
         raise ConfigurationError(
             f"Prompt file '{path}' not found. Check the file path or create the file."
-        ) from None
-    except UnicodeDecodeError:
-        raise ConfigurationError(
-            f"Prompt file '{path}' encoding issue. "
-            f"Try setting prompts.encoding to a different value (current: '{encoding}')."
         ) from None
     except PermissionError:
         raise ConfigurationError(
@@ -183,22 +240,29 @@ def _read_prompt_file(file_path: str | Path, prompts_config: dict[str, Any]) -> 
     except Exception as e:
         raise ConfigurationError(f"Failed to read prompt file '{path}': {e}") from e
 
-    # Check size after reading to avoid race conditions
-    if len(content.encode("utf-8")) > max_bytes:
+    if len(raw) > max_bytes:
         raise ConfigurationError(
-            f"Prompt file '{path}' is too large ({len(content):,} chars). "
+            f"Prompt file '{path}' is too large ({len(raw):,} bytes). "
             f"Reduce file size or increase prompts.max_bytes (current: {max_bytes:,})."
         )
 
-    # Process content
+    try:
+        content = raw.decode(encoding)
+    except UnicodeDecodeError:
+        raise ConfigurationError(
+            f"Prompt file '{path}' encoding issue. "
+            f"Try setting prompts.encoding to a different value (current: '{encoding}')."
+        ) from None
+
     if strip_newlines:
         content = content.rstrip("\n\r")
 
-    # Return content even if empty - let caller decide if that's an error
     return content
 
 
-def _call_builder_hook(builder_path: str, command: ResolvedCommand) -> PromptBundle:
+def _call_builder_hook(
+    builder_path: str, command: ResolvedCommand, cfg: _PromptsConfig
+) -> PromptBundle:
     """Call an advanced builder hook function with minimal intervention."""
     try:
         # Parse dotted path: "pkg.mod:fn"
@@ -211,8 +275,11 @@ def _call_builder_hook(builder_path: str, command: ResolvedCommand) -> PromptBun
         module = importlib.import_module(module_path)
         builder_fn = getattr(module, function_name)
 
-        # Call the builder - trust the type system and let failures be informative
-        result = builder_fn(command)
+        # Prefer new-style signature (command, cfg) with fallback to (command)
+        try:
+            result = builder_fn(command, cfg)
+        except TypeError:
+            result = builder_fn(command)
 
         # Quick type check - if it's wrong, the error will be clear
         if not isinstance(result, PromptBundle):

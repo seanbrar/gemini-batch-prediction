@@ -8,7 +8,12 @@ import pytest
 
 from gemini_batch.config import resolve_config
 from gemini_batch.core.exceptions import ConfigurationError
-from gemini_batch.core.types import InitialCommand, PromptBundle, ResolvedCommand
+from gemini_batch.core.types import (
+    InitialCommand,
+    PromptBundle,
+    ResolvedCommand,
+    Source,
+)
 from gemini_batch.pipeline.prompts import assemble_prompts
 
 pytestmark = pytest.mark.unit
@@ -135,12 +140,12 @@ class TestPromptAssemblerSourceAwareness:
         config = resolve_config(
             overrides={
                 "prompts.system": "You are helpful.",
-                "prompts.apply_if_sources": True,
+                "prompts.sources_policy": "append_or_replace",
                 "prompts.sources_block": "Use the provided sources if relevant.",
             }
         )
         initial = InitialCommand(
-            sources=("doc.txt",),
+            sources=(Source.from_text("doc.txt"),),
             prompts=("Summarize",),
             config=config,
         )
@@ -158,12 +163,12 @@ class TestPromptAssemblerSourceAwareness:
         """Test sources block becomes system instruction when no system provided."""
         config = resolve_config(
             overrides={
-                "prompts.apply_if_sources": True,
+                "prompts.sources_policy": "append_or_replace",
                 "prompts.sources_block": "Use the provided sources.",
             }
         )
         initial = InitialCommand(
-            sources=("doc.txt",),
+            sources=(Source.from_text("doc.txt"),),
             prompts=("Analyze",),
             config=config,
         )
@@ -180,7 +185,7 @@ class TestPromptAssemblerSourceAwareness:
         config = resolve_config(
             overrides={
                 "prompts.system": "You are helpful.",
-                "prompts.apply_if_sources": True,
+                "prompts.sources_policy": "append_or_replace",
                 "prompts.sources_block": "Use sources.",
             }
         )
@@ -201,12 +206,12 @@ class TestPromptAssemblerSourceAwareness:
         config = resolve_config(
             overrides={
                 "prompts.system": "You are helpful.",
-                "prompts.apply_if_sources": False,
+                "prompts.sources_policy": "never",
                 "prompts.sources_block": "Use sources.",
             }
         )
         initial = InitialCommand(
-            sources=("doc.txt",),
+            sources=(Source.from_text("doc.txt"),),
             prompts=("Hello",),
             config=config,
         )
@@ -580,7 +585,7 @@ class TestPromptAssemblerTelemetry:
             }
         )
         initial = InitialCommand(
-            sources=("doc.txt",),
+            sources=(Source.from_text("doc.txt"),),
             prompts=("Hello", "World"),
             config=config,
         )

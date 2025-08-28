@@ -10,12 +10,10 @@ import pytest
 
 from gemini_batch.core.exceptions import (
     APIError,
-    BatchProcessingError,
     ConfigurationError,
     FileError,
     GeminiBatchError,
     MissingKeyError,
-    NetworkError,
     PipelineError,
     SourceError,
     UnsupportedContentError,
@@ -35,7 +33,6 @@ class TestExceptionHierarchyCompliance:
             ConfigurationError,
             SourceError,
             MissingKeyError,
-            NetworkError,
             FileError,
             ValidationError,
             UnsupportedContentError,
@@ -48,13 +45,6 @@ class TestExceptionHierarchyCompliance:
     def test_base_exception_is_proper_exception(self):
         """GeminiBatchError should be a proper exception."""
         assert issubclass(GeminiBatchError, Exception)
-
-    @pytest.mark.unit
-    def test_legacy_exception_is_independent(self):
-        """BatchProcessingError should be independent (legacy)."""
-        # Legacy exception doesn't inherit from GeminiBatchError
-        assert not issubclass(BatchProcessingError, GeminiBatchError)
-        assert issubclass(BatchProcessingError, Exception)
 
 
 class TestExceptionConstructorCompliance:
@@ -101,7 +91,6 @@ class TestExceptionConstructorCompliance:
             ConfigurationError,
             SourceError,
             MissingKeyError,
-            NetworkError,
             FileError,
             ValidationError,
             UnsupportedContentError,
@@ -111,13 +100,6 @@ class TestExceptionConstructorCompliance:
             message = f"Test {exception_class.__name__} message"
             error = exception_class(message)
             assert str(error) == message
-
-    @pytest.mark.unit
-    def test_legacy_exception_accepts_message(self):
-        """BatchProcessingError should accept a message parameter."""
-        message = "Test legacy error message"
-        error = BatchProcessingError(message)
-        assert str(error) == message
 
 
 class TestExceptionBehaviorCompliance:
@@ -190,7 +172,6 @@ class TestExceptionTypeSafetyCompliance:
             APIError("API error"),
             ConfigurationError("Config error"),
             SourceError("Source error"),
-            NetworkError("Network error"),
             FileError("File error"),
             ValidationError("Validation error"),
             UnsupportedContentError("Content error"),
@@ -209,15 +190,6 @@ class TestExceptionTypeSafetyCompliance:
         assert isinstance(pipeline_error, GeminiBatchError)
         assert not isinstance(pipeline_error, APIError)
         assert not isinstance(pipeline_error, ConfigurationError)
-
-    @pytest.mark.unit
-    def test_legacy_exception_is_distinct(self):
-        """BatchProcessingError should be distinct from new exceptions."""
-        legacy_error = BatchProcessingError("Legacy error")
-
-        assert isinstance(legacy_error, BatchProcessingError)
-        assert not isinstance(legacy_error, GeminiBatchError)
-        assert not isinstance(legacy_error, APIError)
 
 
 class TestExceptionContractCompliance:
@@ -256,7 +228,6 @@ class TestExceptionContractCompliance:
             ConfigurationError,
             SourceError,
             MissingKeyError,
-            NetworkError,
             FileError,
             ValidationError,
             UnsupportedContentError,
@@ -286,7 +257,6 @@ class TestExceptionContractCompliance:
             ConfigurationError,
             SourceError,
             MissingKeyError,
-            NetworkError,
             FileError,
             ValidationError,
             UnsupportedContentError,
@@ -310,7 +280,6 @@ class TestExceptionRobustnessCompliance:
             ConfigurationError,
             SourceError,
             MissingKeyError,
-            NetworkError,
             FileError,
             ValidationError,
             UnsupportedContentError,
@@ -362,7 +331,6 @@ class TestExceptionRobustnessCompliance:
             ConfigurationError,
             SourceError,
             MissingKeyError,
-            NetworkError,
             FileError,
             ValidationError,
             UnsupportedContentError,
@@ -434,7 +402,6 @@ class TestExceptionArchitecturalCompliance:
             ConfigurationError: "Configuration-related errors",
             SourceError: "Source processing errors",
             PipelineError: "Pipeline execution errors",
-            NetworkError: "Network-related errors",
             FileError: "File operation errors",
             ValidationError: "Validation errors",
             UnsupportedContentError: "Unsupported content errors",
