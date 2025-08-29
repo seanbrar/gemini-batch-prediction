@@ -1094,31 +1094,60 @@ class ResultEnvelope(typing.TypedDict, total=False):
     validation_warnings: tuple[str, ...]  # Schema/contract violations
 
 
+def _validate_result_envelope_reason(obj: object) -> str | None:
+    """Internal: return None when valid, else a concise reason string.
+
+    Centralizes structural rules so both the boolean guard and dev-time
+    validators share a single source of truth.
+    """
+    if not isinstance(obj, dict):
+        return f"ResultEnvelope must be dict, got {type(obj).__name__}"
+    success = obj.get("success")
+    if success is not True:
+        return "'success' must be present and True"
+    answers = obj.get("answers")
+    if not isinstance(answers, list):
+        if isinstance(answers, str):
+            return "'answers' must be list[str], got str; wrap in a list"
+        return f"'answers' must be list[str], got {type(answers).__name__}"
+    if not all(isinstance(a, str) for a in answers):
+        bad = next((type(a).__name__ for a in answers if not isinstance(a, str)), "?")
+        return f"'answers' elements must be str; found {bad}"
+    method = obj.get("extraction_method")
+    if not (isinstance(method, str) and method.strip() != ""):
+        return "'extraction_method' must be a non-empty str"
+    if "confidence" in obj and not isinstance(obj.get("confidence"), int | float):
+        return "'confidence' must be int|float when present"
+    if "metrics" in obj and not isinstance(obj.get("metrics"), dict):
+        return "'metrics' must be dict when present"
+    if "usage" in obj and not isinstance(obj.get("usage"), dict):
+        return "'usage' must be dict when present"
+    return None
+
+
 def is_result_envelope(obj: object) -> TypeGuard[ResultEnvelope]:
     """Return True if ``obj`` structurally looks like a ``ResultEnvelope``.
 
-    Minimal, fast checks only: this is not a full validator, just a guard
-    to ensure we never accept arbitrary dicts as final pipeline results.
+    Public TypeGuard for convenient type-narrowing in calling code and tests.
+    This is a lightweight structural check, not a full validator. Runtime
+    shape guarantees come primarily from the executor's final invariant and the
+    `ResultBuilder`. For detailed diagnostics (a human-friendly reason string),
+    use ``explain_invalid_result_envelope``.
+
+    Notes:
+    - This helper focuses on clarity and fast guards; it may evolve along with
+      the envelope's structural contract.
+    - Dev-time validation can be enabled via ``GEMINI_PIPELINE_VALIDATE=1`` and
+      related helpers in ``pipeline._devtools``.
     """
-    if not isinstance(obj, dict):
-        return False
-    success = obj.get("success")
-    if success is not True:
-        return False
-    answers = obj.get("answers")
-    if not isinstance(answers, list):
-        return False
-    # Answers must be strings; keep strict here for clarity and stability
-    if not all(isinstance(a, str) for a in answers):
-        return False
-    # extraction_method must be a non-empty string
-    method = obj.get("extraction_method")
-    if not (isinstance(method, str) and method.strip() != ""):
-        return False
-    # Optional fields: enforce minimal shape discipline when present
-    # Confidence may come back as int from JSON; accept and let callers normalize if desired
-    if "confidence" in obj and not isinstance(obj.get("confidence"), int | float):
-        return False
-    if "metrics" in obj and not isinstance(obj.get("metrics"), dict):
-        return False
-    return not ("usage" in obj and not isinstance(obj.get("usage"), dict))
+    return _validate_result_envelope_reason(obj) is None
+
+
+def explain_invalid_result_envelope(obj: object) -> str | None:
+    """Return a concise reason when a `ResultEnvelope` shape is invalid.
+
+    Public counterpart to the internal validator; returns None when the
+    object structurally satisfies the `ResultEnvelope` contract, otherwise
+    a short, actionable reason string for diagnostics and dev tooling.
+    """
+    return _validate_result_envelope_reason(obj)

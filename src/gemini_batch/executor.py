@@ -1,10 +1,23 @@
-"""The primary user-facing entry point for the pipeline."""
+"""The primary user-facing entry point for the pipeline.
+
+This module keeps runtime logic simple and explicit. The executor guarantees
+correctness by enforcing a final `ResultEnvelope` invariant. Additional
+dev-time validation can be enabled without impacting production flows.
+
+Telemetry note: the executor records per-stage durations during execution. If
+the terminal stage does not surface these durations into the final envelope's
+`metrics` (e.g., a custom terminal stage instead of `ResultBuilder`), the
+executor will attach a best-effort `metrics.durations` map post-invariant
+without overwriting any existing values.
+"""
 
 from __future__ import annotations
 
+import logging
 from time import perf_counter
 from typing import TYPE_CHECKING, Any
 
+from gemini_batch._dev_flags import dev_validate_enabled
 from gemini_batch.config import FrozenConfig, resolve_config
 from gemini_batch.core.exceptions import (
     GeminiBatchError,
@@ -20,7 +33,10 @@ from gemini_batch.core.types import (
     Success,
     is_result_envelope,
 )
-from gemini_batch.pipeline._erasure import ErasedAsyncHandler, erase
+from gemini_batch.pipeline._erasure import (
+    ErasedAsyncHandler,
+    erase,
+)
 from gemini_batch.pipeline.api_handler import APIHandler
 from gemini_batch.pipeline.cache_stage import CacheStage
 from gemini_batch.pipeline.planner import ExecutionPlanner
@@ -41,6 +57,14 @@ class GeminiExecutor:
 
     This class manages the flow of commands through a series of processing
     stages, each responsible for a specific aspect of the request.
+
+    Notes on validation and invariants:
+    - The executor guarantees correctness by enforcing that the final value
+      is a `ResultEnvelope`-shaped dict. This is the authoritative invariant.
+    - The optional `validate` flag is for development-time ergonomics only
+      (richer shape checks and diagnostics). It does not change the runtime
+      contract and defaults to the `GEMINI_PIPELINE_VALIDATE=1` environment
+      toggle when not provided.
     """
 
     def __init__(
@@ -51,23 +75,28 @@ class GeminiExecutor:
             | Iterable[ErasedAsyncHandler]
             | None
         ) = None,
+        *,
+        validate: bool | None = None,
     ):
         """Initialize the executor with configuration.
 
         Args:
             config: Configuration for the pipeline (FrozenConfig).
             pipeline_handlers: Optional list of handlers to override the default pipeline.
+            validate: Enable dev-time validation (overrides GEMINI_PIPELINE_VALIDATE).
         """
         self.config = config
         self._cache_registry = CacheRegistry()
         self._file_registry = FileRegistry()
+        # Dev-only validation flag for stricter checks in development.
+        # Correctness is guaranteed by the executor's final invariant.
+        self._validate_pipeline: bool = dev_validate_enabled(override=validate)
         # Build or validate a raw pipeline for tests and introspection
         raw_handlers: list[Any] = list(
             pipeline_handlers or self._build_default_pipeline(config)
         )
         if not raw_handlers:
             raise ValueError("Pipeline may not be empty; provide at least one handler.")
-        # Use provided handlers as-is; executor enforces invariants at runtime.
         self._pipeline = raw_handlers
         # Internal execution pipeline (type-erased wrappers). Supports mixed inputs.
         self._exec_pipeline: list[ErasedAsyncHandler] = [
@@ -119,7 +148,7 @@ class GeminiExecutor:
                 },
                 adapter_factory=adapter_factory,
             ),
-            ResultBuilder(),
+            ResultBuilder(validate=self._validate_pipeline),
         ]
         return handlers
 
@@ -172,26 +201,34 @@ class GeminiExecutor:
                 else:
                     current.telemetry_data["durations"] = dict(stage_durations)
 
-        # ResultBuilder must return the final ResultEnvelope
-        if is_result_envelope(current):
-            # Ensure stage durations (including ResultBuilder) are surfaced
-            metrics_container = current.setdefault("metrics", {})
-            if isinstance(metrics_container, dict):
-                existing_durations = metrics_container.get("durations")
-                if isinstance(existing_durations, dict):
-                    existing_durations.update(stage_durations)
+        # Executor-level invariant: final value must be a ResultEnvelope-shaped dict.
+        if not is_result_envelope(current):
+            ctx.count(
+                "pipeline.invariant_violation",
+                stage=last_stage_name or "unknown_stage",
+            )
+            raise InvariantViolationError(
+                "Executor ended without a ResultEnvelope; ensure the final stage produces the envelope (e.g., ResultBuilder).",
+                stage_name=last_stage_name,
+            )
+        # Robustness fallback: if the terminal stage did not attach stage durations
+        # (e.g., a custom terminal stage instead of ResultBuilder), surface the
+        # executor-collected durations here without overwriting any existing data.
+        try:
+            metrics_obj = current.setdefault("metrics", {})
+            if isinstance(metrics_obj, dict):
+                existing = metrics_obj.get("durations")
+                if isinstance(existing, dict):
+                    for k, v in stage_durations.items():
+                        existing.setdefault(k, v)
                 else:
-                    metrics_container["durations"] = dict(stage_durations)
-            return current
-        # Invariant: final stage must produce a ResultEnvelope-shaped dict
-        ctx.count(
-            "pipeline.invariant_violation",
-            stage=last_stage_name or "unknown_stage",
-        )
-        raise InvariantViolationError(
-            "Executor ended without a ResultEnvelope; ensure the final stage produces the envelope (e.g., ResultBuilder).",
-            stage_name=last_stage_name,
-        )
+                    metrics_obj["durations"] = dict(stage_durations)
+        except Exception as e:  # pragma: no cover - best-effort telemetry only
+            # Never fail post-invariant; metrics are best-effort
+            logging.getLogger(__name__).debug(
+                "Duration fallback attachment failed: %s", e
+            )
+        return current
 
     @property
     def stage_names(self) -> tuple[str, ...]:
@@ -215,6 +252,8 @@ class GeminiExecutor:
 
 def create_executor(
     config: FrozenConfig | None = None,
+    *,
+    validate: bool | None = None,
 ) -> GeminiExecutor:
     """Create an executor with optional configuration.
 
@@ -223,6 +262,9 @@ def create_executor(
 
     Args:
         config: Optional configuration object (FrozenConfig or None).
+        validate: Enable dev-time validation (overrides GEMINI_PIPELINE_VALIDATE).
+        This does not affect the executor's final invariant, which always
+        ensures a valid `ResultEnvelope`.
 
     Returns:
         An instance of GeminiExecutor.
@@ -231,4 +273,4 @@ def create_executor(
     # Use the new configuration system; explain=False returns FrozenConfig
     final_config = config if config is not None else resolve_config()
 
-    return GeminiExecutor(final_config)
+    return GeminiExecutor(final_config, validate=validate)

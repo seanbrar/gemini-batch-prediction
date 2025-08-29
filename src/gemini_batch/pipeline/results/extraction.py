@@ -8,6 +8,8 @@ transforms or inspecting extraction diagnostics.
 from __future__ import annotations
 
 import dataclasses
+import logging
+import math
 from typing import TYPE_CHECKING, Any, Literal
 
 if TYPE_CHECKING:
@@ -194,15 +196,89 @@ class ExtractionResult:
     structured_data: Any = None
 
     def __post_init__(self) -> None:
-        """Validate extraction result invariants."""
-        if not isinstance(self.answers, list):
-            raise ValueError(f"answers must be a list, got {type(self.answers)}")
+        """Normalize and validate extraction result invariants at the source.
 
+        - Answers: accept list/tuple/singleton/None; deep-flatten; bytes decode; coerce to str.
+        - Confidence: coerce to float, default on NaN/unparsable, clamp to [0.0, 1.0].
+        - Method: must be non-empty.
+        """
+
+        # Normalize answers: deep-flatten lists/tuples; treat scalars as singletons
+        def _coerce(v: Any) -> str:
+            if v is None:
+                return ""
+            if isinstance(v, str):
+                return v
+            if isinstance(v, bytes | bytearray):
+                try:
+                    return bytes(v).decode("utf-8", errors="replace")
+                except Exception:
+                    return str(v)
+            # Dev-only advisory when non-string scalar coerced
+            nonlocal_coerce_flag[0] = True
+            return str(v)
+
+        out: list[str] = []
+        # Dev-only flags
+        nonlocal_coerce_flag = [False]
+        nested_detected = [False]
+
+        def _flatten(x: Any, level: int = 0) -> None:
+            if isinstance(x, list | tuple):
+                if level > 0:
+                    nested_detected[0] = True
+                for item in x:
+                    _flatten(item, level + 1)
+            else:
+                out.append(_coerce(x))
+
+        raw_answers = self.answers
+        if raw_answers is None:
+            out = []
+        else:
+            if not isinstance(raw_answers, list | tuple):
+                raw_answers = [raw_answers]
+            _flatten(raw_answers, 0)
+        object.__setattr__(self, "answers", out)
+
+        # Dev-only advisory logs for broadened normalization
+        try:
+            from gemini_batch._dev_flags import dev_validate_enabled
+
+            if dev_validate_enabled() and (
+                nested_detected[0] or nonlocal_coerce_flag[0]
+            ):
+                log = logging.getLogger(__name__)
+                reasons: list[str] = []
+                if nested_detected[0]:
+                    reasons.append("nested_answer_sequence")
+                if nonlocal_coerce_flag[0]:
+                    reasons.append("coerced_non_string_answers")
+                if reasons:
+                    log.debug(
+                        "ExtractionResult normalization advisory: %s",
+                        ",".join(reasons),
+                    )
+        except Exception as e:
+            logging.getLogger(__name__).debug(
+                "ExtractionResult advisory hook failed: %s", e
+            )
+
+        # Validate method
         if not self.method:
             raise ValueError("method cannot be empty")
 
-        if not (0.0 <= self.confidence <= 1.0):
-            raise ValueError(f"confidence must be in [0.0, 1.0], got {self.confidence}")
+        # Normalize and clamp confidence
+        raw_conf = self.confidence
+        try:
+            confidence = float(raw_conf)
+        except Exception:
+            confidence = 0.5
+        else:
+            if math.isnan(confidence):
+                confidence = 0.5
+        confidence = max(0.0, min(1.0, confidence))
+        object.__setattr__(self, "confidence", confidence)
 
 
 # --- Diagnostics ---
@@ -214,6 +290,11 @@ class ExtractionDiagnostics:
 
     Only present when a `ResultBuilder` is constructed with
     `enable_diagnostics=True`.
+
+    Field notes:
+    - `pre_pad_count` reflects the number of answers before padding/truncation
+      to `expected_count` and replaces a similarly named legacy field from the
+      previous system.
     """
 
     attempted_transforms: list[str] = dataclasses.field(default_factory=list)
@@ -224,7 +305,7 @@ class ExtractionDiagnostics:
     extraction_duration_ms: float | None = None
     # Optional observability fields
     expected_answer_count: int | None = None
-    original_answer_count: int | None = None
+    pre_pad_count: int | None = None
 
 
 # --- Convenience Functions ---
