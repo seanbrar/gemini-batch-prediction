@@ -87,6 +87,10 @@ def assemble_prompts(
         "sources_policy": plan.sources_policy,
         "sources_decision": plan.sources_action,
     }
+    # Flag to make replacement explicit in diagnostics/telemetry consumers
+    provenance["system_replaced_by_sources"] = plan.sources_action == "replace"
+    if plan.sources_block is not None:
+        provenance["sources_block_len"] = len(plan.sources_block)
     if prompts_cfg.unknown_keys:
         provenance["unknown_prompt_keys"] = prompts_cfg.unknown_keys
     if system_2 is not None:

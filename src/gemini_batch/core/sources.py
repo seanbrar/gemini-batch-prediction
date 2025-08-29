@@ -13,6 +13,7 @@ from pathlib import Path
 import re
 import typing
 from typing import TYPE_CHECKING, Final
+from urllib.parse import urlparse, urlunparse
 
 from ._validation import _require, _require_zero_arg_callable
 
@@ -35,6 +36,30 @@ _EXCLUDE_DIRS: Final[set[str]] = {
     ".tox",
     ".coverage",
 }
+
+# Precompiled arXiv identifier patterns for reuse and consistency
+MODERN_ARXIV_RE: Final[re.Pattern[str]] = re.compile(r"^\d{4}\.\d{4,5}(?:v\d+)?$")
+"""Matches modern arXiv identifiers like '2301.12345' or '2301.12345v2'."""
+
+LEGACY_ARXIV_RE: Final[re.Pattern[str]] = re.compile(
+    r"^[A-Za-z]+(?:\.[A-Za-z]+)?/\d{7}(?:v\d+)?$"
+)
+"""Matches legacy arXiv identifiers like 'cs/9901001' or 'math.PR/9901001v3'."""
+
+
+def _is_arxiv_identifier(ident: str) -> bool:
+    ident = ident.strip("/")
+    return bool(MODERN_ARXIV_RE.match(ident) or LEGACY_ARXIV_RE.match(ident))
+
+
+def _is_arxiv_host(host: str) -> bool:
+    """Return True for hosts that are definitively part of arXiv.
+
+    Accepts `arxiv.org`, its subdomains (e.g., `foo.arxiv.org`), and the
+    historical `export.arxiv.org`. Rejects lookalikes like `arxiv.org.evil.com`.
+    """
+    h = (host or "").lower()
+    return h == "arxiv.org" or h == "export.arxiv.org" or h.endswith(".arxiv.org")
 
 
 @dataclasses.dataclass(frozen=True, slots=True)
@@ -291,28 +316,36 @@ class Source:
 
         # URL inputs: accept arXiv hosts and /pdf/ or /abs/ shapes
         if lower.startswith(("http://", "https://")):
-            if "arxiv.org/" not in lower and "export.arxiv.org/" not in lower:
+            parsed = urlparse(u)
+            host = (parsed.netloc or "").lower()
+            if not _is_arxiv_host(host):
                 raise ValueError("Unsupported arXiv URL host")
-            if "/pdf/" in lower:
-                # Already a PDF URL; ensure .pdf suffix present
-                return u if lower.endswith(".pdf") else (u + ".pdf")
-            if "/abs/" in lower:
-                ident = u.split("/abs/", 1)[1]
-                ident = ident.split("?", 1)[0]
-                ident = ident.strip("/")
+
+            path = parsed.path or ""
+            if "/pdf/" in path:
+                # Already a PDF path; strip query/fragment and ensure .pdf suffix on the path
+                new_path = path if path.endswith(".pdf") else (path + ".pdf")
+                # Canonicalize host to arxiv.org for consistency
+                return urlunparse((parsed.scheme, "arxiv.org", new_path, "", "", ""))
+
+            if "/abs/" in path:
+                # Extract identifier segment after /abs/, strip trailing slashes
+                try:
+                    ident = path.split("/abs/", 1)[1].strip("/")
+                except IndexError:
+                    ident = ""
                 _require(
-                    condition=bool(ident),
+                    condition=bool(ident) and _is_arxiv_identifier(ident),
                     message="invalid arXiv abs URL",
                     field_name="ref",
                 )
                 return f"{base}{ident}.pdf"
+
             raise ValueError("Unsupported arXiv URL; expected /abs/ or /pdf/")
 
         # Bare identifiers: modern or legacy formats with optional version
-        modern = re.compile(r"^\d{4}\.\d{4,5}(?:v\d+)?$")
-        legacy = re.compile(r"^[A-Za-z]+(?:\.[A-Za-z]+)?/\d{7}(?:v\d+)?$")
         ident = u.strip("/")
-        if not (modern.match(ident) or legacy.match(ident)):
+        if not _is_arxiv_identifier(ident):
             raise ValueError(
                 "Invalid arXiv identifier; expected e.g. '1706.03762' or 'cs.CL/9901001'"
             )
@@ -355,5 +388,4 @@ def sources_from_directory(directory: str | Path) -> tuple[Source, ...]:
     Raises:
         ValueError: If `directory` does not exist or is not a directory.
     """
-    files = list(iter_files(directory))
-    return tuple(Source.from_file(p) for p in files)
+    return tuple(Source.from_file(p) for p in iter_files(directory))
