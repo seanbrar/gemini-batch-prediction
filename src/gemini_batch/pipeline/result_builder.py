@@ -330,6 +330,15 @@ class ResultBuilder(BaseAsyncHandler[FinalizedCommand, ResultEnvelope, Never]):
             "token_validation": token_validation,
         }
 
+        # Surface additional telemetry metrics (e.g., per-prompt usage, vectorization meta)
+        # without overriding core fields set above.
+        cmd_metrics_obj = telemetry_data.get("metrics")
+        if isinstance(cmd_metrics_obj, dict) and cmd_metrics_obj:
+            for k, v in cmd_metrics_obj.items():
+                if k in ("durations", "token_validation"):
+                    continue
+                envelope["metrics"][k] = v
+
         # Include token usage details when provided by telemetry (optional)
         if isinstance(usage_obj, dict) and usage_obj:
             envelope["usage"] = dict(usage_obj)
