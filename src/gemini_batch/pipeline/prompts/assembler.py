@@ -15,7 +15,7 @@ Set ``prompts.sources_policy`` to one of:
 - ``append_or_replace``: append if a base system exists; otherwise, replace.
 
 Inline or file-based ``prompts.system`` is never silently dropped without
-sources. Provenance is recorded in ``PromptBundle.hints``
+sources. Provenance is recorded in ``PromptBundle.provenance``
 (``sources_policy``, ``sources_block_applied``, ``sources_block_skipped``).
 """
 
@@ -49,7 +49,7 @@ def assemble_prompts(
         command: ResolvedCommand with initial prompts and configuration.
 
     Returns:
-        PromptBundle with assembled prompts and provenance hints.
+        PromptBundle with assembled prompts and provenance mapping.
 
     Raises:
         ConfigurationError: If file reading fails, builder hook errors,
@@ -73,25 +73,27 @@ def assemble_prompts(
         has_inline_prompts=bool(initial_prompts),
     )
 
-    system_1, hints_1 = t_resolve_system(plan, prompts_cfg)
-    system_2, hints_2 = t_apply_sources_policy(plan, system_1)
-    user_prompts, hints_3 = t_resolve_user_prompts(plan, prompts_cfg, initial_prompts)
+    system_1, provenance_1 = t_resolve_system(plan, prompts_cfg)
+    system_2, provenance_2 = t_apply_sources_policy(plan, system_1)
+    user_prompts, provenance_3 = t_resolve_user_prompts(
+        plan, prompts_cfg, initial_prompts
+    )
 
-    hints = {
-        **hints_1,
-        **hints_2,
-        **hints_3,
+    provenance = {
+        **provenance_1,
+        **provenance_2,
+        **provenance_3,
         "has_sources": has_sources,
         "sources_policy": plan.sources_policy,
         "sources_decision": plan.sources_action,
     }
     if prompts_cfg.unknown_keys:
-        hints["unknown_prompt_keys"] = prompts_cfg.unknown_keys
+        provenance["unknown_prompt_keys"] = prompts_cfg.unknown_keys
     if system_2 is not None:
-        hints["system_len"] = len(system_2)
-    hints["user_total_len"] = sum(len(p) for p in user_prompts)
+        provenance["system_len"] = len(system_2)
+    provenance["user_total_len"] = sum(len(p) for p in user_prompts)
 
-    return PromptBundle(user=user_prompts, system=system_2, hints=hints)
+    return PromptBundle(user=user_prompts, system=system_2, provenance=provenance)
 
 
 # --- Internal helpers ---
@@ -140,22 +142,22 @@ def t_resolve_system(
     plan: AssemblyPlan, cfg: _PromptsConfig
 ) -> tuple[str | None, dict[str, Any]]:
     """Resolve the base system according to the plan. Isolated file I/O."""
-    hints: dict[str, Any] = {}
+    provenance: dict[str, Any] = {}
 
     if plan.system_base == "inline":
         if cfg.system_file is not None:
-            hints["system_file_ignored"] = True
-        hints["system_from"] = "inline"
-        return cfg.system, hints
+            provenance["system_file_ignored"] = True
+        provenance["system_from"] = "inline"
+        return cfg.system, provenance
 
     if plan.system_base == "file":
         path = cast("str | Path", cfg.system_file)
         system = _read_prompt_file(path, cfg)
-        hints["system_from"] = "system_file"
-        hints["system_file"] = str(path)
-        return system, hints
+        provenance["system_from"] = "system_file"
+        provenance["system_file"] = str(path)
+        return system, provenance
 
-    return None, hints
+    return None, provenance
 
 
 def t_apply_sources_policy(

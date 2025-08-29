@@ -17,10 +17,11 @@ leaking provider SDK details.
 from __future__ import annotations
 
 import asyncio
+from dataclasses import dataclass
 from enum import Enum
 import logging
 import os
-from typing import TYPE_CHECKING, Any, TypedDict, cast
+from typing import TYPE_CHECKING, Any, Literal, TypedDict, cast
 
 # Removed ConfigCompatibilityShim import - no longer needed
 from gemini_batch.core.exceptions import APIError
@@ -45,7 +46,6 @@ from gemini_batch.pipeline.adapters.base import (
 from gemini_batch.pipeline.base import BaseAsyncHandler
 from gemini_batch.pipeline.cache_identity import det_shared_key
 from gemini_batch.pipeline.execution_state import ExecutionHints
-from gemini_batch.pipeline.hints import CacheHint, ExecutionCacheName
 from gemini_batch.telemetry import TelemetryContext
 
 if TYPE_CHECKING:
@@ -75,7 +75,6 @@ class UploadPhase(str, Enum):
 
 # --- Telemetry scopes/keys (centralized to avoid typos) ---
 T_API_GENERATE = "api.generate"
-T_API_HINTS = "api.hints"
 T_API_RETRY_NO_CACHE = "api.retry_no_cache"
 T_API_GENERATE_RETRY = "api.generate_retry"
 T_API_GENERATE_RETRY_LOOP = "api.generate_retry_loop"
@@ -159,6 +158,33 @@ class APIHandler(BaseAsyncHandler[PlannedCommand, FinalizedCommand, APIError]):
             except Exception as e:  # pragma: no cover
                 raise APIError(f"Failed to initialize provider: {e}") from e
         return _MockAdapter()
+
+    # --- Cache intent modeling ---
+
+    @dataclass(frozen=True)
+    class CacheIntent:
+        """Execution-time cache intent for a single call attempt."""
+
+        applied: bool
+        applied_via: Literal["plan", "override", "none"]
+        name: str | None
+
+    def _derive_cache_intent(
+        self,
+        *,
+        had_explicit_cache_plan: bool,
+        planned_cache_name: str | None,
+        applied_via: str | None,
+    ) -> APIHandler.CacheIntent:
+        """Derive cache intent from plan, including override vs plan origin."""
+        if had_explicit_cache_plan and planned_cache_name:
+            via: Literal["plan", "override"] = (
+                "override" if applied_via == "override" else "plan"
+            )
+            return APIHandler.CacheIntent(
+                applied=True, applied_via=via, name=planned_cache_name
+            )
+        return APIHandler.CacheIntent(applied=False, applied_via="none", name=None)
 
     async def _prepare_effective_parts(
         self,
@@ -626,31 +652,6 @@ class APIHandler(BaseAsyncHandler[PlannedCommand, FinalizedCommand, APIError]):
         return cfg
 
     # --- Resilience helpers ---
-    def _read_execution_cache_override(
-        self, planned_command: PlannedCommand
-    ) -> tuple[str | None, bool]:
-        """Return (cache_name_override, overridden) from execution hints.
-
-        Best-effort: never raises. Emits a telemetry gauge in caller.
-        """
-        try:
-            initial = planned_command.resolved.initial
-            hints_tuple = tuple(getattr(initial, "hints", ()) or ())
-            exec_cache = next(
-                (
-                    h.cache_name
-                    for h in hints_tuple
-                    if isinstance(h, ExecutionCacheName)
-                ),
-                None,
-            )
-            if exec_cache:
-                return exec_cache, True
-        except Exception as e:  # pragma: no cover - defensive
-            logger.debug(
-                "Failed to read execution cache name from hints: %s", e, exc_info=True
-            )
-        return None, False
 
     def _apply_adapter_hints(
         self, adapter: GenerationAdapter, cached_content: str | None
@@ -762,53 +763,43 @@ class APIHandler(BaseAsyncHandler[PlannedCommand, FinalizedCommand, APIError]):
                     parts, planned_command
                 ), retried_without_cache
 
-        # Read any execution-time cache override from hints (fail-soft)
-        cache_overridden_by_hint = False
-        override, overridden = self._read_execution_cache_override(planned_command)
-        if overridden:
-            cache_name = override
-            cache_overridden_by_hint = True
-            with self._telemetry(T_API_HINTS) as tele:
-                tele.gauge("exec_cache_override", 1)
+        # Derive intent from plan (includes override vs plan origin when available)
+        intent = self._derive_cache_intent(
+            had_explicit_cache_plan=had_explicit_cache_plan,
+            planned_cache_name=cache_name,
+            applied_via=getattr(
+                planned_command.execution_plan, "cache_application", "none"
+            ),
+        )
+        # Override path is expressed via plan.cache_application
 
         # Real path: attempt with cache hint first (if provided)
         last_error: Exception | None = None
         try:
-            # Clarify intent derivation for observability and correctness.
-            # intent_from_plan: planner produced an explicit cache plan
-            # intent_from_override: execution-time override via ExecutionCacheName
-            # cache_applied: a concrete cache name is present for this attempt
-            intent_from_plan = bool(had_explicit_cache_plan)
-            intent_from_override = bool(cache_overridden_by_hint)
-            cache_applied = cache_name is not None
-
             with self._telemetry(T_API_GENERATE, model=model_name) as tele:
                 # Lightweight, explicit gauges for clarity
-                tele.gauge("cache_intent_plan", 1 if intent_from_plan else 0)
-                tele.gauge("cache_intent_override", 1 if intent_from_override else 0)
-                tele.gauge("cache_applied", 1 if cache_applied else 0)
+                tele.gauge(
+                    "cache_intent_plan", 1 if intent.applied_via == "plan" else 0
+                )
+                tele.gauge(
+                    "cache_intent_override",
+                    1 if intent.applied_via == "override" else 0,
+                )
+                tele.gauge("cache_applied", 1 if intent.applied else 0)
                 # If cache is applied, write metadata to registry (best-effort)
-                if cache_applied:
+                if intent.applied and intent.name:
                     self._write_cache_metadata(
                         planned_command,
-                        cast("str", cache_name),
-                        applied_via=("override" if intent_from_override else "plan"),
+                        intent.name,
+                        applied_via=intent.applied_via,
                     )
                 raw = await self._attempt_generate(
                     adapter, model_name, parts, api_config, cache_name
                 )
                 return raw, retried_without_cache
         except Exception as first_error:
-            # Retry w/o cache only if caching was truly intended and applied:
-            #   a) explicit cache plan AND a concrete cache name was applied; or
-            #   b) an execution-time override provided a cache name.
-            intent_from_plan = bool(had_explicit_cache_plan)
-            intent_from_override = bool(cache_overridden_by_hint)
-            cache_applied = cache_name is not None
-            treat_as_explicit = (
-                intent_from_plan and cache_applied
-            ) or intent_from_override
-            if treat_as_explicit:
+            # Retry without cache only if caching was truly intended and applied
+            if intent.applied and intent.applied_via in {"plan", "override"}:
                 with self._telemetry(T_API_RETRY_NO_CACHE, model=model_name):
                     try:
                         raw = await self._retry_without_cache(
@@ -858,7 +849,7 @@ class APIHandler(BaseAsyncHandler[PlannedCommand, FinalizedCommand, APIError]):
     ) -> None:
         """Best-effort write of cache metadata to the cache registry.
 
-        Stores the applied cache name and any artifacts from CacheHint under the
+        Stores the applied cache name and any artifacts from CacheOptions under the
         deterministic shared-context key used by CacheStage. Unknown registry
         types are ignored safely.
         """
@@ -867,8 +858,8 @@ class APIHandler(BaseAsyncHandler[PlannedCommand, FinalizedCommand, APIError]):
             return
         try:
             initial = planned_command.resolved.initial
-            hints = tuple(getattr(initial, "hints", ()) or ())
-            cache_hint = next((h for h in hints if isinstance(h, CacheHint)), None)
+            opts = getattr(initial, "options", None)
+            cache_hint = getattr(opts, "cache", None) if opts is not None else None
 
             plan = planned_command.execution_plan
             model_name = plan.calls[0].model_name
@@ -883,9 +874,9 @@ class APIHandler(BaseAsyncHandler[PlannedCommand, FinalizedCommand, APIError]):
                     {
                         "cache_name": cache_name,
                         "artifacts": tuple(cache_hint.artifacts) if cache_hint else (),
-                        "applied_via": "override"
-                        if applied_via == "override"
-                        else "plan",
+                        "applied_via": applied_via
+                        if applied_via in {"plan", "override"}
+                        else "none",
                     },
                 )
         except Exception:

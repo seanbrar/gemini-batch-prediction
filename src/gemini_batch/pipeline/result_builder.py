@@ -21,7 +21,6 @@ from gemini_batch.core.types import (
     Success,
 )
 from gemini_batch.pipeline.base import BaseAsyncHandler
-from gemini_batch.pipeline.hints import ResultHint
 from gemini_batch.pipeline.results.extraction import (
     ExtractionContext,
     ExtractionContract,
@@ -78,32 +77,29 @@ class ResultBuilder(BaseAsyncHandler[FinalizedCommand, ResultEnvelope, Never]):
         # final invariant; this toggle provides stricter feedback in dev flows.
         self._validate: bool = dev_validate_enabled(override=validate)
 
-    def _sorted_transforms_for(
-        self, hints: tuple[object, ...] | None
+    def _ordered_transforms(
+        self, *, prefer_json_array: bool
     ) -> tuple[TransformSpec, ...]:
-        """Optionally bias toward JSON-array extraction when hinted.
+        """Return transforms ordered by preference and priority.
 
-        Convention: a transform named "json_array" is considered the JSON-first
-        candidate. When `ResultHint(prefer_json_array=True)` is present, we
-        bubble such a transform before the usual priority order. If multiple
-        hints of this class are present, the presence check remains effectively
-        "first one wins" but produces the same outcome as any-true.
+        When `prefer_json_array` is True, bubble a transform named
+        "json_array" to the front while preserving priority and stable
+        ordering for others.
         """
-        prefer_json = any(
-            isinstance(h, ResultHint) and h.prefer_json_array for h in (hints or ())
-        )
-        if not prefer_json:
+        if not prefer_json_array:
             return self._sorted_transforms
-
-        # Stable reordering: bubble a transform named "json_array" to the front if present
-        def _key(t: TransformSpec) -> tuple[int, int, str]:
-            return (
-                0 if getattr(t, "name", "") == "json_array" else 1,
-                -t.priority,
-                t.name,
+        return tuple(
+            sorted(
+                self.transforms,
+                key=lambda t: (
+                    0 if getattr(t, "name", "") == "json_array" else 1,
+                    -t.priority,
+                    t.name,
+                ),
             )
+        )
 
-        return tuple(sorted(self.transforms, key=_key))
+    # Note: Legacy hints-based transform ordering has been removed.
 
     async def handle(self, command: FinalizedCommand) -> Result[ResultEnvelope, Never]:
         """Extract a `ResultEnvelope` from a `FinalizedCommand`.
@@ -131,17 +127,19 @@ class ResultBuilder(BaseAsyncHandler[FinalizedCommand, ResultEnvelope, Never]):
             if diagnostics:
                 diagnostics.flags.add("truncated_input")
 
-        # Tier 1: Try transforms in priority order (optionally biased by hints)
+        # Tier 1: Try transforms in priority order (optionally biased by options)
         initial = command.planned.resolved.initial
-        hints = tuple(getattr(initial, "hints", ()) or ())
-        prefer_json = any(
-            isinstance(h, ResultHint) and h.prefer_json_array for h in hints
+        opts = getattr(initial, "options", None)
+        prefer_json = bool(
+            getattr(getattr(opts, "result", None), "prefer_json_array", False)
         )
+        # Legacy InitialCommand.hints is deprecated and no longer considered.
         if prefer_json and diagnostics is not None:
             diagnostics.flags.add("prefer_json_array")
 
         extraction_result = None
-        for transform in self._sorted_transforms_for(hints):
+        # Use ordering biased toward JSON when requested via options
+        for transform in self._ordered_transforms(prefer_json_array=prefer_json):
             if diagnostics:
                 diagnostics.attempted_transforms.append(transform.name)
 

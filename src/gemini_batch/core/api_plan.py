@@ -4,6 +4,7 @@ from __future__ import annotations
 
 import dataclasses
 from pathlib import Path
+from typing import Literal
 
 from ._validation import _freeze_mapping, _is_tuple_of, _require
 from .api_parts import (
@@ -113,6 +114,10 @@ class ExecutionPlan:
     rate_constraint: RateConstraint | None = None
     # Optional pre-generation actions
     upload_tasks: tuple[UploadTask, ...] = ()
+    # How a cache name (if any) was applied to this plan's calls.
+    # "plan": resolved/created by CacheStage decision; "override": applied from
+    # ExecutionOptions.cache_override_name; "none": no cache applied.
+    cache_application: Literal["none", "plan", "override"] = "none"
 
     def __post_init__(self) -> None:
         """Validate plan collections and optionals."""
@@ -140,6 +145,10 @@ class ExecutionPlan:
             condition=_is_tuple_of(self.upload_tasks, UploadTask),
             message="upload_tasks must be a tuple[UploadTask, ...]",
             exc=TypeError,
+        )
+        _require(
+            condition=self.cache_application in {"none", "plan", "override"},
+            message="cache_application must be one of {'none','plan','override'}",
         )
         _require(
             condition=len(self.calls) > 0,

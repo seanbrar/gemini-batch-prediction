@@ -33,12 +33,15 @@ from gemini_batch.core.types import (
 from gemini_batch.pipeline.adapters.base import CachingCapability, GenerationAdapter
 from gemini_batch.pipeline.base import BaseAsyncHandler
 from gemini_batch.pipeline.cache_identity import det_shared_key
-from gemini_batch.pipeline.hints import CacheHint, CachePolicyHint
+from gemini_batch.telemetry import TelemetryContext
 
 if TYPE_CHECKING:
     from collections.abc import Callable
 
+    # Hint capsule types referenced in signatures
+    from gemini_batch.core.execution_options import CacheOptions, CachePolicyHint
     from gemini_batch.pipeline.registries import SimpleRegistry
+    from gemini_batch.telemetry import TelemetryContextProtocol
 
 logger = logging.getLogger(__name__)
 
@@ -55,15 +58,19 @@ class CacheStage(BaseAsyncHandler[PlannedCommand, PlannedCommand, APIError]):
         *,
         registries: dict[str, SimpleRegistry] | None = None,
         adapter_factory: Callable[[str], GenerationAdapter] | None = None,
+        telemetry: TelemetryContextProtocol | None = None,
     ) -> None:
         """Initialize cache stage with registry and adapter factory.
 
         Args:
             registries: Optional registries dictionary containing cache registry.
             adapter_factory: Optional factory for creating generation adapters.
+            telemetry: Optional telemetry context for recording cache policy gauges;
+                defaults to a no-op or env-enabled context via `TelemetryContext()`.
         """
         self._cache_registry = (registries or {}).get("cache")
         self._adapter_factory = adapter_factory
+        self._telemetry: TelemetryContextProtocol = telemetry or TelemetryContext()
 
     async def handle(self, command: PlannedCommand) -> Result[PlannedCommand, APIError]:
         """Process command to resolve or create cache and update execution plan.
@@ -78,19 +85,37 @@ class CacheStage(BaseAsyncHandler[PlannedCommand, PlannedCommand, APIError]):
             initial = command.resolved.initial
             cfg = initial.config
 
+            plan = command.execution_plan
+
+            # Read structured options once (fail-soft) and pass down
+            cache_hint = None
+            policy_hint = None
+            cache_override_name: str | None = None
+            try:
+                opts = getattr(initial, "options", None)
+                if opts is not None:
+                    cache_hint = getattr(opts, "cache", None)
+                    policy_hint = getattr(opts, "cache_policy", None)
+                    cache_override_name = getattr(opts, "cache_override_name", None)
+            except Exception:
+                cache_hint = None
+                policy_hint = None
+                cache_override_name = None
+
+            # Apply a best-effort execution-time cache override when provided.
+            # This does not perform registry lookups or creation and works even
+            # when no real adapter is configured (e.g., dry runs/mocks).
+            if isinstance(cache_override_name, str) and cache_override_name.strip():
+                updated_plan = _apply_cache_to_plan(plan, cache_override_name)
+                updated_command = dataclasses.replace(
+                    command, execution_plan=updated_plan
+                )
+                return Success(updated_command)
+
             # Select adapter only when real API is enabled; otherwise no-op.
             adapter = _select_caching_adapter(cfg, self._adapter_factory)
             if adapter is None or not isinstance(adapter, CachingCapability):
                 return Success(command)
-
-            plan = command.execution_plan
-
-            # Read hints once (fail-soft) and pass down
-            hints = tuple(getattr(initial, "hints", ()) or ())
-            cache_hint = next((h for h in hints if isinstance(h, CacheHint)), None)
-            policy_hint = next(
-                (h for h in hints if isinstance(h, CachePolicyHint)), None
-            )
 
             # Resolve or create a cache for shared parts (vectorized or single)
             cache_name = await self._resolve_or_create_cache_name(
@@ -118,7 +143,7 @@ class CacheStage(BaseAsyncHandler[PlannedCommand, PlannedCommand, APIError]):
         *,
         adapter: CachingCapability,
         command: PlannedCommand,
-        cache_hint: CacheHint | None,
+        cache_hint: CacheOptions | None,
         policy_hint: CachePolicyHint | None,
     ) -> str | None:
         """Resolve or create a cache name for shared parts across both paths.
@@ -142,7 +167,8 @@ class CacheStage(BaseAsyncHandler[PlannedCommand, PlannedCommand, APIError]):
 
         initial = command.resolved.initial
         cfg = initial.config
-        if not cfg.enable_caching and cache_hint is None:
+        # If config disables caching, still allow explicit policy hints to opt-in
+        if not cfg.enable_caching and cache_hint is None and policy_hint is None:
             return None
 
         reg_key = _compute_cache_key(
@@ -161,13 +187,19 @@ class CacheStage(BaseAsyncHandler[PlannedCommand, PlannedCommand, APIError]):
             return None
 
         # Apply cache policy checks
-        policy_decision = _resolve_cache_policy_decision(
+        # Consider explicit policy hints as enabling intent even if config disabled
+        enable_flag = bool(cfg.enable_caching or policy_hint is not None)
+        policy_decision, applied_floor = _resolve_cache_policy_decision(
             model_name=model_name,
             policy_hint=policy_hint,
             token_estimate=command.token_estimate,
             first_turn=_is_first_turn(initial),
-            enable_caching=cfg.enable_caching,
+            enable_caching=enable_flag,
         )
+        if applied_floor is not None:
+            # Record floor application for observability (value is the floor tokens)
+            with self._telemetry("cache.policy") as tele:
+                tele.gauge("floor_applied", float(applied_floor))
         if not policy_decision:
             return None
 
@@ -244,7 +276,7 @@ def _compute_cache_key(
     model_name: str,
     system_instruction: str | None,
     command: PlannedCommand,
-    cache_hint: CacheHint | None,
+    cache_hint: CacheOptions | None,
 ) -> str:
     """Compute deterministic cache key from hint or shared-context identity."""
     if cache_hint and (cache_hint.deterministic_key or "").strip():
@@ -295,14 +327,14 @@ def _resolve_cache_policy_decision(
     token_estimate: TokenEstimate | None,
     first_turn: bool,
     enable_caching: bool,
-) -> bool:
+) -> tuple[bool, int | None]:
     """Pure policy resolution following capability-based design.
 
     Returns True if cache creation should proceed, False to skip.
     Consolidates all policy checks in one place for clarity.
     """
     if not enable_caching:
-        return False
+        return False, None
 
     # Resolve policy values with defaults
     first_turn_only = (
@@ -323,7 +355,7 @@ def _resolve_cache_policy_decision(
 
     # First turn policy check
     if first_turn_only and not first_turn:
-        return False
+        return False, None
 
     # Token floor policy check
     if respect_floor and token_estimate is not None:
@@ -332,9 +364,9 @@ def _resolve_cache_policy_decision(
             token_estimate.max_tokens < floor
             and token_estimate.confidence >= conf_skip_floor
         ):
-            return False
+            return False, floor
 
-    return True
+    return True, None
 
 
 def _resolve_token_floor(model_name: str, policy_hint: CachePolicyHint | None) -> int:
