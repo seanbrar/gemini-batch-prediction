@@ -1,11 +1,23 @@
-"""Base protocol for pipeline handlers."""
+"""Base protocol for pipeline handlers.
 
-from typing import Protocol, TypeVar
+Public surface area intentionally minimal: extension authors implement
+``BaseAsyncHandler``. Type-erasure mechanics used by the executor are
+internal and live in ``pipeline._erasure``.
+"""
+
+from __future__ import annotations
+
+import logging
+from typing import TYPE_CHECKING, Protocol, TypeVar
 
 from gemini_batch.core.exceptions import GeminiBatchError
-from gemini_batch.core.types import Result
 
-# Contravariant input (handlers can accept supertypes), invariant output
+if TYPE_CHECKING:
+    from gemini_batch.core.types import Result
+
+log = logging.getLogger(__name__)
+
+# Contravariant input (handlers accept supertypes), invariant output and error
 T_In = TypeVar("T_In", contravariant=True)
 T_Out = TypeVar("T_Out")
 T_Error = TypeVar("T_Error", bound=GeminiBatchError)
@@ -28,3 +40,27 @@ class BaseAsyncHandler(Protocol[T_In, T_Out, T_Error]):
             A Result object containing either the next command state or an error.
         """
         ...
+
+
+if TYPE_CHECKING:  # pragma: no cover - typing only
+    from typing import Never
+
+    from gemini_batch.core.types import FinalizedCommand, ResultEnvelope
+
+    class BuildsEnvelope(Protocol):
+        """Protocol for terminal stages that produce a ResultEnvelope.
+
+        This is a typing-only contract used by tooling and documentation to
+        signal that the final pipeline stage must construct the user-facing
+        ResultEnvelope in a Success result.
+        """
+
+        async def handle(
+            self, cmd: FinalizedCommand
+        ) -> Result[ResultEnvelope, Never]:  # pragma: no cover - typing only
+            """Process the finalized command and return a ResultEnvelope."""
+            ...
+
+
+# Public surface: keep the handler protocol as the only explicit export
+__all__ = ("BaseAsyncHandler",)

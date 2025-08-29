@@ -8,6 +8,7 @@ Focus: how to configure and call `ResultBuilder`,what it returns,
 and when diagnostics are produced.
 """
 
+from collections.abc import Mapping
 from dataclasses import asdict
 import time
 from typing import Any, Never
@@ -15,6 +16,7 @@ from typing import Any, Never
 from gemini_batch.core.types import (
     FinalizedCommand,
     Result,
+    ResultEnvelope,
     Success,
 )
 from gemini_batch.pipeline.base import BaseAsyncHandler
@@ -31,7 +33,7 @@ from gemini_batch.pipeline.results.minimal_projection import MinimalProjection
 from gemini_batch.pipeline.results.transforms import default_transforms
 
 
-class ResultBuilder(BaseAsyncHandler[FinalizedCommand, dict[str, Any], Never]):
+class ResultBuilder(BaseAsyncHandler[FinalizedCommand, ResultEnvelope, Never]):
     """Build `ResultEnvelope` objects from finalized commands.
 
     The `ResultBuilder` applies configured `TransformSpec`s in priority order
@@ -68,6 +70,8 @@ class ResultBuilder(BaseAsyncHandler[FinalizedCommand, dict[str, Any], Never]):
         self._sorted_transforms: tuple[TransformSpec, ...] = tuple(
             sorted(self.transforms, key=lambda t: (-t.priority, t.name))
         )
+        # No instance-level markers to preserve stateless contract
+        # See compose_pipeline for terminal-stage checks.
 
     def _sorted_transforms_for(
         self, hints: tuple[object, ...] | None
@@ -96,7 +100,7 @@ class ResultBuilder(BaseAsyncHandler[FinalizedCommand, dict[str, Any], Never]):
 
         return tuple(sorted(self.transforms, key=_key))
 
-    async def handle(self, command: FinalizedCommand) -> Result[dict[str, Any], Never]:
+    async def handle(self, command: FinalizedCommand) -> Result[ResultEnvelope, Never]:
         """Extract a `ResultEnvelope` from a `FinalizedCommand`.
 
         The method applies Tier 1 transforms (priority order) and a Tier 2
@@ -261,7 +265,7 @@ class ResultBuilder(BaseAsyncHandler[FinalizedCommand, dict[str, Any], Never]):
         extraction_result: ExtractionResult,
         command: FinalizedCommand,
         ctx: ExtractionContext,
-    ) -> dict[str, Any]:
+    ) -> ResultEnvelope:
         """Package extraction output into a stable `ResultEnvelope` dict.
 
         Ensures answer count matches `ctx.expected_count`, inserts
@@ -286,7 +290,7 @@ class ResultBuilder(BaseAsyncHandler[FinalizedCommand, dict[str, Any], Never]):
             answers = answers[: ctx.expected_count]
 
         # Build base envelope
-        envelope: dict[str, Any] = {
+        envelope: ResultEnvelope = {
             "success": True,
             "answers": answers,
             "extraction_method": extraction_result.method,
@@ -322,7 +326,7 @@ class ResultBuilder(BaseAsyncHandler[FinalizedCommand, dict[str, Any], Never]):
         return envelope
 
     def _validate_schema(
-        self, result: dict[str, Any], ctx: ExtractionContext
+        self, result: Mapping[str, Any], ctx: ExtractionContext
     ) -> list[Violation]:
         """Run record-only schema validation and return violations.
 
@@ -392,3 +396,6 @@ class ResultBuilder(BaseAsyncHandler[FinalizedCommand, dict[str, Any], Never]):
                     truncated_dict[key] = value
             return truncated_dict
         return raw
+
+    # Class-level marker for optional compose_pipeline validation (not required by executor)
+    _produces_envelope = True

@@ -13,6 +13,7 @@ import inspect
 from pathlib import Path
 from types import MappingProxyType
 import typing
+from typing import TypeGuard
 
 # --- Minimal guard helpers (clarity > boilerplate) ---
 
@@ -1091,3 +1092,33 @@ class ResultEnvelope(typing.TypedDict, total=False):
     usage: dict[str, typing.Any]  # Token usage data
     diagnostics: dict[str, typing.Any]  # When diagnostics enabled
     validation_warnings: tuple[str, ...]  # Schema/contract violations
+
+
+def is_result_envelope(obj: object) -> TypeGuard[ResultEnvelope]:
+    """Return True if ``obj`` structurally looks like a ``ResultEnvelope``.
+
+    Minimal, fast checks only: this is not a full validator, just a guard
+    to ensure we never accept arbitrary dicts as final pipeline results.
+    """
+    if not isinstance(obj, dict):
+        return False
+    success = obj.get("success")
+    if success is not True:
+        return False
+    answers = obj.get("answers")
+    if not isinstance(answers, list):
+        return False
+    # Answers must be strings; keep strict here for clarity and stability
+    if not all(isinstance(a, str) for a in answers):
+        return False
+    # extraction_method must be a non-empty string
+    method = obj.get("extraction_method")
+    if not (isinstance(method, str) and method.strip() != ""):
+        return False
+    # Optional fields: enforce minimal shape discipline when present
+    # Confidence may come back as int from JSON; accept and let callers normalize if desired
+    if "confidence" in obj and not isinstance(obj.get("confidence"), int | float):
+        return False
+    if "metrics" in obj and not isinstance(obj.get("metrics"), dict):
+        return False
+    return not ("usage" in obj and not isinstance(obj.get("usage"), dict))

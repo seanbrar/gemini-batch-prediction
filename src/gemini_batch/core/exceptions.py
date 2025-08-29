@@ -54,3 +54,21 @@ class ValidationError(GeminiBatchError):
 
 class UnsupportedContentError(GeminiBatchError):
     """Raised when content type is not supported."""
+
+
+class InvariantViolationError(GeminiBatchError):
+    """Raised when an internal pipeline invariant is violated.
+
+    Used to signal impossible states that indicate a bug or mis-composed pipeline,
+    e.g., when the final stage does not produce a ResultEnvelope.
+    """
+
+    def __init__(self, message: str, stage_name: str | None = None):
+        """Create an invariant violation error.
+
+        Args:
+            message: Human-readable description of the violated invariant.
+            stage_name: Optional pipeline stage name where the issue was detected.
+        """
+        self.stage_name = stage_name
+        super().__init__(message if stage_name is None else f"[{stage_name}] {message}")

@@ -11,7 +11,7 @@ import dataclasses
 from typing import TYPE_CHECKING, Any, Literal
 
 if TYPE_CHECKING:
-    from collections.abc import Callable
+    from collections.abc import Callable, Mapping
 
 # --- Transform Specification ---
 
@@ -116,7 +116,7 @@ class ExtractionContract:
                 f"max_answer_length ({self.max_answer_length}) must be >= min_answer_length ({self.min_answer_length})"
             )
 
-    def validate(self, result: dict[str, Any]) -> list[Violation]:
+    def validate(self, result: Mapping[str, Any]) -> list[Violation]:
         """Validate a `ResultEnvelope` and return violations.
 
         Args:
