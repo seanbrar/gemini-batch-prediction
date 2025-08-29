@@ -38,6 +38,8 @@ from gemini_batch.telemetry import TelemetryContext
 if TYPE_CHECKING:
     from collections.abc import Callable
 
+    from gemini_batch.core.api_plan import CacheAppliedVia
+
     # Hint capsule types referenced in signatures
     from gemini_batch.core.execution_options import CacheOptions, CachePolicyHint
     from gemini_batch.pipeline.registries import SimpleRegistry
@@ -106,7 +108,7 @@ class CacheStage(BaseAsyncHandler[PlannedCommand, PlannedCommand, APIError]):
             # This does not perform registry lookups or creation and works even
             # when no real adapter is configured (e.g., dry runs/mocks).
             if isinstance(cache_override_name, str) and cache_override_name.strip():
-                updated_plan = _apply_cache_to_plan(
+                updated_plan = apply_cache_to_plan(
                     plan, cache_override_name, applied_via="override"
                 )
                 updated_command = dataclasses.replace(
@@ -131,7 +133,7 @@ class CacheStage(BaseAsyncHandler[PlannedCommand, PlannedCommand, APIError]):
                 return Success(command)
 
             # Apply cache name to the plan and preserve all other fields
-            updated_plan = _apply_cache_to_plan(plan, cache_name, applied_via="plan")
+            updated_plan = apply_cache_to_plan(plan, cache_name, applied_via="plan")
             updated_command = dataclasses.replace(command, execution_plan=updated_plan)
             return Success(updated_command)
         except APIError as e:
@@ -295,19 +297,15 @@ def _with_cache_name(call: APICall, cache_name: str) -> APICall:
     )
 
 
-def _apply_cache_to_plan(
-    plan: ExecutionPlan, cache_name: str, *, applied_via: str = "plan"
+def apply_cache_to_plan(
+    plan: ExecutionPlan, cache_name: str, *, applied_via: CacheAppliedVia = "plan"
 ) -> ExecutionPlan:
     """Return a copy of plan with cache applied to vectorized or single call.
 
     Preserves all other fields (fallback, rate constraints, uploads).
     """
     updated_calls = tuple(_with_cache_name(c, cache_name) for c in plan.calls)
-    from typing import Literal
-
-    via: Literal["plan", "override"] = (
-        "override" if applied_via == "override" else "plan"
-    )
+    via: CacheAppliedVia = "override" if applied_via == "override" else "plan"
     return dataclasses.replace(plan, calls=updated_calls, cache_application=via)
 
 
