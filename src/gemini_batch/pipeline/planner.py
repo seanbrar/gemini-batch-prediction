@@ -198,13 +198,13 @@ class ExecutionPlanner(
 
             # Estimate tokens for prompt and resolved sources (pure, adapter-based)
             with self._telemetry("planner.estimate", model=model_name):
-                parts: list[TokenEstimate] = [
+                estimates: list[TokenEstimate] = [
                     self._estimate_text_and_sources(joined_prompt, ())
                 ]
                 src_agg = self._aggregate_sources(command.resolved_sources)
                 if src_agg is not None:
-                    parts.append(src_agg)
-                aggregated = self._adapter.aggregate(parts)
+                    estimates.append(src_agg)
+                aggregated = self._adapter.aggregate(estimates)
                 aggregated = self._apply_estimation_override(aggregated, overh)
                 total_estimate = self._normalize_prompt_breakdown(aggregated)
 
@@ -216,15 +216,15 @@ class ExecutionPlanner(
 
             # No cache planning. Caches are resolved during execution by CacheStage.
 
-            # Build parts: prompt first; file placeholders already in shared_parts
-            parts: list[Any] = [TextPart(text=joined_prompt)]
+            # Build API parts: prompt first; file placeholders already in shared_parts
+            api_parts: list[APIPart] = [TextPart(text=joined_prompt)]
 
             # Create API config with system instruction when present
             api_config: dict[str, Any] = self._api_config(prompt_bundle.system)
 
             api_call = APICall(
                 model_name=model_name,
-                api_parts=tuple(parts),
+                api_parts=tuple(api_parts),
                 api_config=api_config,
                 cache_name_to_use=None,
             )

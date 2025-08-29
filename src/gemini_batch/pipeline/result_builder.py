@@ -4,17 +4,20 @@ Provides the Two-Tier Transform Chain used to produce a stable
 `ResultEnvelope` from a `FinalizedCommand`: a prioritized set of
 transforms (Tier 1) with a `MinimalProjection` fallback (Tier 2).
 
-Focus: how to configure and call `ResultBuilder`,what it returns,
+Focus: how to configure and call `ResultBuilder`, what it returns,
 and when diagnostics are produced.
 """
 
+from collections.abc import Mapping
 from dataclasses import asdict
 import time
 from typing import Any, Never
 
+from gemini_batch._dev_flags import dev_validate_enabled
 from gemini_batch.core.types import (
     FinalizedCommand,
     Result,
+    ResultEnvelope,
     Success,
 )
 from gemini_batch.pipeline.base import BaseAsyncHandler
@@ -31,7 +34,7 @@ from gemini_batch.pipeline.results.minimal_projection import MinimalProjection
 from gemini_batch.pipeline.results.transforms import default_transforms
 
 
-class ResultBuilder(BaseAsyncHandler[FinalizedCommand, dict[str, Any], Never]):
+class ResultBuilder(BaseAsyncHandler[FinalizedCommand, ResultEnvelope, Never]):
     """Build `ResultEnvelope` objects from finalized commands.
 
     The `ResultBuilder` applies configured `TransformSpec`s in priority order
@@ -50,6 +53,7 @@ class ResultBuilder(BaseAsyncHandler[FinalizedCommand, dict[str, Any], Never]):
         *,
         enable_diagnostics: bool = False,
         max_text_size: int = 1_000_000,  # 1MB limit
+        validate: bool | None = None,
     ) -> None:
         """Initialize the ResultBuilder.
 
@@ -57,6 +61,7 @@ class ResultBuilder(BaseAsyncHandler[FinalizedCommand, dict[str, Any], Never]):
             transforms: Optional sequence of `TransformSpec`. Defaults to built-ins.
             enable_diagnostics: If True, attach `ExtractionDiagnostics` to results.
             max_text_size: Max text length to process; oversized inputs are truncated.
+            validate: Enable dev-time shape validation (overrides GEMINI_PIPELINE_VALIDATE).
         """
         self.transforms = (
             transforms if transforms is not None else tuple(default_transforms())
@@ -68,6 +73,10 @@ class ResultBuilder(BaseAsyncHandler[FinalizedCommand, dict[str, Any], Never]):
         self._sorted_transforms: tuple[TransformSpec, ...] = tuple(
             sorted(self.transforms, key=lambda t: (-t.priority, t.name))
         )
+        # No instance-level markers to preserve stateless contract.
+        # Dev-only validation flag: correctness is guaranteed by the executor's
+        # final invariant; this toggle provides stricter feedback in dev flows.
+        self._validate: bool = dev_validate_enabled(override=validate)
 
     def _sorted_transforms_for(
         self, hints: tuple[object, ...] | None
@@ -96,7 +105,7 @@ class ResultBuilder(BaseAsyncHandler[FinalizedCommand, dict[str, Any], Never]):
 
         return tuple(sorted(self.transforms, key=_key))
 
-    async def handle(self, command: FinalizedCommand) -> Result[dict[str, Any], Never]:
+    async def handle(self, command: FinalizedCommand) -> Result[ResultEnvelope, Never]:
         """Extract a `ResultEnvelope` from a `FinalizedCommand`.
 
         The method applies Tier 1 transforms (priority order) and a Tier 2
@@ -157,8 +166,8 @@ class ResultBuilder(BaseAsyncHandler[FinalizedCommand, dict[str, Any], Never]):
             if diagnostics:
                 diagnostics.successful_transform = fallback_result.method
 
-        # Record pre-normalization answer count for validation messages
-        original_answer_count = len(extraction_result.answers)
+        # Record pre-padding answer count for validation/diagnostics clarity
+        pre_pad_count = len(extraction_result.answers)
 
         # Build result envelope
         result_envelope = self._build_result_envelope(extraction_result, command, ctx)
@@ -169,6 +178,22 @@ class ResultBuilder(BaseAsyncHandler[FinalizedCommand, dict[str, Any], Never]):
                 "prefer_json_array"
             ] = True
 
+        # Dev-only envelope shape validation
+        if self._validate:
+            from gemini_batch.pipeline._devtools import validate_result_envelope
+
+            validate_result_envelope(result_envelope, stage_name=type(self).__name__)
+
+        # Compute total ResultBuilder stage duration
+        end_time = time.perf_counter()
+        builder_duration_s = end_time - start_time
+
+        # Ensure our own stage duration is recorded alongside prior stages
+        metrics = result_envelope.setdefault("metrics", {})
+        durations = metrics.setdefault("durations", {})
+        # Use the handler class name for consistency with executor stage names
+        durations[type(self).__name__] = builder_duration_s
+
         # Schema validation (record-only)
         violations = self._validate_schema(result_envelope, ctx)
 
@@ -177,22 +202,21 @@ class ResultBuilder(BaseAsyncHandler[FinalizedCommand, dict[str, Any], Never]):
         violations.extend(contract.validate(result_envelope))
 
         # Add mismatch warning based on original, pre-padding/truncation count
-        if original_answer_count != ctx.expected_count:
+        if pre_pad_count != ctx.expected_count:
             violations.insert(
                 0,
                 Violation(
-                    f"Expected {ctx.expected_count} answers, got {original_answer_count}",
+                    f"Expected {ctx.expected_count} answers, got {pre_pad_count}",
                     "warning",
                 ),
             )
 
         # Finalize diagnostics
         if diagnostics:
-            end_time = time.perf_counter()
-            diagnostics.extraction_duration_ms = (end_time - start_time) * 1000
+            diagnostics.extraction_duration_ms = builder_duration_s * 1000
             diagnostics.contract_violations = violations
             diagnostics.expected_answer_count = ctx.expected_count
-            diagnostics.original_answer_count = original_answer_count
+            diagnostics.pre_pad_count = pre_pad_count
             # Convert to plain dict and ensure JSON-serializable fields
             diag_dict = asdict(diagnostics)
             flags = diag_dict.get("flags")
@@ -242,18 +266,11 @@ class ResultBuilder(BaseAsyncHandler[FinalizedCommand, dict[str, Any], Never]):
             `ExtractionResult` with normalized `answers`, `confidence`, and
             optional `structured_data`.
         """
-        answers = extracted_data.get("answers", [])
-        confidence = extracted_data.get("confidence", 0.5)
-        structured_data = extracted_data.get("structured_data")
-
-        # Ensure answers are strings
-        string_answers = [str(answer) for answer in answers]
-
         return ExtractionResult(
-            answers=string_answers,
+            answers=extracted_data.get("answers", []),
             method=method,
-            confidence=confidence,
-            structured_data=structured_data,
+            confidence=extracted_data.get("confidence", 0.5),
+            structured_data=extracted_data.get("structured_data"),
         )
 
     def _build_result_envelope(
@@ -261,7 +278,7 @@ class ResultBuilder(BaseAsyncHandler[FinalizedCommand, dict[str, Any], Never]):
         extraction_result: ExtractionResult,
         command: FinalizedCommand,
         ctx: ExtractionContext,
-    ) -> dict[str, Any]:
+    ) -> ResultEnvelope:
         """Package extraction output into a stable `ResultEnvelope` dict.
 
         Ensures answer count matches `ctx.expected_count`, inserts
@@ -276,8 +293,8 @@ class ResultBuilder(BaseAsyncHandler[FinalizedCommand, dict[str, Any], Never]):
         Returns:
             `ResultEnvelope` dictionary ready for downstream consumers.
         """
-        # Ensure we have the right number of answers
-        answers = extraction_result.answers
+        # Ensure we have the right number of answers (already normalized)
+        answers = list(extraction_result.answers)
         if len(answers) < ctx.expected_count:
             # Pad with empty strings
             answers = answers + [""] * (ctx.expected_count - len(answers))
@@ -286,7 +303,7 @@ class ResultBuilder(BaseAsyncHandler[FinalizedCommand, dict[str, Any], Never]):
             answers = answers[: ctx.expected_count]
 
         # Build base envelope
-        envelope: dict[str, Any] = {
+        envelope: ResultEnvelope = {
             "success": True,
             "answers": answers,
             "extraction_method": extraction_result.method,
@@ -322,7 +339,7 @@ class ResultBuilder(BaseAsyncHandler[FinalizedCommand, dict[str, Any], Never]):
         return envelope
 
     def _validate_schema(
-        self, result: dict[str, Any], ctx: ExtractionContext
+        self, result: Mapping[str, Any], ctx: ExtractionContext
     ) -> list[Violation]:
         """Run record-only schema validation and return violations.
 
@@ -392,3 +409,6 @@ class ResultBuilder(BaseAsyncHandler[FinalizedCommand, dict[str, Any], Never]):
                     truncated_dict[key] = value
             return truncated_dict
         return raw
+
+    # Class-level marker for optional compose_pipeline validation (not required by executor)
+    _produces_envelope = True
