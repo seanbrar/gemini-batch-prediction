@@ -44,6 +44,9 @@ class PromptsConfig:
     system_file: str | Path | None = None
 
     # Dynamic source-aware guidance
+    # WARNING: When set to "replace" and sources are present, any configured
+    # system prompt (inline or file) will be replaced by `sources_block`.
+    # Use "append_or_replace" to append when a base system exists; otherwise replace.
     sources_policy: SourcesPolicy = "never"
     sources_block: str | None = None
 
@@ -92,7 +95,7 @@ def extract_prompts_config(extra: Mapping[str, Any]) -> PromptsConfig:
         k = key[8:]
         if k == "apply_if_sources":
             raise ConfigurationError(
-                "prompts.apply_if_sources has been removed. Set prompts.sources_policy to one of 'never','append','replace','append_or_replace'."
+                "prompts.apply_if_sources has been removed. Set prompts.sources_policy to one of 'never','replace','append_or_replace'."
             )
         if k in allowed:
             known[k] = value

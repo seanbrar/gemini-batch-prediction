@@ -18,6 +18,8 @@ from .api_parts import (
 )
 from .rate_limits import RateConstraint
 
+CacheAppliedVia = Literal["none", "plan", "override"]
+
 
 @dataclasses.dataclass(frozen=True, slots=True)
 class UploadTask:
@@ -117,7 +119,7 @@ class ExecutionPlan:
     # How a cache name (if any) was applied to this plan's calls.
     # "plan": resolved/created by CacheStage decision; "override": applied from
     # ExecutionOptions.cache_override_name; "none": no cache applied.
-    cache_application: Literal["none", "plan", "override"] = "none"
+    cache_application: CacheAppliedVia = "none"
 
     def __post_init__(self) -> None:
         """Validate plan collections and optionals."""
@@ -155,6 +157,16 @@ class ExecutionPlan:
             message="calls must not be empty - at least one APICall is required",
             field_name="calls",
         )
+        # Coherence: if any call carries a cache name, cache_application must not be 'none'
+        if self.cache_application == "none":
+            has_cache_name = any(c.cache_name_to_use for c in self.calls)
+            _require(
+                condition=not has_cache_name,
+                message=(
+                    "cache_name_to_use is set on one or more calls but ExecutionPlan.cache_application is 'none'. "
+                    "Use 'plan' or 'override' (prefer apply_cache_to_plan) to declare how caching was applied."
+                ),
+            )
         # Enforce uniformity for vectorized execution invariants
         first = self.calls[0]
         first_model = first.model_name

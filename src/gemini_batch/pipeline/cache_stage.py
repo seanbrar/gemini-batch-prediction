@@ -106,7 +106,9 @@ class CacheStage(BaseAsyncHandler[PlannedCommand, PlannedCommand, APIError]):
             # This does not perform registry lookups or creation and works even
             # when no real adapter is configured (e.g., dry runs/mocks).
             if isinstance(cache_override_name, str) and cache_override_name.strip():
-                updated_plan = _apply_cache_to_plan(plan, cache_override_name)
+                updated_plan = _apply_cache_to_plan(
+                    plan, cache_override_name, applied_via="override"
+                )
                 updated_command = dataclasses.replace(
                     command, execution_plan=updated_plan
                 )
@@ -129,7 +131,7 @@ class CacheStage(BaseAsyncHandler[PlannedCommand, PlannedCommand, APIError]):
                 return Success(command)
 
             # Apply cache name to the plan and preserve all other fields
-            updated_plan = _apply_cache_to_plan(plan, cache_name)
+            updated_plan = _apply_cache_to_plan(plan, cache_name, applied_via="plan")
             updated_command = dataclasses.replace(command, execution_plan=updated_plan)
             return Success(updated_command)
         except APIError as e:
@@ -293,13 +295,20 @@ def _with_cache_name(call: APICall, cache_name: str) -> APICall:
     )
 
 
-def _apply_cache_to_plan(plan: ExecutionPlan, cache_name: str) -> ExecutionPlan:
+def _apply_cache_to_plan(
+    plan: ExecutionPlan, cache_name: str, *, applied_via: str = "plan"
+) -> ExecutionPlan:
     """Return a copy of plan with cache applied to vectorized or single call.
 
     Preserves all other fields (fallback, rate constraints, uploads).
     """
     updated_calls = tuple(_with_cache_name(c, cache_name) for c in plan.calls)
-    return dataclasses.replace(plan, calls=updated_calls)
+    from typing import Literal
+
+    via: Literal["plan", "override"] = (
+        "override" if applied_via == "override" else "plan"
+    )
+    return dataclasses.replace(plan, calls=updated_calls, cache_application=via)
 
 
 def _registry_get(reg: Any, key: str) -> Any | None:

@@ -21,7 +21,7 @@ from dataclasses import dataclass
 from enum import Enum
 import logging
 import os
-from typing import TYPE_CHECKING, Any, Literal, TypedDict, cast
+from typing import TYPE_CHECKING, Any, TypedDict, cast
 
 # Removed ConfigCompatibilityShim import - no longer needed
 from gemini_batch.core.exceptions import APIError
@@ -51,6 +51,7 @@ from gemini_batch.telemetry import TelemetryContext
 if TYPE_CHECKING:
     from collections.abc import Callable
 
+    from gemini_batch.core.api_plan import CacheAppliedVia
     from gemini_batch.pipeline.registries import SimpleRegistry
     from gemini_batch.telemetry import TelemetryContextProtocol
 
@@ -166,21 +167,22 @@ class APIHandler(BaseAsyncHandler[PlannedCommand, FinalizedCommand, APIError]):
         """Execution-time cache intent for a single call attempt."""
 
         applied: bool
-        applied_via: Literal["plan", "override", "none"]
+        applied_via: CacheAppliedVia
         name: str | None
 
     def _derive_cache_intent(
         self,
         *,
-        had_explicit_cache_plan: bool,
         planned_cache_name: str | None,
         applied_via: str | None,
     ) -> APIHandler.CacheIntent:
-        """Derive cache intent from plan, including override vs plan origin."""
-        if had_explicit_cache_plan and planned_cache_name:
-            via: Literal["plan", "override"] = (
-                "override" if applied_via == "override" else "plan"
-            )
+        """Derive cache intent solely from plan annotations.
+
+        Intent is present when a cache name exists and the plan indicates
+        it was applied via either "plan" or "override".
+        """
+        if planned_cache_name and applied_via in {"plan", "override"}:
+            via: CacheAppliedVia = "override" if applied_via == "override" else "plan"
             return APIHandler.CacheIntent(
                 applied=True, applied_via=via, name=planned_cache_name
             )
@@ -399,7 +401,6 @@ class APIHandler(BaseAsyncHandler[PlannedCommand, FinalizedCommand, APIError]):
                     call,
                     tuple(combined_parts),
                     call.cache_name_to_use,
-                    had_explicit_cache_plan=bool(call.cache_name_to_use),
                 )
             raw_list.append(raw)
             per_prompt_usage.append(dict(cast("dict[str, Any]", raw.get("usage", {}))))
@@ -480,8 +481,6 @@ class APIHandler(BaseAsyncHandler[PlannedCommand, FinalizedCommand, APIError]):
         primary: APICall,
         parts: tuple[APIPart, ...],
         cache_name: str | None,
-        *,
-        had_explicit_cache_plan: bool,
     ) -> tuple[dict[str, Any], bool, bool, str | None]:
         used_fallback = False
         retried_without_cache = False
@@ -499,7 +498,6 @@ class APIHandler(BaseAsyncHandler[PlannedCommand, FinalizedCommand, APIError]):
                     parts,
                     api_config_dict,
                     cache_name,
-                    had_explicit_cache_plan=had_explicit_cache_plan,
                     planned_command=command,
                 )
             except Exception as primary_error:
@@ -740,8 +738,6 @@ class APIHandler(BaseAsyncHandler[PlannedCommand, FinalizedCommand, APIError]):
         parts: tuple[APIPart, ...],
         api_config: dict[str, object],
         cache_name: str | None,
-        *,
-        had_explicit_cache_plan: bool,
         planned_command: PlannedCommand,
     ) -> tuple[dict[str, Any], bool]:
         """Generate with cache hinting and minimal retry logic.
@@ -765,7 +761,6 @@ class APIHandler(BaseAsyncHandler[PlannedCommand, FinalizedCommand, APIError]):
 
         # Derive intent from plan (includes override vs plan origin when available)
         intent = self._derive_cache_intent(
-            had_explicit_cache_plan=had_explicit_cache_plan,
             planned_cache_name=cache_name,
             applied_via=getattr(
                 planned_command.execution_plan, "cache_application", "none"
