@@ -298,11 +298,14 @@ class GoogleGenAIAdapter(GenerationAdapter):
                 pt = int(getattr(meta, "prompt_token_count", 0))
                 ot = int(getattr(meta, "candidates_token_count", 0))
                 tt = int(getattr(meta, "total_token_count", pt + ot))
+                # Optional cached content counter when provided by SDK
+                cc = int(getattr(meta, "cached_content_token_count", 0))
                 usage.update(
                     {
                         "prompt_token_count": pt,
                         "source_token_count": max(tt - pt, 0),
                         "total_token_count": tt,
+                        "cached_content_token_count": cc,
                     }
                 )
         except Exception:

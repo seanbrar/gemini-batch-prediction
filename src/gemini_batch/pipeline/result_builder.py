@@ -302,7 +302,7 @@ class ResultBuilder(BaseAsyncHandler[FinalizedCommand, ResultEnvelope, Never]):
 
         # Build base envelope
         envelope: ResultEnvelope = {
-            "success": True,
+            "status": "ok",
             "answers": answers,
             "extraction_method": extraction_result.method,
             "confidence": extraction_result.confidence,

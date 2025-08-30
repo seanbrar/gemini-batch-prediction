@@ -73,3 +73,9 @@ __all__ = [
     "explain_invalid_result_envelope",
     "is_result_envelope",
 ]
+
+# Hide the __future__ feature binding from the public surface if present
+try:  # pragma: no cover - environment specific  # noqa: SIM105
+    del annotations
+except NameError:  # pragma: no cover - defensive
+    pass
