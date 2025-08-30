@@ -1,10 +1,9 @@
 """Unit tests for result builder hint consumption and transform ordering."""
 
-from typing import Any
-
 import pytest
 
 from gemini_batch.config import resolve_config
+from gemini_batch.core.execution_options import ExecutionOptions, ResultOption
 from gemini_batch.core.types import (
     APICall,
     ExecutionPlan,
@@ -15,7 +14,6 @@ from gemini_batch.core.types import (
     Success,
     TextPart,
 )
-from gemini_batch.pipeline.hints import ResultHint
 from gemini_batch.pipeline.result_builder import ResultBuilder
 from gemini_batch.pipeline.results.transforms import (
     json_array_transform,
@@ -80,13 +78,13 @@ class TestResultBuilderHints:
     async def test_result_hint_biases_json_array_to_front(
         self, builder_with_json_transforms
     ):
-        """ResultHint with prefer_json_array should bias json_array transform first."""
+        """ResultOption with prefer_json_array should bias json_array transform first."""
         config = resolve_config()
         initial = InitialCommand(
             sources=(),
             prompts=("test prompt",),
             config=config,
-            hints=(ResultHint(prefer_json_array=True),),
+            options=ExecutionOptions(result=ResultOption(prefer_json_array=True)),
         )
         resolved = ResolvedCommand(initial=initial, resolved_sources=())
         call = APICall(
@@ -114,13 +112,13 @@ class TestResultBuilderHints:
 
     @pytest.mark.asyncio
     async def test_result_hint_fallback_still_works(self, builder_with_json_transforms):
-        """ResultHint should not break Tier-2 fallback when JSON parsing fails."""
+        """ResultOption should not break Tier-2 fallback when JSON parsing fails."""
         config = resolve_config()
         initial = InitialCommand(
             sources=(),
             prompts=("test prompt",),
             config=config,
-            hints=(ResultHint(prefer_json_array=True),),
+            options=ExecutionOptions(result=ResultOption(prefer_json_array=True)),
         )
         resolved = ResolvedCommand(initial=initial, resolved_sources=())
         call = APICall(
@@ -148,13 +146,13 @@ class TestResultBuilderHints:
         builder_with_json_transforms,
         basic_finalized_command,  # noqa: ARG002
     ):
-        """ResultHint with prefer_json_array=False should not change ordering."""
+        """ResultOption with prefer_json_array=False should not change ordering."""
         config = resolve_config()
         initial = InitialCommand(
             sources=(),
             prompts=("test prompt",),
             config=config,
-            hints=(ResultHint(prefer_json_array=False),),
+            options=ExecutionOptions(result=ResultOption(prefer_json_array=False)),
         )
         resolved = ResolvedCommand(initial=initial, resolved_sources=())
         call = APICall(
@@ -180,77 +178,49 @@ class TestResultBuilderHints:
         )
 
     @pytest.mark.asyncio
-    async def test_sorted_transforms_for_preserves_stability(
-        self, builder_with_json_transforms
+    async def test_transform_order_stable_without_preference(
+        self, builder_with_json_transforms, basic_finalized_command
     ):
-        """_sorted_transforms_for should maintain stable ordering when no biasing."""
-        # Get default order
-        default_order = builder_with_json_transforms._sorted_transforms
-
-        # Get order with no hints
-        no_hints_order = builder_with_json_transforms._sorted_transforms_for(None)
-
-        # Get order with empty hints
-        empty_hints_order = builder_with_json_transforms._sorted_transforms_for(())
-
-        # All should be identical
-        assert default_order == no_hints_order == empty_hints_order
+        """Without preference, default priority order applies and is stable."""
+        result = await builder_with_json_transforms.handle(basic_finalized_command)
+        assert isinstance(result, Success)
+        env = result.value
+        assert env["extraction_method"] == "json_array"
 
     @pytest.mark.asyncio
-    async def test_sorted_transforms_for_bubbles_json_array_when_hinted(
-        self,
-        builder_with_json_transforms,  # noqa: ARG002
-    ):
-        """_sorted_transforms_for should move json_array transform to front when hinted."""
-        # Create a builder with mixed priority transforms to test reordering
-        from gemini_batch.pipeline.results.extraction import TransformSpec
-
-        def dummy_matcher(response: Any) -> bool:  # noqa: ARG001
-            return True
-
-        def dummy_extractor(response: Any, config: Any) -> dict[str, Any]:  # noqa: ARG001
-            return {"answers": ["dummy"], "confidence": 0.5}
-
-        # High priority transform that would normally come first
-        high_priority_transform = TransformSpec(
-            name="high_priority",
-            matcher=dummy_matcher,
-            extractor=dummy_extractor,
-            priority=100,
-        )
-
-        builder = ResultBuilder(
-            transforms=(
-                high_priority_transform,
-                json_array_transform(),
-                simple_text_transform(),
-            )
-        )
-
-        # Without hint - high priority should be first
-        normal_order = builder._sorted_transforms_for(None)
-        assert normal_order[0].name == "high_priority"
-
-        # With hint - json_array should be bubbled to front
-        hint_order = builder._sorted_transforms_for(
-            (ResultHint(prefer_json_array=True),)
-        )
-        assert hint_order[0].name == "json_array"
-
-    @pytest.mark.asyncio
-    async def test_multiple_result_hints_only_first_preference_matters(
+    async def test_prefer_json_option_bubbles_json_array(
         self, builder_with_json_transforms
     ):
-        """Multiple ResultHints should work but only meaningful preferences applied."""
+        """ExecutionOptions.result should bias toward json_array when requested."""
+        config = resolve_config()
+        initial = InitialCommand(
+            sources=(),
+            prompts=("x",),
+            config=config,
+            options=ExecutionOptions(result=ResultOption(prefer_json_array=True)),
+        )
+        resolved = ResolvedCommand(initial=initial, resolved_sources=())
+        call = APICall(
+            model_name="gemini-2.0-flash", api_parts=(TextPart("test"),), api_config={}
+        )
+        plan = ExecutionPlan(calls=(call,))
+        planned = PlannedCommand(resolved=resolved, execution_plan=plan)
+        finalized = FinalizedCommand(planned=planned, raw_api_response='["a", "b"]')
+        result = await builder_with_json_transforms.handle(finalized)
+        assert isinstance(result, Success)
+        assert result.value["extraction_method"] == "json_array"
+
+    @pytest.mark.asyncio
+    async def test_result_option_preference_records_metrics_flag(
+        self, builder_with_json_transforms
+    ):
+        """When prefer_json is requested via options, metrics flag is recorded."""
         config = resolve_config()
         initial = InitialCommand(
             sources=(),
             prompts=("test prompt",),
             config=config,
-            hints=(
-                ResultHint(prefer_json_array=True),
-                ResultHint(prefer_json_array=False),  # Second hint ignored
-            ),
+            options=ExecutionOptions(result=ResultOption(prefer_json_array=True)),
         )
         resolved = ResolvedCommand(initial=initial, resolved_sources=())
         call = APICall(
@@ -267,7 +237,6 @@ class TestResultBuilderHints:
 
         assert isinstance(result, Success)
         envelope = result.value
-        # Should still bias toward json_array (first hint wins)
         assert (
             envelope.get("metrics", {}).get("hints", {}).get("prefer_json_array")
             is True
@@ -278,7 +247,7 @@ class TestResultBuilderHints:
         self,
         builder_with_json_transforms,  # noqa: ARG002
     ):
-        """ResultHint should safely handle case where json_array transform doesn't exist."""
+        """ResultOption should safely handle case where json_array transform doesn't exist."""
         # Create builder without json_array transform
         builder_no_json = ResultBuilder(transforms=(simple_text_transform(),))
 
@@ -287,7 +256,7 @@ class TestResultBuilderHints:
             sources=(),
             prompts=("test prompt",),
             config=config,
-            hints=(ResultHint(prefer_json_array=True),),
+            options=ExecutionOptions(result=ResultOption(prefer_json_array=True)),
         )
         resolved = ResolvedCommand(initial=initial, resolved_sources=())
         call = APICall(

@@ -10,8 +10,6 @@ Design goals (per the architecture rubric):
 
 from __future__ import annotations
 
-import hashlib
-import json
 import logging
 from typing import TYPE_CHECKING, Any, cast
 
@@ -35,7 +33,6 @@ from gemini_batch.core.types import (
     UploadTask,
 )
 from gemini_batch.pipeline.base import BaseAsyncHandler
-from gemini_batch.pipeline.hints import EstimationOverrideHint
 from gemini_batch.pipeline.prompts import assemble_prompts
 from gemini_batch.pipeline.tokens.adapters.gemini import GeminiEstimationAdapter
 from gemini_batch.telemetry import TelemetryContext
@@ -44,6 +41,7 @@ if TYPE_CHECKING:
     from collections.abc import Iterable
 
     from gemini_batch.config import FrozenConfig
+    from gemini_batch.core.execution_options import EstimationOptions
     from gemini_batch.core.types import APIPart
     from gemini_batch.telemetry import TelemetryContextProtocol
 
@@ -104,8 +102,8 @@ class ExecutionPlanner(
             config = initial.config
             model_name: str = self._model_name(config)
 
-            # Hints are optional and fail-soft
-            hints, _cacheh_unused, overh = self._extract_hints(initial)
+            # Options are optional and fail-soft
+            overh = getattr(getattr(initial, "options", None), "estimation", None)
 
             # Assemble prompts using the prompt assembly system
             try:
@@ -278,8 +276,17 @@ class ExecutionPlanner(
                     )
                 )
             elif s.source_type == "text":
-                # Add text sources to shared parts for vectorized execution
-                parts.append(TextPart(text=str(s.identifier)))
+                # Add full text content to shared parts for vectorized execution
+                # Use content_loader to avoid leaking only the identifier/snippet
+                try:
+                    raw = s.content_loader()
+                except Exception:
+                    raw = b""
+                try:
+                    text_val = raw.decode("utf-8", errors="replace")
+                except Exception:
+                    text_val = ""
+                parts.append(TextPart(text=text_val))
             else:
                 # Any non-file, non-text source with a URL-like identifier is
                 # treated as a direct file reference for the provider.
@@ -289,13 +296,7 @@ class ExecutionPlanner(
         return parts, history_turns
 
     # --- Small, explicit helpers (pure) ---
-    def _extract_hints(
-        self, initial: InitialCommand
-    ) -> tuple[tuple[Any, ...], None, EstimationOverrideHint | None]:
-        hints = tuple(getattr(initial, "hints", ()) or ())
-        # Planner no longer interprets cache hints; leave to execution stage
-        overh = next((h for h in hints if isinstance(h, EstimationOverrideHint)), None)
-        return hints, None, overh
+    # Legacy hint extraction removed; ExecutionOptions preferred.
 
     def _history_to_text(self, turns: tuple[Any, ...]) -> str:
         if not turns:
@@ -383,7 +384,7 @@ class ExecutionPlanner(
     # (Vendor token policy helpers removed to keep planner pure)
 
     def _apply_estimation_override(
-        self, estimate: TokenEstimate, override_hint: EstimationOverrideHint | None
+        self, estimate: TokenEstimate, override_hint: EstimationOptions | None
     ) -> TokenEstimate:
         """Apply conservative token estimation overrides while maintaining invariants.
 
@@ -417,102 +418,8 @@ class ExecutionPlanner(
             breakdown=estimate.breakdown,
         )
 
-    # Cache decision helpers removed: now handled by CacheStage at execution time
-
-    def _generate_cache_name(
-        self, command: ResolvedCommand, system_instruction: str | None = None
-    ) -> str:
-        """Generate a short, user-facing cache name from stable fields.
-
-        This is a deterministic summary intended for registry hints and
-        human-facing debugging (short SHA). For provider registry lookups,
-        use the full `_deterministic_cache_key` below.
-
-        Includes model, prompts, system instruction, and normalized source
-        metadata; avoids non-deterministic values such as function object
-        addresses in `content_loader`.
-        """
-        initial = command.initial
-        config = initial.config
-        model = str(config.model or "gemini-2.0-flash")
-        prompts = list(initial.prompts)
-        sources = [
-            {
-                "source_type": s.source_type,
-                "identifier": str(s.identifier),
-                "mime_type": s.mime_type,
-                "size_bytes": s.size_bytes,
-            }
-            for s in command.resolved_sources
-        ]
-        payload = {
-            "model": model,
-            "prompts": prompts,
-            "system": system_instruction,
-            "sources": sources,
-        }
-        data = json.dumps(payload, sort_keys=True, separators=(",", ":")).encode()
-        content_hash = hashlib.sha256(data).hexdigest()[:12]
-        return f"cache_{content_hash}"
-
-    def _deterministic_cache_key(
-        self,
-        command: ResolvedCommand,
-        joined_prompt: str,
-        system_instruction: str | None = None,
-    ) -> str:
-        """Deterministic, full-length key for provider cache registry mapping.
-
-        Captures a stable signature of model, prompt, system, and sources.
-        Pure and independent of any provider SDK/runtime. Unlike
-        `_generate_cache_name`, this uses the full hash digest to avoid
-        collisions in programmatic lookups.
-        """
-        initial = command.initial
-        config = initial.config
-        model = str(config.model or "gemini-2.0-flash")
-        prompts = [joined_prompt]
-        sources = [
-            {
-                "source_type": s.source_type,
-                "identifier": str(s.identifier),
-                "mime_type": s.mime_type,
-                "size_bytes": s.size_bytes,
-            }
-            for s in command.resolved_sources
-        ]
-        payload = {
-            "model": model,
-            "prompts": prompts,
-            "system": system_instruction,
-            "sources": sources,
-        }
-        data = json.dumps(payload, sort_keys=True, separators=(",", ":")).encode()
-        return hashlib.sha256(data).hexdigest()
-
-    def _deterministic_shared_cache_key(
-        self,
-        model_name: str,
-        system_instruction: str | None,
-        history_text: str,
-        sources: Iterable[Source],
-    ) -> str:
-        payload = {
-            "model": model_name,
-            "system": system_instruction,
-            "history": history_text,
-            "sources": [
-                {
-                    "id": str(s.identifier),
-                    "mt": s.mime_type,
-                    "sz": s.size_bytes,
-                }
-                for s in sources
-            ],
-        }
-        return hashlib.sha256(
-            json.dumps(payload, sort_keys=True, separators=(",", ":")).encode()
-        ).hexdigest()
+    # Cache decision + identity helpers removed: now handled by CacheStage and
+    # cache_identity.det_shared_key at execution time.
 
     def _model_name(self, config: FrozenConfig) -> str:
         return config.model

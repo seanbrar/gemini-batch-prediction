@@ -31,6 +31,7 @@ class TestConfigurationContractCompliance:
             telemetry_enabled=True,
             provider="google",
             extra={},
+            request_concurrency=6,
         )
 
         # Attempt mutation should fail
@@ -90,6 +91,7 @@ class TestConfigurationContractCompliance:
             telemetry_enabled=True,
             provider="google",
             extra={},
+            request_concurrency=6,
         )
 
         # Must provide all required fields
@@ -146,6 +148,7 @@ class TestConfigurationContractCompliance:
             telemetry_enabled=True,
             provider="google",
             extra={},
+            request_concurrency=6,
         )
 
         # Should be able to extract fields for serialization

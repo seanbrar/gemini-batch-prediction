@@ -1,8 +1,7 @@
 """Typed configuration for prompt assembly.
 
 This module defines the typed view of ``prompts.*`` configuration and the
-``SourcesPolicy`` that replaces the older implicit boolean flag
-``apply_if_sources``.
+``SourcesPolicy`` used to control source-aware guidance.
 
 Public keys under ``prompts.`` supported by the assembler:
 - system: str | None
@@ -17,8 +16,9 @@ Public keys under ``prompts.`` supported by the assembler:
 - sources_block: str | None
 - builder: str | None (``module:function``)
 
-Back-compat note: If ``sources_policy`` is absent, the extractor will derive it
-from legacy keys when present: ``apply_if_sources=True`` ⇒ ``append_or_replace``.
+Note: the legacy key ``prompts.apply_if_sources`` has been removed. Use
+``prompts.sources_policy='append_or_replace'`` to mirror the old behavior
+where a sources block would augment or replace the base system.
 """
 
 from __future__ import annotations
@@ -44,6 +44,9 @@ class PromptsConfig:
     system_file: str | Path | None = None
 
     # Dynamic source-aware guidance
+    # WARNING: When set to "replace" and sources are present, any configured
+    # system prompt (inline or file) will be replaced by `sources_block`.
+    # Use "append_or_replace" to append when a base system exists; otherwise replace.
     sources_policy: SourcesPolicy = "never"
     sources_block: str | None = None
 
@@ -92,7 +95,7 @@ def extract_prompts_config(extra: Mapping[str, Any]) -> PromptsConfig:
         k = key[8:]
         if k == "apply_if_sources":
             raise ConfigurationError(
-                "prompts.apply_if_sources has been removed. Set prompts.sources_policy to one of 'never','append','replace','append_or_replace'."
+                "prompts.apply_if_sources has been removed. Set prompts.sources_policy to 'append_or_replace' to mirror the old behavior, or choose one of {'never','replace','append_or_replace'}."
             )
         if k in allowed:
             known[k] = value

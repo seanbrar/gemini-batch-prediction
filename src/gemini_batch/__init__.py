@@ -7,7 +7,14 @@ import logging
 
 from gemini_batch.core.exceptions import GeminiBatchError
 from gemini_batch.executor import GeminiExecutor, create_executor
-from gemini_batch.frontdoor import run_batch, run_simple
+from gemini_batch.frontdoor import (
+    run_batch,
+    run_multi,
+    run_parallel,
+    run_rag,
+    run_simple,
+    run_synthesis,
+)
 
 # Curated public namespaces for clarity
 from . import exceptions as exceptions  # Re-exported public exceptions
@@ -28,6 +35,10 @@ __all__ = [  # noqa: RUF022
     "create_executor",
     "run_simple",
     "run_batch",
+    "run_rag",
+    "run_multi",
+    "run_synthesis",
+    "run_parallel",
     # Root exception and curated namespaces
     "GeminiBatchError",
     "types",

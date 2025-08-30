@@ -17,10 +17,14 @@ leaking provider SDK details.
 from __future__ import annotations
 
 import asyncio
+from contextlib import suppress
+from dataclasses import dataclass
 from enum import Enum
 import logging
 import os
 from typing import TYPE_CHECKING, Any, TypedDict, cast
+
+from gemini_batch.core.concurrency import resolve_request_concurrency
 
 # Removed ConfigCompatibilityShim import - no longer needed
 from gemini_batch.core.exceptions import APIError
@@ -45,12 +49,12 @@ from gemini_batch.pipeline.adapters.base import (
 from gemini_batch.pipeline.base import BaseAsyncHandler
 from gemini_batch.pipeline.cache_identity import det_shared_key
 from gemini_batch.pipeline.execution_state import ExecutionHints
-from gemini_batch.pipeline.hints import CacheHint, ExecutionCacheName
 from gemini_batch.telemetry import TelemetryContext
 
 if TYPE_CHECKING:
     from collections.abc import Callable
 
+    from gemini_batch.core.api_plan import CacheAppliedVia
     from gemini_batch.pipeline.registries import SimpleRegistry
     from gemini_batch.telemetry import TelemetryContextProtocol
 
@@ -75,7 +79,6 @@ class UploadPhase(str, Enum):
 
 # --- Telemetry scopes/keys (centralized to avoid typos) ---
 T_API_GENERATE = "api.generate"
-T_API_HINTS = "api.hints"
 T_API_RETRY_NO_CACHE = "api.retry_no_cache"
 T_API_GENERATE_RETRY = "api.generate_retry"
 T_API_GENERATE_RETRY_LOOP = "api.generate_retry_loop"
@@ -120,6 +123,9 @@ class APIHandler(BaseAsyncHandler[PlannedCommand, FinalizedCommand, APIError]):
         self._file_registry = regs.get("files")
         self._adapter: GenerationAdapter | None = adapter
         self._adapter_factory = adapter_factory
+        # Concurrency primitives
+        self._uploads_inflight: dict[str, asyncio.Future[Any]] = {}
+        self._uploads_lock = asyncio.Lock()
 
     async def handle(
         self, command: PlannedCommand
@@ -159,6 +165,34 @@ class APIHandler(BaseAsyncHandler[PlannedCommand, FinalizedCommand, APIError]):
             except Exception as e:  # pragma: no cover
                 raise APIError(f"Failed to initialize provider: {e}") from e
         return _MockAdapter()
+
+    # --- Cache intent modeling ---
+
+    @dataclass(frozen=True)
+    class CacheIntent:
+        """Execution-time cache intent for a single call attempt."""
+
+        applied: bool
+        applied_via: CacheAppliedVia
+        name: str | None
+
+    def _derive_cache_intent(
+        self,
+        *,
+        planned_cache_name: str | None,
+        applied_via: str | None,
+    ) -> APIHandler.CacheIntent:
+        """Derive cache intent solely from plan annotations.
+
+        Intent is present when a cache name exists and the plan indicates
+        it was applied via either "plan" or "override".
+        """
+        if planned_cache_name and applied_via in {"plan", "override"}:
+            via: CacheAppliedVia = "override" if applied_via == "override" else "plan"
+            return APIHandler.CacheIntent(
+                applied=True, applied_via=via, name=planned_cache_name
+            )
+        return APIHandler.CacheIntent(applied=False, applied_via="none", name=None)
 
     async def _prepare_effective_parts(
         self,
@@ -252,13 +286,48 @@ class APIHandler(BaseAsyncHandler[PlannedCommand, FinalizedCommand, APIError]):
         self, adapter: UploadsCapability, pending: list[tuple[int, UploadTask]]
     ) -> list[tuple[int, Any]]:
         async def _upload_one(i: int, t: UploadTask) -> tuple[int, Any]:
-            result = await adapter.upload_file_local(t.local_path, t.mime_type)
+            local_id = os.fspath(t.local_path)
+            # Fast path: reuse from registry when present
             if self._file_registry is not None:
-                from contextlib import suppress
-
                 with suppress(Exception):
-                    self._file_registry.set(os.fspath(t.local_path), result)
-            return i, result
+                    existing = self._file_registry.get(local_id)
+                if existing is not None:
+                    return i, existing
+
+            # Single-flight guard: share in-flight uploads by local_id
+            async with self._uploads_lock:
+                fut = self._uploads_inflight.get(local_id)
+                if fut is None:
+                    # Use running loop for future creation (Py 3.13). This prevents
+                    # implicit loop resolution quirks and is safe inside async tasks.
+                    fut = asyncio.get_running_loop().create_future()
+                    self._uploads_inflight[local_id] = fut
+                    creator = True
+                else:
+                    creator = False
+
+            if not creator:
+                try:
+                    uploaded = await fut
+                    return i, uploaded
+                finally:
+                    # Creator handles cleanup
+                    pass
+
+            # We are the creator
+            try:
+                uploaded = await adapter.upload_file_local(t.local_path, t.mime_type)
+                if self._file_registry is not None:
+                    with suppress(Exception):
+                        self._file_registry.set(local_id, uploaded)
+                fut.set_result(uploaded)
+                return i, uploaded
+            except Exception as e:
+                fut.set_exception(e)
+                raise
+            finally:
+                async with self._uploads_lock:
+                    self._uploads_inflight.pop(local_id, None)
 
         return await asyncio.gather(*(_upload_one(i, t) for i, t in pending))
 
@@ -335,56 +404,73 @@ class APIHandler(BaseAsyncHandler[PlannedCommand, FinalizedCommand, APIError]):
         plan: ExecutionPlan,
         effective_shared: list[APIPart],
     ) -> FinalizedCommand:
-        """Execute vectorized calls with shared context and aggregate telemetry."""
-        raw_list: list[dict[str, Any]] = []
-        per_prompt_usage: list[dict[str, Any]] = []
-        per_call_meta: list[dict[str, Any]] = []
+        """Execute vectorized calls with shared context and aggregate telemetry.
 
-        for call in plan.calls:
+        Supports optional bounded fan-out when no rate constraint is present.
+        """
+        n = len(plan.calls)
+        raw_list: list[dict[str, Any]] = [{} for _ in range(n)]
+        per_prompt_usage: list[dict[str, Any]] = [{} for _ in range(n)]
+        per_call_meta: list[dict[str, Any]] = [{} for _ in range(n)]
+
+        # Determine allowed concurrency using shared resolver
+        options = getattr(command.resolved.initial, "options", None)
+        cfg = command.resolved.initial.config
+        has_constraint = command.execution_plan.rate_constraint is not None
+        concurrency = resolve_request_concurrency(
+            n_calls=n,
+            options=options,
+            cfg=cfg,
+            rate_constrained=has_constraint,
+        )
+        sem = asyncio.Semaphore(concurrency)
+
+        async def _one(i: int) -> None:
+            call = plan.calls[i]
             combined_parts = self._combine_shared_with_call(
                 effective_shared, call.api_parts
             )
-            if isinstance(adapter, _MockAdapter):
-                # Deterministic mock echo with per-prompt usage
-                ptxt = self._extract_text_from_parts(combined_parts)
-                raw = {
-                    "mock": True,
-                    "model": call.model_name,
-                    "text": f"echo: {ptxt}",
-                    "usage": {
-                        "prompt_token_count": max(len(ptxt) // 4 + 10, 0),
-                        "source_token_count": 0,
-                        "total_token_count": max(len(ptxt) // 4 + 10, 0),
-                    },
-                }
-                used_fallback = False
-                retried_without_cache = False
-                primary_error_repr = None
-            else:
-                # Use the same resilience path as single-call execution
-                (
-                    raw,
-                    used_fallback,
-                    retried_without_cache,
-                    primary_error_repr,
-                ) = await self._execute_with_resilience(
-                    adapter,
-                    command,
-                    call,
-                    tuple(combined_parts),
-                    call.cache_name_to_use,
-                    had_explicit_cache_plan=bool(call.cache_name_to_use),
-                )
-            raw_list.append(raw)
-            per_prompt_usage.append(dict(cast("dict[str, Any]", raw.get("usage", {}))))
-            meta: dict[str, Any] = {}
-            if used_fallback:
-                meta["used_fallback"] = True
-            if retried_without_cache:
-                meta["retried_without_cache"] = True
-            if primary_error_repr:
-                meta["primary_error"] = primary_error_repr
-            per_call_meta.append(meta)
+            async with sem:
+                if isinstance(adapter, _MockAdapter):
+                    ptxt = self._extract_text_from_parts(combined_parts)
+                    raw = {
+                        "mock": True,
+                        "model": call.model_name,
+                        "text": f"echo: {ptxt}",
+                        "usage": {
+                            "prompt_token_count": max(len(ptxt) // 4 + 10, 0),
+                            "source_token_count": 0,
+                            "total_token_count": max(len(ptxt) // 4 + 10, 0),
+                        },
+                    }
+                    used_fallback = False
+                    retried_without_cache = False
+                    primary_error_repr = None
+                else:
+                    (
+                        raw,
+                        used_fallback,
+                        retried_without_cache,
+                        primary_error_repr,
+                    ) = await self._execute_with_resilience(
+                        adapter,
+                        command,
+                        call,
+                        tuple(combined_parts),
+                        call.cache_name_to_use,
+                    )
+                raw_list[i] = raw
+                per_prompt_usage[i] = dict(cast("dict[str, Any]", raw.get("usage", {})))
+                meta: dict[str, Any] = {}
+                if used_fallback:
+                    meta["used_fallback"] = True
+                if retried_without_cache:
+                    meta["retried_without_cache"] = True
+                if primary_error_repr:
+                    meta["primary_error"] = primary_error_repr
+                per_call_meta[i] = meta
+
+        await asyncio.gather(*(_one(i) for i in range(n)))
 
         # Build finalized result with aggregated usage in telemetry
         finalized = FinalizedCommand(
@@ -454,8 +540,6 @@ class APIHandler(BaseAsyncHandler[PlannedCommand, FinalizedCommand, APIError]):
         primary: APICall,
         parts: tuple[APIPart, ...],
         cache_name: str | None,
-        *,
-        had_explicit_cache_plan: bool,
     ) -> tuple[dict[str, Any], bool, bool, str | None]:
         used_fallback = False
         retried_without_cache = False
@@ -473,7 +557,6 @@ class APIHandler(BaseAsyncHandler[PlannedCommand, FinalizedCommand, APIError]):
                     parts,
                     api_config_dict,
                     cache_name,
-                    had_explicit_cache_plan=had_explicit_cache_plan,
                     planned_command=command,
                 )
             except Exception as primary_error:
@@ -626,39 +709,12 @@ class APIHandler(BaseAsyncHandler[PlannedCommand, FinalizedCommand, APIError]):
         return cfg
 
     # --- Resilience helpers ---
-    def _read_execution_cache_override(
-        self, planned_command: PlannedCommand
-    ) -> tuple[str | None, bool]:
-        """Return (cache_name_override, overridden) from execution hints.
-
-        Best-effort: never raises. Emits a telemetry gauge in caller.
-        """
-        try:
-            initial = planned_command.resolved.initial
-            hints_tuple = tuple(getattr(initial, "hints", ()) or ())
-            exec_cache = next(
-                (
-                    h.cache_name
-                    for h in hints_tuple
-                    if isinstance(h, ExecutionCacheName)
-                ),
-                None,
-            )
-            if exec_cache:
-                return exec_cache, True
-        except Exception as e:  # pragma: no cover - defensive
-            logger.debug(
-                "Failed to read execution cache name from hints: %s", e, exc_info=True
-            )
-        return None, False
 
     def _apply_adapter_hints(
         self, adapter: GenerationAdapter, cached_content: str | None
     ) -> None:
         """Apply execution hints to adapter when supported (best-effort)."""
         if isinstance(adapter, ExecutionHintsAware):
-            from contextlib import suppress
-
             with suppress(Exception):
                 adapter.apply_hints(ExecutionHints(cached_content=cached_content))
 
@@ -739,8 +795,6 @@ class APIHandler(BaseAsyncHandler[PlannedCommand, FinalizedCommand, APIError]):
         parts: tuple[APIPart, ...],
         api_config: dict[str, object],
         cache_name: str | None,
-        *,
-        had_explicit_cache_plan: bool,
         planned_command: PlannedCommand,
     ) -> tuple[dict[str, Any], bool]:
         """Generate with cache hinting and minimal retry logic.
@@ -762,53 +816,42 @@ class APIHandler(BaseAsyncHandler[PlannedCommand, FinalizedCommand, APIError]):
                     parts, planned_command
                 ), retried_without_cache
 
-        # Read any execution-time cache override from hints (fail-soft)
-        cache_overridden_by_hint = False
-        override, overridden = self._read_execution_cache_override(planned_command)
-        if overridden:
-            cache_name = override
-            cache_overridden_by_hint = True
-            with self._telemetry(T_API_HINTS) as tele:
-                tele.gauge("exec_cache_override", 1)
+        # Derive intent from plan (includes override vs plan origin when available)
+        intent = self._derive_cache_intent(
+            planned_cache_name=cache_name,
+            applied_via=getattr(
+                planned_command.execution_plan, "cache_application", "none"
+            ),
+        )
+        # Override path is expressed via plan.cache_application
 
         # Real path: attempt with cache hint first (if provided)
         last_error: Exception | None = None
         try:
-            # Clarify intent derivation for observability and correctness.
-            # intent_from_plan: planner produced an explicit cache plan
-            # intent_from_override: execution-time override via ExecutionCacheName
-            # cache_applied: a concrete cache name is present for this attempt
-            intent_from_plan = bool(had_explicit_cache_plan)
-            intent_from_override = bool(cache_overridden_by_hint)
-            cache_applied = cache_name is not None
-
             with self._telemetry(T_API_GENERATE, model=model_name) as tele:
                 # Lightweight, explicit gauges for clarity
-                tele.gauge("cache_intent_plan", 1 if intent_from_plan else 0)
-                tele.gauge("cache_intent_override", 1 if intent_from_override else 0)
-                tele.gauge("cache_applied", 1 if cache_applied else 0)
+                tele.gauge(
+                    "cache_intent_plan", 1 if intent.applied_via == "plan" else 0
+                )
+                tele.gauge(
+                    "cache_intent_override",
+                    1 if intent.applied_via == "override" else 0,
+                )
+                tele.gauge("cache_applied", 1 if intent.applied else 0)
                 # If cache is applied, write metadata to registry (best-effort)
-                if cache_applied:
+                if intent.applied and intent.name:
                     self._write_cache_metadata(
                         planned_command,
-                        cast("str", cache_name),
-                        applied_via=("override" if intent_from_override else "plan"),
+                        intent.name,
+                        applied_via=intent.applied_via,
                     )
                 raw = await self._attempt_generate(
                     adapter, model_name, parts, api_config, cache_name
                 )
                 return raw, retried_without_cache
         except Exception as first_error:
-            # Retry w/o cache only if caching was truly intended and applied:
-            #   a) explicit cache plan AND a concrete cache name was applied; or
-            #   b) an execution-time override provided a cache name.
-            intent_from_plan = bool(had_explicit_cache_plan)
-            intent_from_override = bool(cache_overridden_by_hint)
-            cache_applied = cache_name is not None
-            treat_as_explicit = (
-                intent_from_plan and cache_applied
-            ) or intent_from_override
-            if treat_as_explicit:
+            # Retry without cache only if caching was truly intended and applied
+            if intent.applied and intent.applied_via in {"plan", "override"}:
                 with self._telemetry(T_API_RETRY_NO_CACHE, model=model_name):
                     try:
                         raw = await self._retry_without_cache(
@@ -858,7 +901,7 @@ class APIHandler(BaseAsyncHandler[PlannedCommand, FinalizedCommand, APIError]):
     ) -> None:
         """Best-effort write of cache metadata to the cache registry.
 
-        Stores the applied cache name and any artifacts from CacheHint under the
+        Stores the applied cache name and any artifacts from CacheOptions under the
         deterministic shared-context key used by CacheStage. Unknown registry
         types are ignored safely.
         """
@@ -867,8 +910,8 @@ class APIHandler(BaseAsyncHandler[PlannedCommand, FinalizedCommand, APIError]):
             return
         try:
             initial = planned_command.resolved.initial
-            hints = tuple(getattr(initial, "hints", ()) or ())
-            cache_hint = next((h for h in hints if isinstance(h, CacheHint)), None)
+            opts = getattr(initial, "options", None)
+            cache_hint = getattr(opts, "cache", None) if opts is not None else None
 
             plan = planned_command.execution_plan
             model_name = plan.calls[0].model_name
@@ -883,9 +926,9 @@ class APIHandler(BaseAsyncHandler[PlannedCommand, FinalizedCommand, APIError]):
                     {
                         "cache_name": cache_name,
                         "artifacts": tuple(cache_hint.artifacts) if cache_hint else (),
-                        "applied_via": "override"
-                        if applied_via == "override"
-                        else "plan",
+                        "applied_via": applied_via
+                        if applied_via in {"plan", "override"}
+                        else "none",
                     },
                 )
         except Exception:
