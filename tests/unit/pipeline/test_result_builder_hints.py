@@ -65,7 +65,7 @@ class TestResultBuilderHints:
 
         assert isinstance(result, Success)
         envelope = result.value
-        assert envelope["success"] is True
+        assert envelope["status"] == "ok"
 
         # JSON array transform has priority 90, simple_text has priority 50
         # So json_array should be tried first and succeed
@@ -102,7 +102,7 @@ class TestResultBuilderHints:
 
         assert isinstance(result, Success)
         envelope = result.value
-        assert envelope["success"] is True
+        assert envelope["status"] == "ok"
         assert envelope["extraction_method"] == "json_array"
         # Should have hint metadata in metrics
         assert (
@@ -136,7 +136,7 @@ class TestResultBuilderHints:
 
         assert isinstance(result, Success)
         envelope = result.value
-        assert envelope["success"] is True  # Should still succeed via fallback
+        assert envelope["status"] == "ok"  # Should still succeed via fallback
         # Should fall back to simple_text or minimal projection
         assert envelope["extraction_method"] in ["simple_text", "minimal_text"]
 
@@ -169,7 +169,7 @@ class TestResultBuilderHints:
 
         assert isinstance(result, Success)
         envelope = result.value
-        assert envelope["success"] is True
+        assert envelope["status"] == "ok"
         assert envelope["extraction_method"] == "json_array"
         # Should NOT have hint metadata for false preference
         assert (
@@ -274,4 +274,4 @@ class TestResultBuilderHints:
         # Should still succeed - no json_array transform to bubble, so normal order
         assert isinstance(result, Success)
         envelope = result.value
-        assert envelope["success"] is True
+        assert envelope["status"] == "ok"

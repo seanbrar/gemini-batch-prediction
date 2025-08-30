@@ -476,9 +476,20 @@ def _resolve_layers(
         # Add contextual hints for audit reporting
         hints = {}
         if origin is Origin.ENV:
+            import os
+
             from .utils import ENV_PREFIX
 
-            hints["env_key"] = f"{ENV_PREFIX}{k.upper()}"
+            # Attribute to specific env var used when possible.
+            if k == "api_key":
+                if f"{ENV_PREFIX}API_KEY" in os.environ:
+                    hints["env_key"] = f"{ENV_PREFIX}API_KEY"
+                elif "GEMINI_API_KEY" in os.environ:
+                    hints["env_key"] = "GEMINI_API_KEY"
+                else:
+                    hints["env_key"] = f"{ENV_PREFIX}API_KEY"
+            else:
+                hints["env_key"] = f"{ENV_PREFIX}{k.upper()}"
         elif origin is Origin.PROJECT:
             from .utils import get_pyproject_path
 
@@ -587,24 +598,21 @@ def tier_was_specified(sources: SourceMap) -> bool:
 
 
 def check_environment() -> dict[str, str]:
-    """Return current GEMINI_* variables (redacted for security).
+    """Return current GEMINI_* and GEMINI_BATCH_* variables (redacted).
 
-    This is a simple diagnostic helper that lists all environment variables
-    starting with GEMINI_ while redacting sensitive values like keys/tokens.
+    DX helper: lists both the library domain and official provider variables to
+    aid troubleshooting. Values that look like secrets are redacted.
 
     Returns:
-        Dictionary mapping environment variable names to values (redacted for secrets).
+        Mapping of variable names to string values (secrets redacted).
     """
     from .utils import ENV_PREFIX
 
     out: dict[str, str] = {}
     for k, v in os.environ.items():
-        if not k.startswith(ENV_PREFIX):
+        if not (k.startswith((ENV_PREFIX, "GEMINI_"))):
             continue
-        # Redact values that look like secrets
-        is_secret = any(
-            sensitive in k.upper() for sensitive in ("KEY", "TOKEN", "SECRET")
-        )
+        is_secret = any(s in k.upper() for s in ("KEY", "TOKEN", "SECRET"))
         out[k] = "***redacted***" if is_secret else v
     return out
 

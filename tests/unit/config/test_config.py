@@ -30,11 +30,12 @@ from gemini_batch.config import (
 )
 from gemini_batch.core.models import APITier
 
+pytestmark = pytest.mark.unit
+
 
 class TestSettings:
     """Test the Pydantic Settings schema validation."""
 
-    @pytest.mark.unit
     def test_settings_defaults(self):
         """Settings should provide sensible defaults."""
         settings = Settings()
@@ -47,7 +48,6 @@ class TestSettings:
         assert settings.telemetry_enabled is False
         assert settings.tier is APITier.FREE
 
-    @pytest.mark.unit
     def test_settings_validation_api_key_required_when_real_api(self):
         """Should require API key when use_real_api=True."""
         with pytest.raises(ValidationError) as exc_info:
@@ -55,13 +55,11 @@ class TestSettings:
 
         assert "api_key is required when use_real_api=True" in str(exc_info.value)
 
-    @pytest.mark.unit
     def test_settings_validation_api_key_not_required_when_mock_api(self):
         """Should not require API key when use_real_api=False."""
         settings = Settings(use_real_api=False, api_key=None)
         assert settings.api_key is None
 
-    @pytest.mark.unit
     def test_settings_validation_negative_ttl_rejected(self):
         """Should reject negative TTL values."""
         with pytest.raises(ValidationError) as exc_info:
@@ -69,13 +67,11 @@ class TestSettings:
 
         assert "ttl_seconds must be >= 0" in str(exc_info.value)
 
-    @pytest.mark.unit
     def test_settings_validation_zero_ttl_allowed(self):
         """Should allow zero TTL values."""
         settings = Settings(ttl_seconds=0)
         assert settings.ttl_seconds == 0
 
-    @pytest.mark.unit
     def test_settings_extra_fields_preserved(self):
         """Settings should preserve unknown fields via extra='allow'."""
         # This test verifies that the Pydantic model allows extra fields
@@ -95,7 +91,6 @@ class TestSettings:
 class TestConfigResolution:
     """Test the configuration resolution and precedence logic."""
 
-    @pytest.mark.unit
     def test_resolve_config_defaults_only(self):
         """Should return defaults when no other sources provide values."""
         # Mock all loaders to return empty dicts - pure defaults test
@@ -112,25 +107,23 @@ class TestConfigResolution:
             assert config.use_real_api is False
             assert config.provider == "google"
 
-    @pytest.mark.unit
     def test_resolve_config_with_overrides(self):
         """Overrides should take highest precedence."""
         clean_env = {k: v for k, v in os.environ.items() if not k.startswith("GEMINI_")}
-        clean_env["GEMINI_MODEL"] = "env-model"
+        clean_env["GEMINI_BATCH_MODEL"] = "env-model"
         with patch.dict(os.environ, clean_env, clear=True):
             config = resolve_config(overrides={"model": "override-model"})
 
             assert config.model == "override-model"
 
-    @pytest.mark.unit
     def test_resolve_config_precedence_env_over_defaults(self):
         """Environment variables should override defaults."""
         with patch.dict(
             os.environ,
             {
-                "GEMINI_MODEL": "env-model",
-                "GEMINI_USE_REAL_API": "true",
-                "GEMINI_TTL_SECONDS": "7200",
+                "GEMINI_BATCH_MODEL": "env-model",
+                "GEMINI_BATCH_USE_REAL_API": "true",
+                "GEMINI_BATCH_TTL_SECONDS": "7200",
                 "GEMINI_API_KEY": "test",  # ensure valid when use_real_api=true
             },
             clear=True,
@@ -141,21 +134,19 @@ class TestConfigResolution:
             assert config.use_real_api is True
             assert config.ttl_seconds == 7200
 
-    @pytest.mark.unit
     def test_resolve_config_explain_returns_source_map(self):
         """Should return SourceMap when explain=True."""
         clean_env = {k: v for k, v in os.environ.items() if not k.startswith("GEMINI_")}
-        clean_env["GEMINI_MODEL"] = "env-model"
+        clean_env["GEMINI_BATCH_MODEL"] = "env-model"
         with patch.dict(os.environ, clean_env, clear=True):
             config, sources = resolve_config(explain=True)
 
             assert isinstance(config, FrozenConfig)
             assert isinstance(sources, dict)
             assert sources["model"].origin == Origin.ENV
-            assert sources["model"].env_key == "GEMINI_MODEL"
+            assert sources["model"].env_key == "GEMINI_BATCH_MODEL"
             assert sources["api_key"].origin == Origin.DEFAULT
 
-    @pytest.mark.unit
     def test_resolve_config_extra_fields_preserved(self):
         """Unknown fields should be preserved in FrozenConfig.extra."""
         config = resolve_config(overrides={"unknown_field": "test_value"})
@@ -163,7 +154,6 @@ class TestConfigResolution:
         assert "unknown_field" in config.extra
         assert config.extra["unknown_field"] == "test_value"
 
-    @pytest.mark.unit
     def test_resolve_config_validation_error_propagates(self):
         """Validation errors should bubble up clearly."""
         with pytest.raises(ValidationError) as exc_info:
@@ -175,28 +165,24 @@ class TestConfigResolution:
 class TestProviderInference:
     """Test the data-driven provider inference logic."""
 
-    @pytest.mark.unit
     def test_provider_inference_gemini_models(self):
         """Should identify Google as provider for gemini- prefixed models."""
         assert resolve_provider("gemini-1.5-flash") == "google"
         assert resolve_provider("gemini-2.0-pro") == "google"
         assert resolve_provider("GEMINI-1.5-FLASH") == "google"  # Case insensitive
 
-    @pytest.mark.unit
     def test_provider_inference_openai_models(self):
         """Should identify OpenAI as provider for gpt- prefixed models."""
         assert resolve_provider("gpt-4") == "openai"
         assert resolve_provider("gpt-3.5-turbo") == "openai"
         assert resolve_provider("GPT-4") == "openai"  # Case insensitive
 
-    @pytest.mark.unit
     def test_provider_inference_anthropic_models(self):
         """Should identify Anthropic as provider for claude- prefixed models."""
         assert resolve_provider("claude-3-sonnet") == "anthropic"
         assert resolve_provider("claude-2") == "anthropic"
         assert resolve_provider("CLAUDE-3-OPUS") == "anthropic"  # Case insensitive
 
-    @pytest.mark.unit
     def test_provider_inference_unknown_model_defaults_to_google(self):
         """Unknown models should default to Google provider."""
         assert resolve_provider("unknown-model") == "google"
@@ -207,7 +193,6 @@ class TestProviderInference:
 class TestAmbientScope:
     """Test the ambient configuration context management."""
 
-    @pytest.mark.unit
     def test_ambient_without_scope_raises(self):
         """ambient() removed; ensure resolution still works without it."""
         # The old ambient accessor was removed. Ensure resolve_config still
@@ -215,7 +200,6 @@ class TestAmbientScope:
         with pytest.raises(ValidationError):
             resolve_config(overrides={"use_real_api": True, "api_key": None})
 
-    @pytest.mark.unit
     def test_ambient_emits_deprecation_warning(self):
         """ambient() removed; keep test name for compatibility.
 
@@ -225,7 +209,6 @@ class TestAmbientScope:
         with pytest.raises(ValidationError):
             resolve_config(overrides={"use_real_api": True, "api_key": None})
 
-    @pytest.mark.unit
     def test_config_scope_sets_and_restores_ambient(self):
         """Context manager should set and restore ambient config."""
         test_config = resolve_config(overrides={"model": "test-model"})
@@ -234,7 +217,6 @@ class TestAmbientScope:
         with config_scope(test_config) as scoped_config:
             assert scoped_config is test_config
 
-    @pytest.mark.unit
     def test_config_scope_with_overrides_dict(self):
         """Should resolve config from overrides dict."""
         with config_scope({"model": "scoped-model"}) as config:
@@ -242,7 +224,6 @@ class TestAmbientScope:
             # The ambient accessor was removed; ensure scoped config is returned
             assert config.model == "scoped-model"
 
-    @pytest.mark.unit
     def test_nested_config_scopes_lifo_behavior(self):
         """Nested scopes should behave LIFO (last-in, first-out)."""
         config1 = resolve_config(overrides={"model": "model-1"})
@@ -277,7 +258,6 @@ class TestFileLoading:
             if temp_path.exists():
                 temp_path.unlink()
 
-    @pytest.mark.unit
     def test_pyproject_toml_loading(self, isolated_config_sources):
         """Should load configuration from pyproject.toml."""
         toml_content = """
@@ -293,7 +273,6 @@ ttl_seconds = 1800
             assert config.enable_caching is True
             assert config.ttl_seconds == 1800
 
-    @pytest.mark.unit
     def test_profile_overlay_from_toml(self, isolated_config_sources):
         """Should overlay profile configuration over base configuration."""
         toml_content = """
@@ -312,9 +291,8 @@ ttl_seconds = 7200
             assert config.enable_caching is False  # From base
             assert config.ttl_seconds == 7200  # From profile
 
-    @pytest.mark.unit
     def test_profile_from_environment_variable(self, isolated_config_sources):
-        """Should use GEMINI_PROFILE environment variable."""
+        """Should use GEMINI_BATCH_PROFILE environment variable."""
         toml_content = """
 [tool.gemini_batch]
 model = "base-model"
@@ -333,7 +311,6 @@ model = "test-model"
 class TestEnvironmentLoading:
     """Test environment variable loading and type coercion."""
 
-    @pytest.mark.unit
     def test_environment_boolean_coercion(self):
         """Should correctly coerce boolean values from environment."""
         bool_cases = [
@@ -352,7 +329,10 @@ class TestEnvironmentLoading:
         for env_value, expected in bool_cases:
             with patch.dict(
                 os.environ,
-                {"GEMINI_USE_REAL_API": env_value, "GEMINI_API_KEY": "test"},
+                {
+                    "GEMINI_BATCH_USE_REAL_API": env_value,
+                    "GEMINI_API_KEY": "test",
+                },
                 clear=True,
             ):
                 config = resolve_config()
@@ -360,23 +340,22 @@ class TestEnvironmentLoading:
                     f"Failed for env_value: {env_value}"
                 )
 
-    @pytest.mark.unit
     def test_environment_integer_coercion(self):
         """Should correctly coerce integer values from environment."""
-        with patch.dict(os.environ, {"GEMINI_TTL_SECONDS": "1234"}, clear=True):
+        with patch.dict(os.environ, {"GEMINI_BATCH_TTL_SECONDS": "1234"}, clear=True):
             config = resolve_config()
             assert config.ttl_seconds == 1234
 
-    @pytest.mark.unit
     def test_environment_invalid_integer_handled_by_pydantic(self):
         """Invalid integers should be caught by Pydantic validation."""
         with (
-            patch.dict(os.environ, {"GEMINI_TTL_SECONDS": "not-a-number"}, clear=True),
+            patch.dict(
+                os.environ, {"GEMINI_BATCH_TTL_SECONDS": "not-a-number"}, clear=True
+            ),
             pytest.raises(ValidationError),
         ):
             resolve_config()
 
-    @pytest.mark.unit
     def test_dotenv_file_loading(self):
         """Should load .env file if python-dotenv is available."""
         # This is a bit tricky to test reliably without affecting the environment
@@ -392,14 +371,16 @@ class TestEnvironmentLoading:
 class TestEdgeCases:
     """Test edge cases and error conditions."""
 
-    @pytest.mark.unit
     def test_missing_toml_files_handled_gracefully(self):
         """Missing TOML files should not cause errors."""
         clean_env = {k: v for k, v in os.environ.items() if not k.startswith("GEMINI_")}
         with (
             patch.dict(
                 os.environ,
-                {**clean_env, "GEMINI_PYPROJECT_PATH": "/nonexistent/pyproject.toml"},
+                {
+                    **clean_env,
+                    "GEMINI_BATCH_PYPROJECT_PATH": "/nonexistent/pyproject.toml",
+                },
                 clear=True,
             ),
         ):
@@ -409,7 +390,6 @@ class TestEdgeCases:
             # Should use defaults
             assert config.model == "gemini-2.0-flash"
 
-    @pytest.mark.unit
     def test_malformed_toml_files_handled_gracefully(self):
         """Malformed TOML files should not cause errors."""
         malformed_content = """
@@ -423,7 +403,7 @@ model = "test"
             patch.dict(os.environ, clean_env, clear=True),
             self.temp_toml_file(malformed_content) as temp_file,
             patch.dict(
-                os.environ, {"GEMINI_PYPROJECT_PATH": str(temp_file)}, clear=False
+                os.environ, {"GEMINI_BATCH_PYPROJECT_PATH": str(temp_file)}, clear=False
             ),
         ):
             # Use env override for malformed file path
@@ -446,7 +426,6 @@ model = "test"
 class TestFrozenConfigImmutability:
     """Test that FrozenConfig is truly immutable."""
 
-    @pytest.mark.unit
     def test_frozen_config_immutability(self):
         """FrozenConfig should be immutable after creation."""
         config = resolve_config()
@@ -458,7 +437,6 @@ class TestFrozenConfigImmutability:
         with pytest.raises(AttributeError):
             config.api_key = "new-key"  # type: ignore[misc]
 
-    @pytest.mark.unit
     def test_frozen_config_string_representation_redacts_api_key(self):
         """String representation should redact API key."""
         config = resolve_config(overrides={"api_key": "secret-key"})
@@ -467,7 +445,6 @@ class TestFrozenConfigImmutability:
         assert "secret-key" not in config_str
         assert "[REDACTED]" in config_str
 
-    @pytest.mark.unit
     def test_frozen_config_repr_redacts_api_key(self):
         """Repr should redact API key."""
         config = resolve_config(overrides={"api_key": "secret-key"})

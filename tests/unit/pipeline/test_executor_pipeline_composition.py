@@ -9,11 +9,12 @@ def test_default_pipeline_includes_expected_handlers():
     names = [
         h.__class__.__name__ for h in ex._pipeline
     ]  # accessing internal for contract check
-    # Order should be SourceHandler -> ExecutionPlanner -> RateLimitHandler -> APIHandler -> ResultBuilder
-    assert names[:5] == [
+    # Order includes CacheStage in the default pipeline
+    assert names[:6] == [
         "SourceHandler",
         "ExecutionPlanner",
         "RateLimitHandler",
+        "CacheStage",
         "APIHandler",
         "ResultBuilder",
     ]

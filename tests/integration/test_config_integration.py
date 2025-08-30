@@ -11,7 +11,7 @@ import pytest
 
 from gemini_batch.config import resolve_config
 from gemini_batch.config.core import FrozenConfig
-from gemini_batch.core.types import InitialCommand
+from gemini_batch.core.types import InitialCommand, Source
 from gemini_batch.executor import GeminiExecutor, create_executor
 
 
@@ -22,7 +22,8 @@ class TestConfigurationIntegrationBehavior:
     def test_executor_creation_with_auto_resolution(self):
         """Integration: create_executor() should use new configuration system."""
         with patch.dict(
-            os.environ, {"GEMINI_API_KEY": "test_key", "GEMINI_MODEL": "test_model"}
+            os.environ,
+            {"GEMINI_API_KEY": "test_key", "GEMINI_BATCH_MODEL": "test_model"},
         ):
             executor = create_executor()
 
@@ -51,8 +52,10 @@ class TestConfigurationIntegrationBehavior:
         with patch.dict(os.environ, {"GEMINI_API_KEY": "test_key"}):
             resolved = resolve_config()
 
+            # Use explicit `Source` objects per the new source handling API
+            text_source = Source.from_text("test.txt")
             command = InitialCommand(
-                sources=("test.txt",),
+                sources=(text_source,),
                 prompts=("Test prompt",),
                 config=resolved,
                 history=(),
@@ -78,7 +81,8 @@ class TestConfigurationIntegrationBehavior:
         """Integration: Configuration precedence should work through executor creation."""
         # Set environment baseline
         with patch.dict(
-            os.environ, {"GEMINI_API_KEY": "env_key", "GEMINI_MODEL": "env_model"}
+            os.environ,
+            {"GEMINI_API_KEY": "env_key", "GEMINI_BATCH_MODEL": "env_model"},
         ):
             # Override with explicit config
             explicit_config = {"model": "explicit_model"}
@@ -149,13 +153,16 @@ class TestConfigurationIntegrationBehavior:
     @pytest.mark.workflows
     def test_environment_override_behavior(self):
         """Integration: Environment variables should properly override in pipeline."""
-        base_env = {"GEMINI_API_KEY": "base_key", "GEMINI_MODEL": "base_model"}
+        base_env = {
+            "GEMINI_API_KEY": "base_key",
+            "GEMINI_BATCH_MODEL": "base_model",
+        }
 
         with patch.dict(os.environ, base_env):
             executor1 = create_executor()
 
             # Override one variable
-            with patch.dict(os.environ, {"GEMINI_MODEL": "override_model"}):
+            with patch.dict(os.environ, {"GEMINI_BATCH_MODEL": "override_model"}):
                 executor2 = create_executor()
 
             # Should see override effect
@@ -169,9 +176,10 @@ class TestConfigurationIntegrationBehavior:
         with patch.dict(os.environ, {"GEMINI_API_KEY": "test_key"}):
             executor = create_executor()
 
-            # Create initial command
+            # Create initial command using explicit `Source` objects
+            text_source = Source.from_text("test.txt")
             initial = InitialCommand(
-                sources=("test.txt",),
+                sources=(text_source,),
                 prompts=("Test",),
                 config=executor.config,
                 history=(),

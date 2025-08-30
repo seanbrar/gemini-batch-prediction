@@ -49,6 +49,7 @@ dev = [
     # Docs tooling
     "mkdocs>=1.6.0",
     "mkdocs-material>=9.6.0",
+    "types-PyYAML>=6.0.12",
 ]
 viz = ["matplotlib~=3.10", "pandas~=2.3", "seaborn~=0.13"]
 all = ["gemini-batch[dev,viz]"]

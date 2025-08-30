@@ -60,7 +60,7 @@ class ResultBuilder(BaseAsyncHandler[FinalizedCommand, ResultEnvelope, Never]):
             transforms: Optional sequence of `TransformSpec`. Defaults to built-ins.
             enable_diagnostics: If True, attach `ExtractionDiagnostics` to results.
             max_text_size: Max text length to process; oversized inputs are truncated.
-            validate: Enable dev-time shape validation (overrides GEMINI_PIPELINE_VALIDATE).
+            validate: Enable dev-time shape validation (overrides GEMINI_BATCH_PIPELINE_VALIDATE).
         """
         self.transforms = (
             transforms if transforms is not None else tuple(default_transforms())

@@ -180,7 +180,7 @@ class TestNoOpGuarantees:
         env_none = result_none.value
         env_empty = result_empty.value
 
-        assert env_no["success"] == env_none["success"] == env_empty["success"]
+        assert env_no["status"] == env_none["status"] == env_empty["status"]
         assert env_no["answers"] == env_none["answers"] == env_empty["answers"]
         assert (
             env_no["extraction_method"]
@@ -245,7 +245,7 @@ class TestNoOpGuarantees:
         result_empty = await executor.execute(cmd_empty)
 
         # Results should be functionally identical
-        assert result_none["success"] == result_empty["success"]
+        assert result_none["status"] == result_empty["status"]
         assert result_none["extraction_method"] == result_empty["extraction_method"]
         # Both should have valid answers
         assert isinstance(result_none["answers"], list)
@@ -286,7 +286,7 @@ class TestNoOpGuarantees:
 
         # Should succeed as if no hints were present
         envelope = result_result.value
-        assert envelope["success"] is True
+        assert envelope["status"] == "ok"
 
     def test_hint_type_equivalence_no_state_leakage(self):
         """Hint instances should be independent with no shared state."""

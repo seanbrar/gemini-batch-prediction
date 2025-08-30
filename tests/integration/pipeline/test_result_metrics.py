@@ -1,6 +1,7 @@
 import pytest
 
 from gemini_batch.config import resolve_config
+from gemini_batch.core.sources import Source
 from gemini_batch.core.types import InitialCommand
 from gemini_batch.executor import create_executor
 
@@ -13,12 +14,14 @@ async def test_final_result_includes_token_validation_metrics():
         resolve_config(overrides={"api_key": "k", "model": "gemini-2.0-flash"})
     )
     cmd = InitialCommand(
-        sources=("hello world",), prompts=("Echo me",), config=executor.config
+        sources=(Source.from_text("hello world"),),
+        prompts=("Echo me",),
+        config=executor.config,
     )
 
     result = await executor.execute(cmd)
 
-    assert result.get("success") is True
+    assert result.get("status") == "ok"
     metrics = result.get("metrics")
     assert isinstance(metrics, dict)
     tv = metrics.get("token_validation")

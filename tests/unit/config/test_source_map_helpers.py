@@ -10,8 +10,9 @@ import pytest
 
 from gemini_batch.config import resolve_config, tier_was_specified
 
+pytestmark = pytest.mark.unit
 
-@pytest.mark.unit
+
 def test_tier_was_specified_is_false_when_default_only():
     """When no sources provide 'tier', helper should return False."""
     with (
@@ -23,7 +24,6 @@ def test_tier_was_specified_is_false_when_default_only():
         assert tier_was_specified(sources) is False
 
 
-@pytest.mark.unit
 def test_tier_was_specified_true_for_overrides():
     """Overrides should mark 'tier' as specified."""
     with (
@@ -35,7 +35,6 @@ def test_tier_was_specified_true_for_overrides():
         assert tier_was_specified(sources) is True
 
 
-@pytest.mark.unit
 def test_tier_was_specified_true_for_env():
     """Environment should mark 'tier' as specified."""
     with (
@@ -47,7 +46,6 @@ def test_tier_was_specified_true_for_env():
         assert tier_was_specified(sources) is True
 
 
-@pytest.mark.unit
 def test_tier_was_specified_true_for_project():
     """Project file should mark 'tier' as specified."""
     with (
@@ -62,7 +60,6 @@ def test_tier_was_specified_true_for_project():
         assert tier_was_specified(sources) is True
 
 
-@pytest.mark.unit
 def test_tier_was_specified_true_for_home():
     """Home file should mark 'tier' as specified."""
     with (

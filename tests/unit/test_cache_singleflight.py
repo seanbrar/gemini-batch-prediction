@@ -27,7 +27,7 @@ class _FakeCachingAdapter(GenerationAdapter, CachingCapability):
         content_parts: tuple[Any, ...],
         system_instruction: str | None,
         ttl_seconds: int | None,
-    ) -> str:  # type: ignore[override]
+    ) -> str:
         _ = system_instruction, ttl_seconds
         self.calls += 1
         await asyncio.sleep(0.05)

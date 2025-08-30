@@ -45,7 +45,7 @@ async def _plan_with_sources(*sources: Source) -> PlannedCommand:
 
 def test_planner_maps_youtube_to_filerefp():
     s = Source.from_youtube("https://www.youtube.com/watch?v=dQw4w9WgXcQ")
-    planned = asyncio.get_event_loop().run_until_complete(_plan_with_sources(s))
+    planned = asyncio.run(_plan_with_sources(s))
     # shared_parts should contain a FileRefPart with file_uri
     shared = planned.execution_plan.shared_parts
     assert any(
@@ -57,7 +57,7 @@ def test_planner_maps_youtube_to_filerefp():
 
 def test_planner_maps_arxiv_to_filerefp():
     s = Source.from_arxiv("1706.03762v3")
-    planned = asyncio.get_event_loop().run_until_complete(_plan_with_sources(s))
+    planned = asyncio.run(_plan_with_sources(s))
     shared = planned.execution_plan.shared_parts
     assert any(
         getattr(p, "uri", "").endswith("1706.03762v3.pdf")

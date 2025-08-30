@@ -2,6 +2,12 @@
 
 import pytest
 
+from gemini_batch.core.conversation import ConversationTurn
+from gemini_batch.extensions.conversation_modes import (
+    SequentialMode,
+    SingleMode,
+    VectorizedMode,
+)
 from gemini_batch.extensions.conversation_planner import ConversationPlan
 from gemini_batch.extensions.conversation_types import (
     BatchMetrics,
@@ -17,10 +23,10 @@ def test_conversation_policy_immutability():
 
     # Should be frozen dataclass - these should fail
     with pytest.raises(AttributeError):
-        policy.keep_last_n = 10
+        policy.keep_last_n = 10  # type: ignore
 
     with pytest.raises(AttributeError):
-        policy.widen_max_factor = 1.5
+        policy.widen_max_factor = 1.5  # type: ignore
 
 
 def test_conversation_policy_defaults():
@@ -38,37 +44,37 @@ def test_conversation_policy_defaults():
 def test_prompt_set_constructors():
     """Test PromptSet direct construction."""
     # Single prompt
-    ps_single = PromptSet(("Hello",), "single")
+    ps_single = PromptSet(("Hello",), SingleMode())
     assert ps_single.prompts == ("Hello",)
-    assert ps_single.mode == "single"
+    assert ps_single.mode == SingleMode()
 
     # Sequential prompts
-    ps_seq = PromptSet(("Q1", "Q2", "Q3"), "sequential")
+    ps_seq = PromptSet(("Q1", "Q2", "Q3"), SequentialMode())
     assert ps_seq.prompts == ("Q1", "Q2", "Q3")
-    assert ps_seq.mode == "sequential"
+    assert ps_seq.mode == SequentialMode()
 
     # Vectorized prompts
-    ps_vec = PromptSet(("A", "B", "C"), "vectorized")
+    ps_vec = PromptSet(("A", "B", "C"), VectorizedMode())
     assert ps_vec.prompts == ("A", "B", "C")
-    assert ps_vec.mode == "vectorized"
+    assert ps_vec.mode == VectorizedMode()
 
 
 def test_prompt_set_direct_construction():
     """Test direct PromptSet construction."""
-    ps = PromptSet(("P1", "P2"), "sequential")
+    ps = PromptSet(("P1", "P2"), SequentialMode())
     assert ps.prompts == ("P1", "P2")
-    assert ps.mode == "sequential"
+    assert ps.mode == SequentialMode()
 
 
 def test_prompt_set_immutability():
     """Test that PromptSet is immutable."""
-    ps = PromptSet(("Test",), "single")
+    ps = PromptSet(("Test",), SingleMode())
 
     with pytest.raises(AttributeError):
-        ps.prompts = ("Modified",)
+        ps.prompts = ("Modified",)  # type: ignore
 
     with pytest.raises(AttributeError):
-        ps.mode = "vectorized"
+        ps.mode = SingleMode()  # type: ignore
 
 
 def test_conversation_plan_immutability():
@@ -82,17 +88,17 @@ def test_conversation_plan_immutability():
     )
 
     with pytest.raises(AttributeError):
-        plan.prompts = ("Modified",)
+        plan.prompts = ("Modified",)  # type: ignore
 
     with pytest.raises(AttributeError):
-        plan.strategy = "vectorized"
+        plan.strategy = "vectorized"  # type: ignore
 
 
 def test_conversation_plan_attributes():
     """Test ConversationPlan attributes."""
     plan = ConversationPlan(
         sources=("doc.pdf", "notes.txt"),
-        history=(object(), object()),  # Mock history objects
+        history=(ConversationTurn("Q1", "A1"), ConversationTurn("Q2", "A2")),
         prompts=("What is this?", "Summarize"),
         strategy="vectorized",
         hints=(object(), object()),  # Mock hint objects
@@ -113,10 +119,10 @@ def test_batch_metrics_immutability():
     )
 
     with pytest.raises(AttributeError):
-        metrics.per_prompt = ()
+        metrics.per_prompt = ()  # type: ignore
 
     with pytest.raises(AttributeError):
-        metrics.totals = {}
+        metrics.totals = {}  # type: ignore
 
 
 def test_conversation_analytics_immutability():
@@ -134,10 +140,10 @@ def test_conversation_analytics_immutability():
     )
 
     with pytest.raises(AttributeError):
-        analytics.total_turns = 10
+        analytics.total_turns = 10  # type: ignore
 
     with pytest.raises(AttributeError):
-        analytics.success_rate = 1.0
+        analytics.success_rate = 1.0  # type: ignore
 
 
 def test_conversation_analytics_defaults():
@@ -154,25 +160,25 @@ def test_conversation_analytics_defaults():
 
 def test_prompt_set_empty_prompts():
     """Test PromptSet with empty prompts."""
-    ps = PromptSet((), "single")
+    ps = PromptSet((), SingleMode())
     assert ps.prompts == ()
-    assert ps.mode == "single"
+    assert ps.mode == SingleMode()
 
 
 def test_prompt_set_single_prompt_optimization():
     """Test that single prompt in any mode still works."""
-    ps = PromptSet(("Single",), "vectorized")  # Even though vectorized
+    ps = PromptSet(("Single",), VectorizedMode())  # Even though vectorized
     assert ps.prompts == ("Single",)
-    assert ps.mode == "vectorized"  # Mode is preserved
+    assert ps.mode == VectorizedMode()  # Mode is preserved
 
 
 def test_prompt_set_tuple_immutability():
     """Test that the prompts tuple itself is immutable."""
-    ps = PromptSet(("A", "B"), "sequential")
+    ps = PromptSet(("A", "B"), SequentialMode())
 
     # The tuple should be immutable
     with pytest.raises(AttributeError):
-        ps.prompts.append("C")  # This should fail
+        ps.prompts.append("C")  # type: ignore
 
     with pytest.raises(TypeError):
-        ps.prompts[0] = "Modified"  # This should also fail
+        ps.prompts[0] = "Modified"  # type: ignore

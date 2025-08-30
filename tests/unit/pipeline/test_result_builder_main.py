@@ -82,7 +82,7 @@ class TestResultBuilderBasicBehavior:
 
             # Should always be Success, never Failure
             assert isinstance(result, Success)
-            assert result.value["success"] is True
+            assert result.value["status"] == "ok"
             assert "answers" in result.value
             assert isinstance(result.value["answers"], list)
 
@@ -98,7 +98,7 @@ class TestResultBuilderBasicBehavior:
         result = await builder.handle(command)
 
         assert isinstance(result, Success)
-        assert result.value["success"] is True
+        assert result.value["status"] == "ok"
         assert result.value["answers"] == ["answer1", "answer2", "answer3"]
         assert result.value["extraction_method"] == "json_array"
         assert result.value["confidence"] == 0.95
@@ -116,7 +116,7 @@ class TestResultBuilderBasicBehavior:
 
         assert isinstance(result, Success)
 
-        assert result.value["success"] is True
+        assert result.value["status"] == "ok"
         assert result.value["answers"] == ["Provider response text"]
         assert result.value["extraction_method"] == "provider_normalized"
 
@@ -133,7 +133,7 @@ class TestResultBuilderBasicBehavior:
 
         assert isinstance(result, Success)
 
-        assert result.value["success"] is True
+        assert result.value["status"] == "ok"
         assert result.value["answers"] == [simple_text]
         assert result.value["extraction_method"].startswith("minimal_")
 
@@ -206,13 +206,13 @@ class TestResultBuilderBasicBehavior:
 
         result = await builder.handle(command)
 
-        # Should still succeed with empty metrics
+        # Should still succeed with best-effort metrics
         assert isinstance(result, Success)
 
-        assert result.value["success"] is True
+        assert result.value["status"] == "ok"
         assert "metrics" in result.value
-        assert result.value["metrics"]["durations"] == {}
-        assert result.value["metrics"]["token_validation"] == {}
+        assert isinstance(result.value["metrics"]["durations"], dict)
+        assert isinstance(result.value["metrics"]["token_validation"], dict)
 
 
 class TestResultBuilderTransformOrdering:
@@ -434,7 +434,7 @@ class TestResultBuilderValidation:
         assert isinstance(result, Success)
 
         # Should still succeed
-        assert result.value["success"] is True
+        assert result.value["status"] == "ok"
 
         # Should have validation warnings
         assert "validation_warnings" in result.value
@@ -476,7 +476,7 @@ class TestResultBuilderValidation:
         assert isinstance(result, Success)
 
         # Should still succeed
-        assert result.value["success"] is True
+        assert result.value["status"] == "ok"
 
         # Should have violations in diagnostics
         diagnostics = result.value["diagnostics"]
@@ -501,7 +501,7 @@ class TestResultBuilderResponseTruncation:
         assert isinstance(result, Success)
 
         # Should still succeed
-        assert result.value["success"] is True
+        assert result.value["status"] == "ok"
 
         # Response should be truncated
         answer = result.value["answers"][0]
@@ -537,7 +537,7 @@ class TestResultBuilderResponseTruncation:
         assert isinstance(result, Success)
 
         # Should still succeed and truncate the text field
-        assert result.value["success"] is True
+        assert result.value["status"] == "ok"
 
 
 class TestResultBuilderStructuredData:
@@ -631,7 +631,7 @@ class TestResultBuilderAdditional:
         assert isinstance(result, Success)
         d = result.value["diagnostics"]
         assert d["expected_answer_count"] == 3
-        assert d["original_answer_count"] == 1
+        assert d["pre_pad_count"] == 1
         assert any(
             "Expected 3 answers, got 1" in v["message"]
             for v in d["contract_violations"]
@@ -669,7 +669,7 @@ class TestResultBuilderAdditional:
             result = await builder.handle(command)
             assert isinstance(result, Success)
             val = result.value
-            assert isinstance(val["success"], bool)
+            assert isinstance(val["status"], str)
             assert isinstance(val["answers"], list)
             assert isinstance(val["extraction_method"], str)
             assert isinstance(val["confidence"], float)

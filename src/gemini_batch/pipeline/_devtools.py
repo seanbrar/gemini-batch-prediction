@@ -40,7 +40,7 @@ def compose_pipeline(
     - Ensures the final stage is an envelope builder when detectable (by
       `_produces_envelope`) and `strict=True`. For erased handlers we defer
       to the executor's final invariant.
-    - Optionally performs extra debug checks when GEMINI_PIPELINE_VALIDATE=1.
+    - Optionally performs extra debug checks when GEMINI_BATCH_PIPELINE_VALIDATE=1.
     """
     if not handlers:
         raise ValueError("compose_pipeline() requires at least one handler")

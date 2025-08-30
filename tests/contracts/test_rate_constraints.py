@@ -1,4 +1,8 @@
+import pytest
+
 from gemini_batch.core.types import APICall, ExecutionPlan, RateConstraint
+
+pytestmark = pytest.mark.contract
 
 
 def test_execution_plan_can_carry_rate_constraint():

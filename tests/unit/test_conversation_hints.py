@@ -6,8 +6,8 @@ from gemini_batch.config import resolve_config
 from gemini_batch.executor import create_executor
 from gemini_batch.extensions.conversation import (
     Conversation,
-    ConversationState,
 )
+from gemini_batch.extensions.conversation_types import ConversationState
 
 
 class TestConversationCache:
@@ -23,8 +23,10 @@ class TestConversationCache:
     async def test_conversation_with_cache_key(self, executor):
         """Test that conversation works with cache key in state."""
         # Create conversation state with cache key
+        from gemini_batch.core.types import Source
+
         state = ConversationState(
-            sources=("doc.pdf",),
+            sources=(Source.from_text("doc"),),
             turns=(),
             cache_key="test-cache-key",
             cache_artifacts=("artifact1",),
@@ -42,7 +44,9 @@ class TestConversationCache:
     @pytest.mark.asyncio
     async def test_conversation_without_cache_key(self, executor):
         """Test conversation works without cache key."""
-        conv = Conversation.start(executor, sources=("doc.pdf",))
+        from gemini_batch.core.types import Source
+
+        conv = Conversation.start(executor, sources=(Source.from_text("doc"),))
 
         # Test that cache key is None by default
         assert conv.state.cache_key is None

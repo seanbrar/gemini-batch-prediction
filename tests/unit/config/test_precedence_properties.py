@@ -13,20 +13,21 @@ import pytest
 
 from gemini_batch.config import Origin, resolve_config
 
+pytestmark = pytest.mark.unit
+
 
 class TestConfigPrecedenceProperties:
     """Property-based tests for configuration precedence rules."""
 
-    @pytest.mark.unit
     def test_programmatic_overrides_win_over_all_sources(self):
         """Programmatic overrides should take precedence over all other sources."""
         # Setup: create environment and file sources
         env_vars = {k: v for k, v in os.environ.items() if not k.startswith("GEMINI_")}
         env_vars.update(
             {
-                "GEMINI_MODEL": "env-model",
-                "GEMINI_TTL_SECONDS": "1200",
-                "GEMINI_USE_REAL_API": "true",
+                "GEMINI_BATCH_MODEL": "env-model",
+                "GEMINI_BATCH_TTL_SECONDS": "1200",
+                "GEMINI_BATCH_USE_REAL_API": "true",
             }
         )
 
@@ -43,7 +44,7 @@ enable_caching = true
             with (
                 patch.dict(
                     os.environ,
-                    {**env_vars, "GEMINI_PYPROJECT_PATH": str(temp_file)},
+                    {**env_vars, "GEMINI_BATCH_PYPROJECT_PATH": str(temp_file)},
                     clear=True,
                 ),
                 patch("gemini_batch.config.loaders.load_home", return_value={}),
@@ -85,7 +86,6 @@ enable_caching = true
             if temp_file.exists():
                 temp_file.unlink()
 
-    @pytest.mark.unit
     def test_env_wins_over_file_and_defaults(self):
         """Environment variables should override file and default values."""
         with tempfile.NamedTemporaryFile(mode="w", suffix=".toml", delete=False) as f:
@@ -103,8 +103,8 @@ enable_caching = false
             }
             env_vars.update(
                 {
-                    "GEMINI_MODEL": "env-model",
-                    "GEMINI_ENABLE_CACHING": "true",  # Override file value
+                    "GEMINI_BATCH_MODEL": "env-model",
+                    "GEMINI_BATCH_ENABLE_CACHING": "true",  # Override file value
                     # ttl_seconds not set in env - should use file value
                 }
             )
@@ -112,7 +112,7 @@ enable_caching = false
             with (
                 patch.dict(
                     os.environ,
-                    {**env_vars, "GEMINI_PYPROJECT_PATH": str(temp_file)},
+                    {**env_vars, "GEMINI_BATCH_PYPROJECT_PATH": str(temp_file)},
                     clear=True,
                 ),
                 patch("gemini_batch.config.loaders.load_home", return_value={}),
@@ -141,7 +141,6 @@ enable_caching = false
             if temp_file.exists():
                 temp_file.unlink()
 
-    @pytest.mark.unit
     def test_project_wins_over_home_and_defaults(self):
         """Project config should override home config and defaults."""
         # Create both home and project config files
@@ -173,8 +172,8 @@ enable_caching = true
                     os.environ,
                     {
                         **clean_env,
-                        "GEMINI_PYPROJECT_PATH": str(project_file),
-                        "GEMINI_CONFIG_HOME": str(home_file),
+                        "GEMINI_BATCH_PYPROJECT_PATH": str(project_file),
+                        "GEMINI_BATCH_CONFIG_HOME": str(home_file),
                     },
                     clear=True,
                 ),
@@ -201,13 +200,12 @@ enable_caching = true
                 assert sources["ttl_seconds"].origin == Origin.PROJECT
                 assert sources["enable_caching"].origin == Origin.HOME
 
-    @pytest.mark.unit
     def test_precedence_per_field_independence(self):
         """Each field should follow precedence independently of other fields."""
         env_vars = {k: v for k, v in os.environ.items() if not k.startswith("GEMINI_")}
         env_vars.update(
             {
-                "GEMINI_MODEL": "env-model",
+                "GEMINI_BATCH_MODEL": "env-model",
                 # Note: ttl_seconds NOT set in env
             }
         )
@@ -225,7 +223,7 @@ enable_caching = true
             with (
                 patch.dict(
                     os.environ,
-                    {**env_vars, "GEMINI_PYPROJECT_PATH": str(temp_file)},
+                    {**env_vars, "GEMINI_BATCH_PYPROJECT_PATH": str(temp_file)},
                     clear=True,
                 ),
                 patch("gemini_batch.config.loaders.load_home", return_value={}),
@@ -260,7 +258,6 @@ enable_caching = true
             if temp_file.exists():
                 temp_file.unlink()
 
-    @pytest.mark.unit
     def test_profile_precedence_within_layers(self):
         """Profiles should correctly overlay within each layer."""
         with tempfile.NamedTemporaryFile(mode="w", suffix=".toml", delete=False) as f:
@@ -280,14 +277,14 @@ enable_caching = true
             clean_env = {
                 k: v for k, v in os.environ.items() if not k.startswith("GEMINI_")
             }
-            clean_env["GEMINI_USE_REAL_API"] = (
+            clean_env["GEMINI_BATCH_USE_REAL_API"] = (
                 "true"  # Env should still win over profile
             )
 
             with (
                 patch.dict(
                     os.environ,
-                    {**clean_env, "GEMINI_PYPROJECT_PATH": str(temp_file)},
+                    {**clean_env, "GEMINI_BATCH_PYPROJECT_PATH": str(temp_file)},
                     clear=True,
                 ),
                 patch("gemini_batch.config.loaders.load_home", return_value={}),

@@ -6,7 +6,11 @@ import pytest
 
 from gemini_batch.extensions.conversation import (
     Conversation,
-    ConversationState,
+)
+from gemini_batch.extensions.conversation_modes import (
+    SequentialMode,
+    SingleMode,
+    VectorizedMode,
 )
 from gemini_batch.extensions.conversation_planner import (
     ConversationPlan,
@@ -14,8 +18,12 @@ from gemini_batch.extensions.conversation_planner import (
 )
 from gemini_batch.extensions.conversation_types import (
     ConversationPolicy,
+    ConversationState,
     PromptSet,
 )
+
+# Mark all tests in this module as contract tests
+pytestmark = pytest.mark.contract
 
 
 @pytest.fixture
@@ -58,10 +66,10 @@ class TestConversationContracts:
 
         # Should not be able to modify state
         with pytest.raises(AttributeError):
-            state.sources = ("modified.pdf",)
+            state.sources = ("modified.pdf",)  # type: ignore
 
         with pytest.raises(AttributeError):
-            state.version = 999
+            state.version = 999  # type: ignore
 
     def test_conversation_policy_immutability_contract(self):
         """Contract: ConversationPolicy must be immutable after creation."""
@@ -69,21 +77,21 @@ class TestConversationContracts:
 
         # Should not be able to modify policy
         with pytest.raises(AttributeError):
-            policy.keep_last_n = 10
+            policy.keep_last_n = 10  # type: ignore
 
         with pytest.raises(AttributeError):
-            policy.widen_max_factor = 1.5
+            policy.widen_max_factor = 1.5  # type: ignore
 
     def test_prompt_set_immutability_contract(self):
         """Contract: PromptSet must be immutable after creation."""
-        ps = PromptSet(("Hello", "World"), "sequential")
+        ps = PromptSet(("Hello", "World"), SequentialMode())
 
         # Should not be able to modify prompt set
         with pytest.raises(AttributeError):
-            ps.prompts = ("Modified",)
+            ps.prompts = ("Modified",)  # type: ignore
 
         with pytest.raises(AttributeError):
-            ps.mode = "vectorized"
+            ps.mode = VectorizedMode()  # type: ignore
 
     def test_conversation_plan_immutability_contract(self):
         """Contract: ConversationPlan must be immutable after creation."""
@@ -97,10 +105,10 @@ class TestConversationContracts:
 
         # Should not be able to modify plan
         with pytest.raises(AttributeError):
-            plan.prompts = ("Modified",)
+            plan.prompts = ("Modified",)  # type: ignore
 
         with pytest.raises(AttributeError):
-            plan.strategy = "vectorized"
+            plan.strategy = "vectorized"  # type: ignore
 
     def test_compile_conversation_pure_function_contract(self):
         """Contract: compile_conversation must be a pure function."""
@@ -114,7 +122,7 @@ class TestConversationContracts:
             turns=(),
             policy=ConversationPolicy(keep_last_n=3),
         )
-        prompt_set = PromptSet(("Test prompt",), "single")
+        prompt_set = PromptSet(("Test prompt",), SingleMode())
 
         # Same inputs should produce same outputs
         plan1 = compile_conversation(state1, prompt_set, state1.policy)
@@ -148,7 +156,7 @@ class TestConversationContracts:
             turns=(),
             policy=ConversationPolicy(),
         )
-        prompt_set = PromptSet(("Test prompt",), "single")
+        prompt_set = PromptSet(("Test prompt",), SingleMode())
 
         # Compile plan (pure function)
         plan = compile_conversation(state, prompt_set, state.policy)
@@ -170,23 +178,22 @@ class TestConversationContracts:
         )
 
         # Create prompt set data that controls execution mode
-        prompt_set = PromptSet(("Q1", "Q2", "Q3"), "vectorized")
+        prompt_set = PromptSet(("Q1", "Q2", "Q3"), VectorizedMode())
 
         # Compile with data inputs
         state = ConversationState(sources=("doc.pdf",), turns=())
         plan = compile_conversation(state, prompt_set, policy)
 
         # Verify data-driven behavior
-        assert (
-            plan.strategy == "sequential"
-        )  # Current implementation uses sequential for vectorized mode
+        # Vectorized mode maps to vectorized strategy in the planner
+        assert plan.strategy == "vectorized"
         assert len(plan.hints) > 0  # From policy settings
         assert plan.prompts == ("Q1", "Q2", "Q3")  # From prompt_set
 
     def test_plan_inspectability_contract(self):
         """Contract: ConversationPlan must be inspectable for auditability."""
         policy = ConversationPolicy(keep_last_n=3, widen_max_factor=1.2)
-        prompt_set = PromptSet(("Q1", "Q2"), "sequential")
+        prompt_set = PromptSet(("Q1", "Q2"), SequentialMode())
         state = ConversationState(sources=("doc.pdf",), turns=())
 
         plan = compile_conversation(state, prompt_set, policy)
@@ -218,15 +225,15 @@ class TestConversationContracts:
     def test_prompt_set_constructors_contract(self):
         """Contract: PromptSet constructors must create valid prompt sets."""
         # Test direct construction of PromptSet
-        single = PromptSet(("Hello",), "single")
-        seq = PromptSet(("Q1", "Q2", "Q3"), "sequential")
-        vec = PromptSet(("A", "B", "C"), "vectorized")
+        single = PromptSet(("Hello",), SingleMode())
+        seq = PromptSet(("Q1", "Q2", "Q3"), SequentialMode())
+        vec = PromptSet(("A", "B", "C"), VectorizedMode())
 
-        assert single.mode == "single"
+        assert single.mode == SingleMode()
         assert single.prompts == ("Hello",)
 
-        assert seq.mode == "sequential"
+        assert seq.mode == SequentialMode()
         assert seq.prompts == ("Q1", "Q2", "Q3")
 
-        assert vec.mode == "vectorized"
+        assert vec.mode == VectorizedMode()
         assert vec.prompts == ("A", "B", "C")
