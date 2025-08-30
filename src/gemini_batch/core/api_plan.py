@@ -23,7 +23,14 @@ CacheAppliedVia = Literal["none", "plan", "override"]
 
 @dataclasses.dataclass(frozen=True, slots=True)
 class UploadTask:
-    """Instruction to upload a local file and substitute an API part."""
+    """Instruction to upload a local file and substitute an API part.
+
+    Indexing semantics:
+        part_index is relative to the per-call `APICall.api_parts` tuple.
+        It does not include any shared parts. When handlers operate on a
+        combined view `(shared_parts + call.api_parts)`, they must offset
+        indices by `len(shared_parts)`.
+    """
 
     part_index: int
     local_path: Path

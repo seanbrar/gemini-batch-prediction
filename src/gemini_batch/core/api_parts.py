@@ -90,6 +90,11 @@ class FilePlaceholder:
 
     local_path: Path
     mime_type: str | None = None
+    # When True, indicates the local file is ephemeral and may be safely
+    # deleted by the pipeline after successful upload. Core stages set this
+    # for materialized remote assets; user-provided files should keep the
+    # default False to avoid surprises.
+    ephemeral: bool = False
 
     def __post_init__(self) -> None:
         """Validate FilePlaceholder invariants."""
@@ -101,6 +106,11 @@ class FilePlaceholder:
         _require(
             condition=self.mime_type is None or isinstance(self.mime_type, str),
             message="mime_type must be a str or None",
+            exc=TypeError,
+        )
+        _require(
+            condition=isinstance(self.ephemeral, bool),
+            message="ephemeral must be a bool",
             exc=TypeError,
         )
 

@@ -9,9 +9,11 @@ Implements a simple, capability-aligned execution flow with:
 - Single fallback attempt when primary execution fails
 - Orthogonal telemetry scopes for execute/generate/retry/fallback
 
-Design focuses on data-centricity and simplicity. Neutral types for files and
-explicit cache plans live in ``core.types``; this handler consumes them without
-leaking provider SDK details.
+Design focuses on data-centricity and simplicity. Remote HTTP(S) file
+materialization (e.g., arXiv PDFs) occurs in the dedicated
+``RemoteMaterializationStage`` prior to this handler; by the time we run,
+such inputs are represented as local ``FilePlaceholder`` parts that this
+handler uploads and replaces with provider file refs when supported.
 """
 
 from __future__ import annotations
@@ -22,6 +24,8 @@ from dataclasses import dataclass
 from enum import Enum
 import logging
 import os
+from pathlib import Path
+from time import perf_counter
 from typing import TYPE_CHECKING, Any, TypedDict, cast
 
 from gemini_batch.core.concurrency import resolve_request_concurrency
@@ -201,6 +205,7 @@ class APIHandler(BaseAsyncHandler[PlannedCommand, FinalizedCommand, APIError]):
         *,
         upload_tasks: tuple[UploadTask, ...] | None = None,
         infer_placeholders: bool = True,
+        call_offset: int = 0,
     ) -> list[APIPart]:
         """Sanitize parts and perform upload substitution when supported.
 
@@ -212,11 +217,24 @@ class APIHandler(BaseAsyncHandler[PlannedCommand, FinalizedCommand, APIError]):
 
         # Determine upload tasks: prefer explicit, else infer from placeholders
         tasks: tuple[UploadTask, ...] = upload_tasks or ()
+        # UploadTask.part_index is defined relative to the per-call api_parts
+        # (i.e., it does not include any shared parts). When operating on a
+        # combined list of parts (shared + call), adjust indices by the length
+        # of the shared prefix so replacements target the correct slots.
+        if tasks and call_offset:
+            from dataclasses import replace as _dc_replace
+
+            adjusted: list[UploadTask] = []
+            for t in tasks:
+                adjusted.append(
+                    _dc_replace(t, part_index=int(call_offset) + int(t.part_index))
+                )
+            tasks = tuple(adjusted)
         if not tasks and infer_placeholders:
             tasks = self._infer_upload_tasks(effective_parts)
 
-        # If nothing to upload or adapter lacks capability, return early
-        if not tasks:
+        # If nothing to upload via placeholders and adapter lacks capability, return early
+        if not tasks and not isinstance(adapter, UploadsCapability):
             return effective_parts
         if not isinstance(adapter, UploadsCapability):
             if any(t.required for t in tasks):
@@ -227,10 +245,12 @@ class APIHandler(BaseAsyncHandler[PlannedCommand, FinalizedCommand, APIError]):
         with self._telemetry(UploadPhase.get_telemetry_scope(UploadPhase.PARTITION)):
             to_replace, pending = self._partition_uploads(tasks, effective_parts)
 
-        # Phase 2: perform uploads concurrently and update registry
+        # Phase 2a: perform uploads for local files (placeholder tasks)
         if pending:
             with self._telemetry(UploadPhase.get_telemetry_scope(UploadPhase.UPLOAD)):
-                uploaded_results = await self._upload_pending(adapter, pending)
+                uploaded_results = await self._upload_pending(
+                    adapter, pending, effective_parts
+                )
                 to_replace.extend(uploaded_results)
 
         # Phase 3: coerce to FileRefPart where needed and replace in parts
@@ -283,7 +303,10 @@ class APIHandler(BaseAsyncHandler[PlannedCommand, FinalizedCommand, APIError]):
         return to_replace, pending
 
     async def _upload_pending(
-        self, adapter: UploadsCapability, pending: list[tuple[int, UploadTask]]
+        self,
+        adapter: UploadsCapability,
+        pending: list[tuple[int, UploadTask]],
+        parts: list[APIPart],
     ) -> list[tuple[int, Any]]:
         async def _upload_one(i: int, t: UploadTask) -> tuple[int, Any]:
             local_id = os.fspath(t.local_path)
@@ -321,6 +344,18 @@ class APIHandler(BaseAsyncHandler[PlannedCommand, FinalizedCommand, APIError]):
                     with suppress(Exception):
                         self._file_registry.set(local_id, uploaded)
                 fut.set_result(uploaded)
+                # Best-effort cleanup: unlink ephemeral placeholders after upload
+                try:
+                    if 0 <= i < len(parts):
+                        ph = parts[i]
+                        if isinstance(ph, FilePlaceholder) and getattr(
+                            ph, "ephemeral", False
+                        ):
+                            with suppress(Exception):
+                                Path(os.fspath(t.local_path)).unlink()
+                except Exception as _cleanup_err:
+                    # Never fail upload due to cleanup; surface at debug level
+                    logger.debug("Ephemeral file cleanup failed: %s", _cleanup_err)
                 return i, uploaded
             except Exception as e:
                 fut.set_exception(e)
@@ -430,9 +465,22 @@ class APIHandler(BaseAsyncHandler[PlannedCommand, FinalizedCommand, APIError]):
             combined_parts = self._combine_shared_with_call(
                 effective_shared, call.api_parts
             )
+            # Prepare effective parts per-call as well to ensure any placeholders
+            # in per-call parts are uploaded and replaced consistently.
+            # Prepare again at per-call granularity. Shared parts were already
+            # sanitized and had placeholders resolved; this pass handles any
+            # per-call placeholders uniformly and is a no-op for effective shared parts.
+            prepared_parts = await self._prepare_effective_parts(
+                adapter,
+                list(combined_parts),
+                upload_tasks=plan.upload_tasks,
+                infer_placeholders=True,
+                call_offset=len(effective_shared),
+            )
             async with sem:
+                t0 = perf_counter()
                 if isinstance(adapter, _MockAdapter):
-                    ptxt = self._extract_text_from_parts(combined_parts)
+                    ptxt = self._extract_text_from_parts(tuple(prepared_parts))
                     raw = {
                         "mock": True,
                         "model": call.model_name,
@@ -456,7 +504,7 @@ class APIHandler(BaseAsyncHandler[PlannedCommand, FinalizedCommand, APIError]):
                         adapter,
                         command,
                         call,
-                        tuple(combined_parts),
+                        tuple(prepared_parts),
                         call.cache_name_to_use,
                     )
                 raw_list[i] = raw
@@ -468,6 +516,13 @@ class APIHandler(BaseAsyncHandler[PlannedCommand, FinalizedCommand, APIError]):
                     meta["retried_without_cache"] = True
                 if primary_error_repr:
                     meta["primary_error"] = primary_error_repr
+                # Attach per-call duration (execution time within semaphore)
+                meta["duration_s"] = max(perf_counter() - t0, 0.0)
+                # Indicate whether a cache was applied to this call via the plan
+                try:
+                    meta["cache_applied"] = bool(call.cache_name_to_use)
+                except Exception:
+                    meta["cache_applied"] = False
                 per_call_meta[i] = meta
 
         await asyncio.gather(*(_one(i) for i in range(n)))
@@ -480,6 +535,7 @@ class APIHandler(BaseAsyncHandler[PlannedCommand, FinalizedCommand, APIError]):
                 "batch": tuple(raw_list),
             },
         )
+
         # Attach usage and per-prompt metrics prior to validation
         self._attach_vectorized_usage(
             finalized,
@@ -487,6 +543,28 @@ class APIHandler(BaseAsyncHandler[PlannedCommand, FinalizedCommand, APIError]):
             n_calls=len(plan.calls),
             per_call_meta=per_call_meta,
         )
+
+        # Surface execution-level metrics helpful for batch efficiency analysis
+        try:
+            metrics = cast(
+                "dict[str, Any]", finalized.telemetry_data.setdefault("metrics", {})
+            )
+            metrics["concurrency_used"] = concurrency
+            metrics["cache_application"] = plan.cache_application
+            # Surface per-call estimates when available for prediction vs actual analysis
+            if command.per_call_estimates:
+                metrics["per_call_estimates"] = tuple(
+                    {
+                        "min_tokens": e.min_tokens,
+                        "expected_tokens": e.expected_tokens,
+                        "max_tokens": e.max_tokens,
+                        "confidence": e.confidence,
+                    }
+                    for e in command.per_call_estimates
+                )
+        except Exception as e:
+            # Best-effort: never fail execution due to metrics attachment
+            logger.debug("Failed to attach execution metrics; continuing.", exc_info=e)
 
         # Token validation compares estimated aggregate to actual aggregate
         self._attach_token_validation(finalized)

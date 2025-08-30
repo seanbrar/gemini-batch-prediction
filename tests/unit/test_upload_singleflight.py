@@ -8,6 +8,7 @@ from typing import Any
 import pytest
 
 from gemini_batch.core.api_plan import UploadTask
+from gemini_batch.core.types import APIPart, FilePlaceholder
 from gemini_batch.pipeline.adapters.base import UploadsCapability
 from gemini_batch.pipeline.api_handler import APIHandler
 from gemini_batch.pipeline.registries import FileRegistry
@@ -45,7 +46,12 @@ async def test_upload_single_flight_for_same_file() -> None:
         adapter = _FakeUploadsAdapter()
 
         # Call the internal helper directly to isolate behavior
-        res = await handler._upload_pending(adapter, [(0, t1), (1, t2)])
+        # Provide parts corresponding to indices for cleanup inspection
+        parts: list[APIPart] = [
+            FilePlaceholder(local_path=p, mime_type="text/plain", ephemeral=False),
+            FilePlaceholder(local_path=p, mime_type="text/plain", ephemeral=False),
+        ]
+        res = await handler._upload_pending(adapter, [(0, t1), (1, t2)], parts)
         # Should have two results, one upload
         assert len(res) == 2
         assert adapter.calls == 1

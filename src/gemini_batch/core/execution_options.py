@@ -8,7 +8,7 @@ from __future__ import annotations
 
 import dataclasses
 import math
-from typing import TYPE_CHECKING
+from typing import TYPE_CHECKING, Literal
 
 if TYPE_CHECKING:
     from collections.abc import Iterable
@@ -155,6 +155,9 @@ class ExecutionOptions:
     # otherwise unbounded up to number of calls). When a rate constraint is present,
     # concurrency is forced to 1.
     request_concurrency: int | None = None
+    # Optional policy to materialize remote file references (e.g., PDFs) into
+    # local files before execution. Disabled by default for conservative behavior.
+    remote_files: RemoteFilePolicy | None = None
 
     def __post_init__(self) -> None:
         """Validate simple invariants for option fields.
@@ -181,12 +184,18 @@ def make_execution_options(
     cache_policy: CachePolicyHint | None = None,
     cache_override_name: str | None = None,
     request_concurrency: int | None = None,
+    remote_files_enabled: bool | None = None,
+    remote_files: RemoteFilePolicy | None = None,
 ) -> ExecutionOptions:
     """Construct ExecutionOptions from slim, explicit kwargs.
 
     Only sets fields that are provided; keeps options orthogonal and minimal.
     """
     result = ResultOption(prefer_json_array=True) if result_prefer_json_array else None
+    # Convenience: allow quick enablement without constructing a policy
+    if remote_files_enabled and remote_files is None:
+        remote_files = RemoteFilePolicy(enabled=True)
+
     return ExecutionOptions(
         cache_policy=cache_policy,
         cache=cache,
@@ -194,4 +203,38 @@ def make_execution_options(
         estimation=estimation,
         cache_override_name=cache_override_name,
         request_concurrency=request_concurrency,
+        remote_files=remote_files,
     )
+
+
+@dataclasses.dataclass(frozen=True, slots=True)
+class RemoteFilePolicy:
+    """Policy for pre-execution remote file materialization.
+
+    When enabled, the pipeline may download specific HTTP(S) URIs (e.g., PDFs)
+    to local temporary files and express them as uploads via placeholders/tasks.
+
+    Attributes:
+        enabled: Master switch for the feature (default False).
+        allowed_mime_types: MIME types eligible for materialization.
+        allow_pdf_extension_heuristic: Permit extension-based detection when MIME absent.
+        max_bytes: Maximum allowed bytes per download. 0 disables size enforcement.
+        connect_timeout_s: Connection timeout for HTTP requests.
+        read_timeout_s: Read timeout for HTTP requests.
+        download_concurrency: Max concurrent downloads across the plan (>=1).
+        on_error: Behavior when a download fails: 'fail' to raise an APIError, or
+                  'skip' to leave the part as-is.
+        allow_http: Allow plain HTTP (default False). HTTPS-only by default for safety.
+        scope: Control which parts are scanned: 'shared_only' or 'shared_and_calls'.
+    """
+
+    enabled: bool = False
+    allowed_mime_types: tuple[str, ...] = ("application/pdf",)
+    allow_pdf_extension_heuristic: bool = True
+    max_bytes: int = 25 * 1024 * 1024  # 25MB
+    connect_timeout_s: float = 10.0
+    read_timeout_s: float = 30.0
+    download_concurrency: int = 4
+    on_error: Literal["fail", "skip"] = "fail"
+    allow_http: bool = False
+    scope: Literal["shared_only", "shared_and_calls"] = "shared_and_calls"
