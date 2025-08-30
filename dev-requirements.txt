@@ -4,8 +4,8 @@
 #
 #    pip-compile --output-file=dev-requirements.txt dev-requirements.in
 #
--e file:///Users/sean/GitHub/gemini-batch-prediction
-    # via file:///users/sean/github/gemini-batch-prediction
+-e file:///Users/sean/GitHub/gemini-batch-prediction-feature
+    # via file:///users/sean/github/gemini-batch-prediction-feature
 annotated-types==0.7.0
     # via pydantic
 anyio==4.9.0
@@ -181,9 +181,12 @@ pydantic==2.11.7
     # via
     #   gemini-batch
     #   google-genai
+    #   pydantic-settings
     #   python-semantic-release
 pydantic-core==2.33.2
     # via pydantic
+pydantic-settings==2.10.1
+    # via gemini-batch
 pyfakefs==5.9.1
     # via gemini-batch
 pygments==2.19.2
@@ -222,7 +225,9 @@ python-dateutil==2.9.0.post0
     #   matplotlib
     #   pandas
 python-dotenv==1.1.1
-    # via gemini-batch
+    # via
+    #   gemini-batch
+    #   pydantic-settings
 python-gitlab==5.6.0
     # via python-semantic-release
 python-magic==0.4.27
@@ -277,6 +282,8 @@ tomlkit==0.13.3
     # via python-semantic-release
 types-pytz==2025.2.0.20250516
     # via pandas-stubs
+types-pyyaml==6.0.12.20250822
+    # via gemini-batch
 typing-extensions==4.14.1
     # via
     #   google-genai
@@ -285,7 +292,9 @@ typing-extensions==4.14.1
     #   pydantic-core
     #   typing-inspection
 typing-inspection==0.4.1
-    # via pydantic
+    # via
+    #   pydantic
+    #   pydantic-settings
 tzdata==2025.2
     # via pandas
 urllib3==2.5.0
