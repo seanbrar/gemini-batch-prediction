@@ -18,6 +18,8 @@ from gemini_batch.pipeline.results.extraction import (
     Violation,
 )
 
+pytestmark = pytest.mark.unit
+
 
 class TestTransformSpec:
     """Test TransformSpec validation and behavior."""

@@ -82,7 +82,9 @@ async def test_fallback_runs_once_and_succeeds():
     assert isinstance(result, Success)
     raw = result.value.raw_api_response
     assert isinstance(raw, dict)
-    assert raw.get("text") == "ok"
+    # Vectorized response shape: inspect first batch item
+    b0 = raw.get("batch", ({},))[0]
+    assert isinstance(b0, dict) and b0.get("text") == "ok"
 
     # Telemetry scopes should contain api.execute, api.generate, api.fallback
     timing_keys = set(reporter.timings.keys())
@@ -91,11 +93,12 @@ async def test_fallback_runs_once_and_succeeds():
     assert any(k.endswith("api.fallback") for k in timing_keys)
 
     # Assert execution.used_fallback toggles and primary_error exists
-    exec_meta = cast(
-        "dict[str, object]", result.value.telemetry_data.get("execution", {})
-    )
-    assert exec_meta.get("used_fallback") is True
-    assert "primary_error" in exec_meta
+    # Per-call metadata is recorded under metrics.per_call_meta
+    metrics = cast("dict[str, object]", result.value.telemetry_data.get("metrics", {}))
+    per_call = cast("tuple[dict[str, object], ...]", metrics.get("per_call_meta", ()))
+    assert len(per_call) >= 1
+    assert per_call[0].get("used_fallback") is True
+    assert "primary_error" in per_call[0]
 
 
 @pytest.mark.asyncio
@@ -150,4 +153,5 @@ async def test_api_handler_fallback_to_adapter_factory():
     result = await handler.handle(planned)
     assert isinstance(result, Success)
     finalized = result.value
-    assert "echo: fallback" in finalized.raw_api_response.get("text", "")
+    b0 = finalized.raw_api_response.get("batch", ({},))[0]
+    assert "echo: fallback" in b0.get("text", "")

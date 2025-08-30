@@ -13,19 +13,20 @@ from gemini_batch.config import check_environment, doctor, resolve_config
 from gemini_batch.config.core import FrozenConfig
 from gemini_batch.core.models import APITier
 
+pytestmark = pytest.mark.unit
+
 
 class TestCheckEnvironment:
     """Test the check_environment DX sugar function."""
 
-    @pytest.mark.unit
-    def test_check_environment_returns_gemini_vars(self):
-        """Should return all GEMINI_* environment variables."""
+    def test_check_environment_returns_gemini_batch_vars(self):
+        """Should return all GEMINI_BATCH_* environment variables."""
         env_vars = {k: v for k, v in os.environ.items() if not k.startswith("GEMINI_")}
         env_vars.update(
             {
-                "GEMINI_MODEL": "test-model",
-                "GEMINI_TTL_SECONDS": "1800",
-                "GEMINI_USE_REAL_API": "true",
+                "GEMINI_BATCH_MODEL": "test-model",
+                "GEMINI_BATCH_TTL_SECONDS": "1800",
+                "GEMINI_BATCH_USE_REAL_API": "true",
                 "OTHER_VAR": "should-not-appear",
             }
         )
@@ -33,25 +34,24 @@ class TestCheckEnvironment:
         with patch.dict(os.environ, env_vars, clear=True):
             result = check_environment()
 
-            assert "GEMINI_MODEL" in result
-            assert "GEMINI_TTL_SECONDS" in result
-            assert "GEMINI_USE_REAL_API" in result
+            assert "GEMINI_BATCH_MODEL" in result
+            assert "GEMINI_BATCH_TTL_SECONDS" in result
+            assert "GEMINI_BATCH_USE_REAL_API" in result
             assert "OTHER_VAR" not in result
 
-            assert result["GEMINI_MODEL"] == "test-model"
-            assert result["GEMINI_TTL_SECONDS"] == "1800"
-            assert result["GEMINI_USE_REAL_API"] == "true"
+            assert result["GEMINI_BATCH_MODEL"] == "test-model"
+            assert result["GEMINI_BATCH_TTL_SECONDS"] == "1800"
+            assert result["GEMINI_BATCH_USE_REAL_API"] == "true"
 
-    @pytest.mark.unit
     def test_check_environment_redacts_sensitive_keys(self):
         """Should redact sensitive environment variables like API keys."""
         env_vars = {k: v for k, v in os.environ.items() if not k.startswith("GEMINI_")}
         env_vars.update(
             {
                 "GEMINI_API_KEY": "secret-key-123",
-                "GEMINI_TOKEN": "secret-token-456",
-                "GEMINI_SECRET": "secret-value-789",
-                "GEMINI_MODEL": "safe-model-name",
+                "GEMINI_BATCH_TOKEN": "secret-token-456",
+                "GEMINI_BATCH_SECRET": "secret-value-789",
+                "GEMINI_BATCH_MODEL": "safe-model-name",
             }
         )
 
@@ -60,13 +60,12 @@ class TestCheckEnvironment:
 
             # Sensitive keys should be redacted
             assert result["GEMINI_API_KEY"] == "***redacted***"
-            assert result["GEMINI_TOKEN"] == "***redacted***"
-            assert result["GEMINI_SECRET"] == "***redacted***"
+            assert result["GEMINI_BATCH_TOKEN"] == "***redacted***"
+            assert result["GEMINI_BATCH_SECRET"] == "***redacted***"
 
             # Non-sensitive values should be visible
-            assert result["GEMINI_MODEL"] == "safe-model-name"
+            assert result["GEMINI_BATCH_MODEL"] == "safe-model-name"
 
-    @pytest.mark.unit
     def test_check_environment_empty_when_no_gemini_vars(self):
         """Should return empty dict when no GEMINI_* vars are set."""
         clean_env = {k: v for k, v in os.environ.items() if not k.startswith("GEMINI_")}
@@ -77,7 +76,6 @@ class TestCheckEnvironment:
 
             assert result == {}
 
-    @pytest.mark.unit
     def test_check_environment_case_sensitive_redaction(self):
         """Should redact based on case-insensitive key matching."""
         env_vars = {k: v for k, v in os.environ.items() if not k.startswith("GEMINI_")}
@@ -86,7 +84,7 @@ class TestCheckEnvironment:
                 "GEMINI_api_key": "should-redact-lowercase",
                 "GEMINI_API_KEY": "should-redact-uppercase",
                 "GEMINI_Api_Key": "should-redact-mixed",
-                "GEMINI_SOME_KEY": "should-redact-contains-key",
+                "GEMINI_BATCH_SOME_KEY": "should-redact-contains-key",
             }
         )
 
@@ -104,7 +102,6 @@ class TestCheckEnvironment:
 class TestDoctor:
     """Test the doctor diagnostic function."""
 
-    @pytest.mark.unit
     def test_doctor_detects_missing_api_key_with_real_api(self):
         """Should detect when use_real_api=True but api_key is missing."""
         with (
@@ -118,7 +115,6 @@ class TestDoctor:
             # Should report no issues when use_real_api is False
             assert "No issues detected." in messages
 
-    @pytest.mark.unit
     def test_doctor_detects_negative_ttl(self):
         """Should detect negative TTL values (though validation should prevent this)."""
         # This test verifies the doctor logic even though validation should catch it
@@ -143,7 +139,6 @@ class TestDoctor:
 
             assert any("ttl_seconds < 0" in msg for msg in messages)
 
-    @pytest.mark.unit
     def test_doctor_detects_unknown_model_provider_mismatch(self):
         """Should detect when model doesn't match inferred provider."""
 
@@ -169,7 +164,6 @@ class TestDoctor:
                 for msg in messages
             )
 
-    @pytest.mark.unit
     def test_doctor_reports_no_issues_for_good_config(self):
         """Should report no issues for a valid configuration."""
         with (
@@ -186,7 +180,6 @@ class TestDoctor:
 class TestAuditHelpers:
     """Test audit and transparency functions."""
 
-    @pytest.mark.unit
     def test_audit_lines_redacts_sensitive_fields(self):
         """Audit lines should never show sensitive field values."""
         from gemini_batch.config import audit_lines
@@ -213,7 +206,6 @@ class TestAuditHelpers:
         # Non-sensitive fields can show origin info
         assert "overrides" in model_line
 
-    @pytest.mark.unit
     def test_to_redacted_dict_redacts_secrets(self):
         """Redacted dict should mask sensitive values."""
         from gemini_batch.config import to_redacted_dict

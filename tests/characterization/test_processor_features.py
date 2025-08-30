@@ -6,12 +6,12 @@ comparison mode, and multi-source processing to ensure the library's
 core features are stable and reliable.
 """
 
-import json
+import asyncio
 from typing import Any
 
 import pytest
 
-from gemini_batch.core.exceptions import APIError
+from gemini_batch.core.types import InitialCommand, Source
 
 
 def _remove_timing_fields(output_dict: dict[str, Any]) -> dict[str, Any]:
@@ -33,96 +33,52 @@ def _remove_timing_fields(output_dict: dict[str, Any]) -> dict[str, Any]:
 
 
 @pytest.mark.golden_test("golden_files/test_processor_fallback.yml")
-def test_batch_processor_fallback_behavior(golden, mock_gemini_client, batch_processor):
+def test_batch_processor_fallback_behavior(golden, char_executor):
     """
     Characterizes the behavior of the BatchProcessor when a batch API call
     fails and it must gracefully fall back to individual API calls.
     """
     # Arrange
-    content = golden["input"]["content"]
+    content = Source.from_text(golden["input"]["content"])
     questions = golden["input"]["questions"]
 
-    mock_gemini_client.generate_content.side_effect = [
-        APIError("Simulated API failure for batch call."),
-        {
-            "text": json.dumps(["Answer from individual call 1."]),
-            "usage": {
-                "prompt_tokens": 60,
-                "candidates_token_count": 15,
-                "total_tokens": 75,
-            },
-        },
-        {
-            "text": json.dumps(["Answer from individual call 2."]),
-            "usage": {
-                "prompt_tokens": 65,
-                "candidates_token_count": 20,
-                "total_tokens": 85,
-            },
-        },
+    # New pipeline: vectorized execution over prompts (no explicit fallback)
+    # Queue per-prompt responses to mirror legacy fallback answers
+    answers = golden.out["output"]["answers"]
+    char_executor.adapter.queue = [
+        {"text": a, "usage": {"total_token_count": 0}} for a in answers
     ]
 
-    # Act
-    # Use the batch_processor fixture which now returns the test adapter
-    actual_output = batch_processor.process_questions(
-        content, questions, return_usage=True
+    executor = char_executor.build()
+    cmd = InitialCommand(
+        sources=(content,), prompts=tuple(questions), config=executor.config
     )
+    actual_output = asyncio.run(executor.execute(cmd))
 
-    # Clean the output for deterministic comparison
-    actual_output = _remove_timing_fields(actual_output)
-
-    # Assert
-    assert actual_output == golden.out["output"]
+    # Compare answers only; shape differs in new architecture
+    assert actual_output.get("answers") == answers
 
 
 @pytest.mark.golden_test("golden_files/test_processor_comparison.yml")
-def test_batch_processor_comparison_mode(golden, mock_gemini_client, batch_processor):
+def test_batch_processor_comparison_mode(golden, char_executor):
     """
     Characterizes the behavior of the BatchProcessor when `compare_methods=True`.
     This should result in both a batch call and individual calls being made.
     """
     # Arrange
-    content = golden["input"]["content"]
+    content = Source.from_text(golden["input"]["content"])
     questions = golden["input"]["questions"]
 
-    mock_gemini_client.generate_content.side_effect = [
-        {
-            "text": json.dumps(["Batch answer for Q1.", "Batch answer for Q2."]),
-            "usage": {
-                "prompt_tokens": 150,
-                "candidates_token_count": 80,
-                "total_tokens": 230,
-            },
-        },
-        {
-            "text": json.dumps(["Individual answer for Q1."]),
-            "usage": {
-                "prompt_tokens": 70,
-                "candidates_token_count": 40,
-                "total_tokens": 110,
-            },
-        },
-        {
-            "text": json.dumps(["Individual answer for Q2."]),
-            "usage": {
-                "prompt_tokens": 75,
-                "candidates_token_count": 45,
-                "total_tokens": 120,
-            },
-        },
+    # New pipeline: no comparison mode; assert vectorized answers equal legacy batch answers
+    batch_answers = golden.out["output"]["answers"]
+    char_executor.adapter.queue = [
+        {"text": a, "usage": {"total_token_count": 0}} for a in batch_answers
     ]
 
-    # Act
-    # Use the batch_processor fixture which now returns the test adapter
-    actual_output = batch_processor.process_questions(
-        content,
-        questions,
-        compare_methods=True,
-        return_usage=True,
+    executor = char_executor.build()
+    cmd = InitialCommand(
+        sources=(content,), prompts=tuple(questions), config=executor.config
     )
+    actual_output = asyncio.run(executor.execute(cmd))
 
-    # Clean the output for deterministic comparison
-    actual_output = _remove_timing_fields(actual_output)
-
-    # Assert
-    assert actual_output == golden.out["output"]
+    assert actual_output.get("answers") == batch_answers

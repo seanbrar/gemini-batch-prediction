@@ -21,21 +21,41 @@ from gemini_batch.core.types import (
     TextPart,
     TokenEstimate,
 )
+from gemini_batch.pipeline.adapters.base import CachingCapability, GenerationAdapter
 from gemini_batch.pipeline.cache_stage import CacheStage
 from gemini_batch.pipeline.registries import CacheRegistry
 
 
-class _DummyCachingAdapter:
-    """Minimal adapter implementing caching capability for tests."""
+class _DummyCachingAdapter(GenerationAdapter, CachingCapability):
+    """Minimal adapter implementing caching + generation protocols for tests."""
 
+    # GenerationAdapter requirement (never used by this test, but satisfies typing)
+    async def generate(
+        self,
+        *,
+        model_name: str,
+        api_parts: tuple[Any, ...],
+        api_config: dict[str, object],
+    ) -> dict[str, Any]:  # pragma: no cover - not exercised here
+        # Touch args to satisfy linters without changing the signature
+        _ = (model_name, api_parts, api_config)
+        return {
+            "status": "ok",
+            "answers": ["stub"],
+            "extraction_method": "stub",
+            "confidence": 1.0,
+        }
+
+    # CachingCapability requirement used by CacheStage
     async def create_cache(
         self,
         *,
         model_name: str,
-        _content_parts: tuple[Any, ...],
-        _system_instruction: str | None,
-        _ttl_seconds: int | None,
+        content_parts: tuple[Any, ...],
+        system_instruction: str | None,
+        ttl_seconds: int | None,
     ) -> str:
+        _ = (content_parts, system_instruction, ttl_seconds)
         # Deterministic test cache name
         return f"cachedContents/test-{model_name}-ok"
 

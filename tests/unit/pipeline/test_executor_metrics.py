@@ -1,6 +1,7 @@
 import pytest
 
 from gemini_batch.config import resolve_config
+from gemini_batch.core.sources import Source
 from gemini_batch.core.types import InitialCommand
 from gemini_batch.executor import create_executor
 
@@ -9,14 +10,14 @@ from gemini_batch.executor import create_executor
 async def test_executor_surfaces_all_stage_durations():
     executor = create_executor(resolve_config(overrides={"api_key": "k"}))
     initial = InitialCommand(
-        sources=("s",),
+        sources=(Source.from_text("s"),),
         prompts=("p",),
         config=resolve_config(overrides={"api_key": "k"}),
     )
 
     result = await executor.execute(initial)
 
-    assert result["success"] is True
+    assert result["status"] == "ok"
     metrics = result.get("metrics", {})
     assert isinstance(metrics, dict)
     durations = metrics.get("durations")

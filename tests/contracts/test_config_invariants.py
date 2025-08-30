@@ -23,7 +23,8 @@ class TestConfigurationArchitecturalInvariants:
         """Invariant: Precedence order must be programmatic > env > project > home > defaults."""
         # Test that explicit overrides config overrides environment
         with patch.dict(
-            os.environ, {"GEMINI_API_KEY": "env_key", "GEMINI_MODEL": "env_model"}
+            os.environ,
+            {"GEMINI_API_KEY": "env_key", "GEMINI_BATCH_MODEL": "env_model"},
         ):
             result = resolve_config(
                 overrides={"api_key": "prog_key", "model": "prog_model"}
@@ -60,7 +61,8 @@ class TestConfigurationArchitecturalInvariants:
     def test_audit_trail_completeness_invariant(self):
         """Invariant: Every configuration field must have traceable source."""
         with patch.dict(
-            os.environ, {"GEMINI_API_KEY": "test_key", "GEMINI_MODEL": "test_model"}
+            os.environ,
+            {"GEMINI_API_KEY": "test_key", "GEMINI_BATCH_MODEL": "test_model"},
         ):
             cfg, origin = resolve_config(explain=True)
 
@@ -104,7 +106,8 @@ class TestConfigurationArchitecturalInvariants:
         """Invariant: Validation rules must be consistently applied regardless of source."""
         # Test ttl_seconds validation from environment
         with patch.dict(
-            os.environ, {"GEMINI_API_KEY": "test", "GEMINI_TTL_SECONDS": "-1"}
+            os.environ,
+            {"GEMINI_API_KEY": "test", "GEMINI_BATCH_TTL_SECONDS": "-1"},
         ):
             with pytest.raises(ValidationError) as exc_info:
                 resolve_config()
@@ -124,8 +127,8 @@ class TestConfigurationArchitecturalInvariants:
             os.environ,
             {
                 "GEMINI_API_KEY": "test",
-                "GEMINI_ENABLE_CACHING": "true",
-                "GEMINI_USE_REAL_API": "false",
+                "GEMINI_BATCH_ENABLE_CACHING": "true",
+                "GEMINI_BATCH_USE_REAL_API": "false",
             },
         ):
             result = resolve_config()
@@ -136,7 +139,8 @@ class TestConfigurationArchitecturalInvariants:
 
         # Test integer coercion
         with patch.dict(
-            os.environ, {"GEMINI_API_KEY": "test", "GEMINI_TTL_SECONDS": "7200"}
+            os.environ,
+            {"GEMINI_API_KEY": "test", "GEMINI_BATCH_TTL_SECONDS": "7200"},
         ):
             result = resolve_config()
             assert result.ttl_seconds == 7200
@@ -147,7 +151,7 @@ class TestConfigurationArchitecturalInvariants:
         """Invariant: APITier must be consistent across the system."""
         # Test that tier is properly resolved to enum
         with patch.dict(
-            os.environ, {"GEMINI_API_KEY": "test", "GEMINI_TIER": "tier_1"}
+            os.environ, {"GEMINI_API_KEY": "test", "GEMINI_BATCH_TIER": "tier_1"}
         ):
             result = resolve_config()
 

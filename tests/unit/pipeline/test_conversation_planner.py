@@ -2,14 +2,19 @@
 
 import pytest
 
-from gemini_batch.core.types import ConversationTurn
-from gemini_batch.extensions.conversation import ConversationState
+from gemini_batch.extensions.conversation_modes import (
+    SequentialMode,
+    SingleMode,
+    VectorizedMode,
+)
 from gemini_batch.extensions.conversation_planner import (
     ConversationPlan,
     compile_conversation,
 )
 from gemini_batch.extensions.conversation_types import (
     ConversationPolicy,
+    ConversationState,
+    Exchange,
     PromptSet,
 )
 
@@ -18,7 +23,7 @@ def test_compile_conversation_basic():
     """Test basic conversation compilation."""
     state = ConversationState(sources=("doc.pdf",), turns=())
     policy = ConversationPolicy()
-    prompt_set = PromptSet(("Hello world",), "single")
+    prompt_set = PromptSet(("Hello world",), SingleMode())
 
     plan = compile_conversation(state, prompt_set, policy)
 
@@ -31,12 +36,13 @@ def test_compile_conversation_basic():
 
 def test_compile_conversation_with_history_window():
     """Test that history window is properly applied."""
-    turns = (
-        ConversationTurn("q1", "a1", False),
-        ConversationTurn("q2", "a2", False),
-        ConversationTurn("q3", "a3", False),
+    # Build prior turns using the extension's Exchange type
+    turns: tuple[Exchange, ...] = (
+        Exchange("q1", "a1", error=False),
+        Exchange("q2", "a2", error=False),
+        Exchange("q3", "a3", error=False),
     )
-    state = ConversationState(sources=("doc.pdf",), turns=turns, cache=None, hints=None)
+    state = ConversationState(sources=("doc.pdf",), turns=turns)
     policy = ConversationPolicy(keep_last_n=2)
     prompt_set = PromptSet.single("New question")
 
@@ -56,13 +62,18 @@ def test_compile_conversation_with_cache_key():
         cache_artifacts=("artifact1",),
     )
     policy = ConversationPolicy()
-    prompt_set = PromptSet(("Question",), "single")
+    prompt_set = PromptSet(("Question",), SingleMode())
 
     plan = compile_conversation(state, prompt_set, policy)
 
+    # Hints are now structured via ExecutionOptions; verify cache options present
     assert len(plan.hints) > 0
     hint_names = [type(h).__name__ for h in plan.hints]
-    assert "CacheHint" in hint_names
+    assert "CacheOptions" in hint_names
+    # And options carry a CacheOptions with our deterministic key
+    assert plan.options is not None
+    assert plan.options.cache is not None
+    assert plan.options.cache.deterministic_key == "test_key"
 
 
 def test_compile_conversation_with_policy_hints():
@@ -74,35 +85,42 @@ def test_compile_conversation_with_policy_hints():
         prefer_json_array=True,
         execution_cache_name="test_cache",
     )
-    prompt_set = PromptSet(("Question",), "single")
+    prompt_set = PromptSet(("Question",), SingleMode())
 
     plan = compile_conversation(state, prompt_set, policy)
 
+    # Structured options are exposed in plan.options and lightly mirrored in hints
+    assert plan.options is not None
+    assert plan.options.estimation is not None
+    assert plan.options.estimation.widen_max_factor == 1.2
+    assert plan.options.estimation.clamp_max_tokens == 16000
+    assert plan.options.result is not None
+    assert plan.options.result.prefer_json_array is True
+    assert plan.options.cache_override_name == "test_cache"
+    # Hints include typed capsules for inspectability
     hint_names = [type(h).__name__ for h in plan.hints]
-    assert "EstimationOverrideHint" in hint_names
-    assert "ResultHint" in hint_names
-    assert "ExecutionCacheName" in hint_names
+    assert "EstimationOptions" in hint_names
+    assert "ResultOption" in hint_names
 
 
 def test_compile_conversation_vectorized_mode():
     """Test that vectorized mode is preserved in plan."""
     state = ConversationState(sources=("doc.pdf",), turns=())
     policy = ConversationPolicy()
-    prompt_set = PromptSet(("Q1", "Q2", "Q3"), "vectorized")
+    prompt_set = PromptSet(("Q1", "Q2", "Q3"), VectorizedMode())
 
     plan = compile_conversation(state, prompt_set, policy)
 
     assert plan.prompts == ("Q1", "Q2", "Q3")
-    assert (
-        plan.strategy == "sequential"
-    )  # Current implementation uses sequential for vectorized mode
+    # Vectorized mode now maps to vectorized strategy
+    assert plan.strategy == "vectorized"
 
 
 def test_compile_conversation_sequential_mode():
     """Test that sequential mode is preserved in plan."""
     state = ConversationState(sources=("doc.pdf",), turns=())
     policy = ConversationPolicy()
-    prompt_set = PromptSet(("Q1", "Q2", "Q3"), "sequential")
+    prompt_set = PromptSet(("Q1", "Q2", "Q3"), SequentialMode())
 
     plan = compile_conversation(state, prompt_set, policy)
 
@@ -114,7 +132,7 @@ def test_compile_conversation_empty_prompts():
     """Test compilation with empty prompts."""
     state = ConversationState(sources=("doc.pdf",), turns=())
     policy = ConversationPolicy()
-    prompt_set = PromptSet((), "single")
+    prompt_set = PromptSet((), SingleMode())
 
     plan = compile_conversation(state, prompt_set, policy)
 
@@ -126,7 +144,7 @@ def test_compile_conversation_single_prompt_optimization():
     """Test that single prompt always uses sequential strategy."""
     state = ConversationState(sources=("doc.pdf",), turns=())
     policy = ConversationPolicy()
-    prompt_set = PromptSet(("Single prompt",), "single")
+    prompt_set = PromptSet(("Single prompt",), SingleMode())
 
     plan = compile_conversation(state, prompt_set, policy)
 
@@ -142,12 +160,16 @@ def test_compile_conversation_reuse_cache_only():
         cache_artifacts=("artifact1",),
     )
     policy = ConversationPolicy(reuse_cache_only=True)
-    prompt_set = PromptSet(("Question",), "single")
+    prompt_set = PromptSet(("Question",), SingleMode())
 
     plan = compile_conversation(state, prompt_set, policy)
 
-    # Find the cache hint
-    cache_hints = [h for h in plan.hints if type(h).__name__ == "CacheHint"]
+    # Verify options reflect reuse-only cache policy
+    assert plan.options is not None
+    assert plan.options.cache is not None
+    assert plan.options.cache.reuse_only is True
+    # Hints should include CacheOptions capsule
+    cache_hints = [h for h in plan.hints if type(h).__name__ == "CacheOptions"]
     assert len(cache_hints) == 1
     assert cache_hints[0].reuse_only is True
 
@@ -156,23 +178,23 @@ def test_compile_conversation_plan_immutability():
     """Test that compiled plans are immutable."""
     state = ConversationState(sources=("doc.pdf",), turns=())
     policy = ConversationPolicy()
-    prompt_set = PromptSet(("Question",), "single")
+    prompt_set = PromptSet(("Question",), SingleMode())
 
     plan = compile_conversation(state, prompt_set, policy)
 
     # Should be frozen dataclass - these should fail
     with pytest.raises(AttributeError):
-        plan.prompts = ("Modified",)
+        plan.prompts = ("Modified",)  # type: ignore
 
     with pytest.raises(AttributeError):
-        plan.hints = ()
+        plan.hints = ()  # type: ignore
 
 
 def test_compile_conversation_deterministic():
     """Test that compilation is deterministic for same inputs."""
     state = ConversationState(sources=("doc.pdf",), turns=())
     policy = ConversationPolicy(keep_last_n=3, widen_max_factor=1.1)
-    prompt_set = PromptSet(("Q1", "Q2"), "sequential")
+    prompt_set = PromptSet(("Q1", "Q2"), SequentialMode())
 
     plan1 = compile_conversation(state, prompt_set, policy)
     plan2 = compile_conversation(state, prompt_set, policy)
@@ -187,7 +209,7 @@ def test_plan_inspectability():
     """Test that plans are inspectable via attributes."""
     state = ConversationState(sources=("doc.pdf",), turns=())
     policy = ConversationPolicy()
-    prompt_set = PromptSet(("Q1", "Q2"), "vectorized")
+    prompt_set = PromptSet(("Q1", "Q2"), VectorizedMode())
 
     plan = compile_conversation(state, prompt_set, policy)
 
@@ -199,6 +221,4 @@ def test_plan_inspectability():
 
     assert plan.sources == ("doc.pdf",)
     assert plan.prompts == ("Q1", "Q2")
-    assert (
-        plan.strategy == "sequential"
-    )  # Current implementation uses sequential for vectorized mode
+    assert plan.strategy == "vectorized"

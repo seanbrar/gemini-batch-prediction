@@ -19,7 +19,7 @@ class _FakeUploadsAdapter(UploadsCapability):
 
     async def upload_file_local(
         self, path: str | os.PathLike[str], mime_type: str | None
-    ) -> Any:  # type: ignore[override]
+    ) -> Any:
         self.calls += 1
         await asyncio.sleep(0.05)
         return {"uri": f"mock://{os.fspath(path)}", "mime_type": mime_type}

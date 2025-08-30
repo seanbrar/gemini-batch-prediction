@@ -13,6 +13,7 @@ import pytest
 
 from gemini_batch.config import resolve_config
 from gemini_batch.core.exceptions import SourceError
+from gemini_batch.core.sources import Source
 from gemini_batch.core.types import (
     Failure,
     InitialCommand,
@@ -58,7 +59,7 @@ class TestSourceHandlerContracts:
         """
         handler = SourceHandler()
         original_command = InitialCommand(
-            sources=("test input",),
+            sources=(Source.from_text("test input"),),
             prompts=("test prompt",),
             config=resolve_config(overrides={"api_key": "test-key"}),
         )
@@ -87,7 +88,7 @@ class TestSourceHandlerContracts:
         """
         handler = SourceHandler()
         command = InitialCommand(
-            sources=("deterministic test",),
+            sources=(Source.from_text("deterministic test"),),
             prompts=("deterministic question",),
             config=resolve_config(overrides={"api_key": "test-key"}),
         )
@@ -125,7 +126,7 @@ class TestSourceHandlerContracts:
         throwing exceptions. The pipeline should not crash.
         """
         handler = SourceHandler()
-        # Create a command that will cause an error (non-existent file)
+        # Create a command with an invalid source type (string), which the handler must reject
         problematic_command = InitialCommand(
             sources=("/non/existent/file/path.txt",),
             prompts=("test",),
@@ -135,7 +136,6 @@ class TestSourceHandlerContracts:
         # Act
         result = await handler.handle(problematic_command)
 
-        # Assert: The handler MUST NOT throw an exception.
-        # It must return a Failure object containing the error.
+        # Assert: The handler MUST return a Failure with SourceError.
         assert isinstance(result, Failure)
         assert isinstance(result.error, SourceError)

@@ -4,11 +4,15 @@ import pytest
 
 from gemini_batch.config import resolve_config
 from gemini_batch.executor import create_executor
-from gemini_batch.extensions.conversation import (
-    Conversation,
+from gemini_batch.extensions.conversation import Conversation
+from gemini_batch.extensions.conversation_types import (
     ConversationAnalytics,
+    ConversationPolicy,
     ConversationState,
 )
+
+# Mark all tests in this module as unit tests
+pytestmark = pytest.mark.unit
 
 
 class TestBasicConversation:
@@ -31,6 +35,7 @@ class TestBasicConversation:
 
         # Test with_policy method exists
         conv_with_policy = conv.with_policy(ConversationPolicy(keep_last_n=5))
+        assert conv_with_policy.state.policy is not None
         assert conv_with_policy.state.policy.keep_last_n == 5
 
         # Test with_sources method exists
@@ -83,10 +88,10 @@ class TestConversationState:
         config = resolve_config()
         return create_executor(config)
 
-    def test_conversation_state_immutability(self, executor):
+    def test_conversation_state_immutability(self):
         """Test that ConversationState is immutable."""
         state = ConversationState(sources=("doc.pdf",), turns=())
 
         # Should not be able to modify state
         with pytest.raises(AttributeError):
-            state.sources = ("modified.pdf",)
+            state.sources = ("modified.pdf",)  # type: ignore
