@@ -17,11 +17,14 @@ leaking provider SDK details.
 from __future__ import annotations
 
 import asyncio
+from contextlib import suppress
 from dataclasses import dataclass
 from enum import Enum
 import logging
 import os
 from typing import TYPE_CHECKING, Any, TypedDict, cast
+
+from gemini_batch.core.concurrency import resolve_request_concurrency
 
 # Removed ConfigCompatibilityShim import - no longer needed
 from gemini_batch.core.exceptions import APIError
@@ -120,6 +123,9 @@ class APIHandler(BaseAsyncHandler[PlannedCommand, FinalizedCommand, APIError]):
         self._file_registry = regs.get("files")
         self._adapter: GenerationAdapter | None = adapter
         self._adapter_factory = adapter_factory
+        # Concurrency primitives
+        self._uploads_inflight: dict[str, asyncio.Future[Any]] = {}
+        self._uploads_lock = asyncio.Lock()
 
     async def handle(
         self, command: PlannedCommand
@@ -280,13 +286,48 @@ class APIHandler(BaseAsyncHandler[PlannedCommand, FinalizedCommand, APIError]):
         self, adapter: UploadsCapability, pending: list[tuple[int, UploadTask]]
     ) -> list[tuple[int, Any]]:
         async def _upload_one(i: int, t: UploadTask) -> tuple[int, Any]:
-            result = await adapter.upload_file_local(t.local_path, t.mime_type)
+            local_id = os.fspath(t.local_path)
+            # Fast path: reuse from registry when present
             if self._file_registry is not None:
-                from contextlib import suppress
-
                 with suppress(Exception):
-                    self._file_registry.set(os.fspath(t.local_path), result)
-            return i, result
+                    existing = self._file_registry.get(local_id)
+                if existing is not None:
+                    return i, existing
+
+            # Single-flight guard: share in-flight uploads by local_id
+            async with self._uploads_lock:
+                fut = self._uploads_inflight.get(local_id)
+                if fut is None:
+                    # Use running loop for future creation (Py 3.13). This prevents
+                    # implicit loop resolution quirks and is safe inside async tasks.
+                    fut = asyncio.get_running_loop().create_future()
+                    self._uploads_inflight[local_id] = fut
+                    creator = True
+                else:
+                    creator = False
+
+            if not creator:
+                try:
+                    uploaded = await fut
+                    return i, uploaded
+                finally:
+                    # Creator handles cleanup
+                    pass
+
+            # We are the creator
+            try:
+                uploaded = await adapter.upload_file_local(t.local_path, t.mime_type)
+                if self._file_registry is not None:
+                    with suppress(Exception):
+                        self._file_registry.set(local_id, uploaded)
+                fut.set_result(uploaded)
+                return i, uploaded
+            except Exception as e:
+                fut.set_exception(e)
+                raise
+            finally:
+                async with self._uploads_lock:
+                    self._uploads_inflight.pop(local_id, None)
 
         return await asyncio.gather(*(_upload_one(i, t) for i, t in pending))
 
@@ -363,55 +404,73 @@ class APIHandler(BaseAsyncHandler[PlannedCommand, FinalizedCommand, APIError]):
         plan: ExecutionPlan,
         effective_shared: list[APIPart],
     ) -> FinalizedCommand:
-        """Execute vectorized calls with shared context and aggregate telemetry."""
-        raw_list: list[dict[str, Any]] = []
-        per_prompt_usage: list[dict[str, Any]] = []
-        per_call_meta: list[dict[str, Any]] = []
+        """Execute vectorized calls with shared context and aggregate telemetry.
 
-        for call in plan.calls:
+        Supports optional bounded fan-out when no rate constraint is present.
+        """
+        n = len(plan.calls)
+        raw_list: list[dict[str, Any]] = [{} for _ in range(n)]
+        per_prompt_usage: list[dict[str, Any]] = [{} for _ in range(n)]
+        per_call_meta: list[dict[str, Any]] = [{} for _ in range(n)]
+
+        # Determine allowed concurrency using shared resolver
+        options = getattr(command.resolved.initial, "options", None)
+        cfg = command.resolved.initial.config
+        has_constraint = command.execution_plan.rate_constraint is not None
+        concurrency = resolve_request_concurrency(
+            n_calls=n,
+            options=options,
+            cfg=cfg,
+            rate_constrained=has_constraint,
+        )
+        sem = asyncio.Semaphore(concurrency)
+
+        async def _one(i: int) -> None:
+            call = plan.calls[i]
             combined_parts = self._combine_shared_with_call(
                 effective_shared, call.api_parts
             )
-            if isinstance(adapter, _MockAdapter):
-                # Deterministic mock echo with per-prompt usage
-                ptxt = self._extract_text_from_parts(combined_parts)
-                raw = {
-                    "mock": True,
-                    "model": call.model_name,
-                    "text": f"echo: {ptxt}",
-                    "usage": {
-                        "prompt_token_count": max(len(ptxt) // 4 + 10, 0),
-                        "source_token_count": 0,
-                        "total_token_count": max(len(ptxt) // 4 + 10, 0),
-                    },
-                }
-                used_fallback = False
-                retried_without_cache = False
-                primary_error_repr = None
-            else:
-                # Use the same resilience path as single-call execution
-                (
-                    raw,
-                    used_fallback,
-                    retried_without_cache,
-                    primary_error_repr,
-                ) = await self._execute_with_resilience(
-                    adapter,
-                    command,
-                    call,
-                    tuple(combined_parts),
-                    call.cache_name_to_use,
-                )
-            raw_list.append(raw)
-            per_prompt_usage.append(dict(cast("dict[str, Any]", raw.get("usage", {}))))
-            meta: dict[str, Any] = {}
-            if used_fallback:
-                meta["used_fallback"] = True
-            if retried_without_cache:
-                meta["retried_without_cache"] = True
-            if primary_error_repr:
-                meta["primary_error"] = primary_error_repr
-            per_call_meta.append(meta)
+            async with sem:
+                if isinstance(adapter, _MockAdapter):
+                    ptxt = self._extract_text_from_parts(combined_parts)
+                    raw = {
+                        "mock": True,
+                        "model": call.model_name,
+                        "text": f"echo: {ptxt}",
+                        "usage": {
+                            "prompt_token_count": max(len(ptxt) // 4 + 10, 0),
+                            "source_token_count": 0,
+                            "total_token_count": max(len(ptxt) // 4 + 10, 0),
+                        },
+                    }
+                    used_fallback = False
+                    retried_without_cache = False
+                    primary_error_repr = None
+                else:
+                    (
+                        raw,
+                        used_fallback,
+                        retried_without_cache,
+                        primary_error_repr,
+                    ) = await self._execute_with_resilience(
+                        adapter,
+                        command,
+                        call,
+                        tuple(combined_parts),
+                        call.cache_name_to_use,
+                    )
+                raw_list[i] = raw
+                per_prompt_usage[i] = dict(cast("dict[str, Any]", raw.get("usage", {})))
+                meta: dict[str, Any] = {}
+                if used_fallback:
+                    meta["used_fallback"] = True
+                if retried_without_cache:
+                    meta["retried_without_cache"] = True
+                if primary_error_repr:
+                    meta["primary_error"] = primary_error_repr
+                per_call_meta[i] = meta
+
+        await asyncio.gather(*(_one(i) for i in range(n)))
 
         # Build finalized result with aggregated usage in telemetry
         finalized = FinalizedCommand(
@@ -656,8 +715,6 @@ class APIHandler(BaseAsyncHandler[PlannedCommand, FinalizedCommand, APIError]):
     ) -> None:
         """Apply execution hints to adapter when supported (best-effort)."""
         if isinstance(adapter, ExecutionHintsAware):
-            from contextlib import suppress
-
             with suppress(Exception):
                 adapter.apply_hints(ExecutionHints(cached_content=cached_content))
 

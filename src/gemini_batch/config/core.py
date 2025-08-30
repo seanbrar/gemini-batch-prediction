@@ -54,6 +54,8 @@ class Settings(BaseModel):
     # Telemetry and billing
     telemetry_enabled: bool = Field(default=False)
     tier: APITier = Field(default=APITier.FREE)
+    # Concurrency defaults (client-side fan-out bounds)
+    request_concurrency: int = Field(default=6, ge=0)
 
     model_config = {"extra": "allow"}  # Preserve unknown keys for extensibility
 
@@ -144,6 +146,8 @@ class FrozenConfig:
     tier: APITier
     provider: str
     extra: Mapping[str, Any]
+    # Client-side fan-out default for vectorized API calls
+    request_concurrency: int
 
     def __str__(self) -> str:
         """String representation with redacted API key for safe logging."""
@@ -407,6 +411,7 @@ def _freeze(settings: Settings, merged: Mapping[str, Any]) -> FrozenConfig:
         ttl_seconds=settings.ttl_seconds,
         telemetry_enabled=settings.telemetry_enabled,
         tier=settings.tier,
+        request_concurrency=settings.request_concurrency,
     )
 
 

@@ -32,6 +32,7 @@ class TestEssentialConfigurationContracts:
             telemetry_enabled=True,
             provider="google",
             extra={},
+            request_concurrency=6,
         )
 
         with pytest.raises(AttributeError):
@@ -63,6 +64,7 @@ class TestEssentialConfigurationContracts:
             telemetry_enabled=True,
             provider="google",
             extra={},
+            request_concurrency=6,
         )
 
         # Direct use of FrozenConfig is sufficient
@@ -135,6 +137,7 @@ class TestEssentialConfigurationContracts:
             telemetry_enabled=True,
             provider="google",
             extra={},
+            request_concurrency=6,
         )
 
         # Secret should not appear in string representations

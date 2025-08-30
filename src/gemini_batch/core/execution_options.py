@@ -7,7 +7,6 @@ Keeps options orthogonal and discoverable while remaining provider-neutral.
 from __future__ import annotations
 
 import dataclasses
-from dataclasses import dataclass
 import math
 from typing import TYPE_CHECKING
 
@@ -130,7 +129,7 @@ class CachePolicyHint:
             raise ValueError("min_tokens_floor must be >= 0 when provided")
 
 
-@dataclass(frozen=True, slots=True)
+@dataclasses.dataclass(frozen=True, slots=True)
 class ExecutionOptions:
     """Options to control pipeline execution behavior.
 
@@ -146,10 +145,16 @@ class ExecutionOptions:
     result: ResultOption | None = None
     estimation: EstimationOptions | None = None
     # Optional best-effort cache name override applied at execution time.
-    # When provided, the CacheStage annotates the plan's calls with this name
-    # without registry lookups or creation. APIHandler will treat it as a
-    # plan-applied cache intent and handle resilience (single no-cache retry).
+    # When provided, the cache stage annotates the plan's calls with this name
+    # without registry lookups or creation. The terminal flow handles
+    # best-effort resilience (e.g., a single no-cache retry) in a
+    # provider-neutral manner.
     cache_override_name: str | None = None
+    # Optional bound for client-side request fan-out within vectorized execution.
+    # When None or <= 0, the handler chooses a default (sequential if constrained;
+    # otherwise unbounded up to number of calls). When a rate constraint is present,
+    # concurrency is forced to 1.
+    request_concurrency: int | None = None
 
     def __post_init__(self) -> None:
         """Validate simple invariants for option fields.
@@ -163,6 +168,9 @@ class ExecutionOptions:
             raise ValueError(
                 "cache_override_name must be a non-empty string when provided"
             )
+        rc = self.request_concurrency
+        if rc is not None and int(rc) < 0:
+            raise ValueError("request_concurrency must be >= 0 when provided")
 
 
 def make_execution_options(
@@ -172,6 +180,7 @@ def make_execution_options(
     cache: CacheOptions | None = None,
     cache_policy: CachePolicyHint | None = None,
     cache_override_name: str | None = None,
+    request_concurrency: int | None = None,
 ) -> ExecutionOptions:
     """Construct ExecutionOptions from slim, explicit kwargs.
 
@@ -184,4 +193,5 @@ def make_execution_options(
         result=result,
         estimation=estimation,
         cache_override_name=cache_override_name,
+        request_concurrency=request_concurrency,
     )

@@ -8,7 +8,7 @@ from __future__ import annotations
 
 import asyncio
 from collections.abc import Callable
-from dataclasses import dataclass
+from dataclasses import dataclass, field
 import time
 
 # Removed ConfigCompatibilityShim import - no longer needed
@@ -31,21 +31,23 @@ class MicroLimiter:
 
     clock: Callable[[], float] = time.monotonic
     _last_time: float = 0.0
+    _lock: asyncio.Lock = field(default_factory=asyncio.Lock)
 
     async def acquire_request(self, requests_per_minute: int) -> float:
         """Acquire a single request permit and return the wait time applied."""
         if requests_per_minute <= 0:
             return 0.0
         min_interval = 60.0 / float(requests_per_minute)
-        now = self.clock()
-        elapsed = now - self._last_time
-        wait_time = 0.0
-        if elapsed < min_interval:
-            wait_time = min_interval - elapsed
-            await asyncio.sleep(wait_time)
-            now = now + wait_time
-        self._last_time = now
-        return wait_time
+        async with self._lock:
+            now = self.clock()
+            elapsed = now - self._last_time
+            wait_time = 0.0
+            if elapsed < min_interval:
+                wait_time = min_interval - elapsed
+                await asyncio.sleep(wait_time)
+                now = now + wait_time
+            self._last_time = now
+            return wait_time
 
     async def acquire_tokens(self, tokens_per_minute: int, token_count: int) -> float:
         """Acquire token permits for an estimated token_count; return wait time."""
@@ -53,15 +55,16 @@ class MicroLimiter:
             return 0.0
         seconds_per_token = 60.0 / float(tokens_per_minute)
         required = seconds_per_token * float(token_count)
-        now = self.clock()
-        elapsed = now - self._last_time
-        wait_time = 0.0
-        if elapsed < required:
-            wait_time = required - elapsed
-            await asyncio.sleep(wait_time)
-            now = now + wait_time
-        self._last_time = now
-        return wait_time
+        async with self._lock:
+            now = self.clock()
+            elapsed = now - self._last_time
+            wait_time = 0.0
+            if elapsed < required:
+                wait_time = required - elapsed
+                await asyncio.sleep(wait_time)
+                now = now + wait_time
+            self._last_time = now
+            return wait_time
 
 
 @dataclass

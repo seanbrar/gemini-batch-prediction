@@ -26,6 +26,7 @@ def _cfg() -> FrozenConfig:
         tier=APITier.FREE,
         provider="gemini",
         extra={},
+        request_concurrency=6,
     )
 
 

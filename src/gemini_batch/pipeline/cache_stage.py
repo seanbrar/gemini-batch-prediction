@@ -14,6 +14,7 @@ Planner remains pure and does not make cache decisions.
 
 from __future__ import annotations
 
+import asyncio
 import dataclasses
 import logging
 from typing import TYPE_CHECKING, Any, cast
@@ -73,6 +74,9 @@ class CacheStage(BaseAsyncHandler[PlannedCommand, PlannedCommand, APIError]):
         self._cache_registry = (registries or {}).get("cache")
         self._adapter_factory = adapter_factory
         self._telemetry: TelemetryContextProtocol = telemetry or TelemetryContext()
+        # Single-flight for concurrent cache creation (per executor/pipeline instance)
+        self._inflight: dict[str, asyncio.Future[str | None]] = {}
+        self._lock = asyncio.Lock()
 
     async def handle(self, command: PlannedCommand) -> Result[PlannedCommand, APIError]:
         """Process command to resolve or create cache and update execution plan.
@@ -208,6 +212,32 @@ class CacheStage(BaseAsyncHandler[PlannedCommand, PlannedCommand, APIError]):
             return None
 
         ttl = cache_hint.ttl_seconds if cache_hint else cfg.ttl_seconds
+        # Single-flight creation under lock; await existing in-flight if present
+        async with self._lock:
+            # Double-check registry entry after waiting
+            cached2 = _registry_get(self._cache_registry, reg_key)
+            if isinstance(cached2, str):
+                return cached2
+            fut = self._inflight.get(reg_key)
+            if fut is None:
+                # Use running loop for future creation (Py 3.13). This ensures
+                # consistent behavior in async contexts and avoids deprecated
+                # loop resolution patterns.
+                fut = asyncio.get_running_loop().create_future()
+                self._inflight[reg_key] = fut
+                creator = True
+            else:
+                creator = False
+
+        if not creator:
+            try:
+                return await fut
+            finally:
+                # No cleanup here; creator removes entry
+                pass
+
+        # We are the creator
+        created_name: str | None = None
         try:
             created = await adapter.create_cache(
                 model_name=model_name,
@@ -215,14 +245,20 @@ class CacheStage(BaseAsyncHandler[PlannedCommand, PlannedCommand, APIError]):
                 system_instruction=system_instruction,
                 ttl_seconds=ttl,
             )
+            if isinstance(created, str):
+                _registry_set(self._cache_registry, reg_key, created)
+                created_name = created
+            else:
+                created_name = None
+            fut.set_result(created_name)
         except Exception as e:
             logger.debug("create_cache failed: %s", e, exc_info=True)
-            return None
-
-        if isinstance(created, str):
-            _registry_set(self._cache_registry, reg_key, created)
-            return created
-        return None
+            fut.set_result(None)
+            created_name = None
+        finally:
+            async with self._lock:
+                self._inflight.pop(reg_key, None)
+        return created_name
 
 
 # --- Small helpers ---
