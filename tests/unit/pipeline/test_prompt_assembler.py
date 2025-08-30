@@ -37,8 +37,8 @@ class TestPromptAssemblerBasic:
         assert isinstance(bundle, PromptBundle)
         assert bundle.user == ("Hello, world!",)
         assert bundle.system is None
-        assert bundle.hints["user_from"] == "initial"
-        assert bundle.hints["has_sources"] is False
+        assert bundle.provenance["user_from"] == "initial"
+        assert bundle.provenance["has_sources"] is False
 
     def test_multiple_prompts_preserved(self):
         """Test that multiple user prompts are preserved in order."""
@@ -53,7 +53,7 @@ class TestPromptAssemblerBasic:
         bundle = assemble_prompts(command)
 
         assert bundle.user == ("First prompt", "Second prompt", "Third prompt")
-        assert bundle.hints["user_from"] == "initial"
+        assert bundle.provenance["user_from"] == "initial"
 
     def test_empty_prompts_raises_error(self):
         """Test that empty prompts raises ConfigurationError."""
@@ -87,8 +87,8 @@ class TestPromptAssemblerInlineConfig:
         bundle = assemble_prompts(command)
 
         assert bundle.system == "You are a helpful assistant."
-        assert bundle.hints["system_from"] == "inline"
-        assert bundle.hints["system_len"] == len("You are a helpful assistant.")
+        assert bundle.provenance["system_from"] == "inline"
+        assert bundle.provenance["system_len"] == len("You are a helpful assistant.")
 
     def test_prefix_suffix_applied(self):
         """Test prefix and suffix are applied to user prompts."""
@@ -157,7 +157,7 @@ class TestPromptAssemblerSourceAwareness:
 
         expected_system = "You are helpful.\n\nUse the provided sources if relevant."
         assert bundle.system == expected_system
-        assert bundle.hints["has_sources"] is True
+        assert bundle.provenance["has_sources"] is True
 
     def test_sources_block_without_system_instruction(self):
         """Test sources block becomes system instruction when no system provided."""
@@ -178,7 +178,7 @@ class TestPromptAssemblerSourceAwareness:
         bundle = assemble_prompts(command)
 
         assert bundle.system == "Use the provided sources."
-        assert bundle.hints["system_from"] == "sources_block"
+        assert bundle.provenance["system_from"] == "sources_block"
 
     def test_sources_block_not_applied_without_sources(self):
         """Test sources block not applied when no sources present."""
@@ -199,7 +199,7 @@ class TestPromptAssemblerSourceAwareness:
         bundle = assemble_prompts(command)
 
         assert bundle.system == "You are helpful."  # No sources block appended
-        assert bundle.hints["has_sources"] is False
+        assert bundle.provenance["has_sources"] is False
 
     def test_sources_block_not_applied_when_disabled(self):
         """Test sources block not applied when apply_if_sources=False."""
@@ -248,8 +248,8 @@ class TestPromptAssemblerFileInputs:
             bundle = assemble_prompts(command)
 
             assert bundle.system == "System from file."
-            assert bundle.hints["system_from"] == "system_file"
-            assert bundle.hints["system_file"] == system_file_path
+            assert bundle.provenance["system_from"] == "system_file"
+            assert bundle.provenance["system_file"] == system_file_path
         finally:
             Path(system_file_path).unlink()
 
@@ -276,7 +276,7 @@ class TestPromptAssemblerFileInputs:
             bundle = assemble_prompts(command)
 
             assert bundle.system == "Inline system."
-            assert bundle.hints["system_from"] == "inline"
+            assert bundle.provenance["system_from"] == "inline"
         finally:
             Path(system_file_path).unlink()
 
@@ -302,8 +302,8 @@ class TestPromptAssemblerFileInputs:
             bundle = assemble_prompts(command)
 
             assert bundle.user == ("User prompt from file.",)
-            assert bundle.hints["user_from"] == "user_file"
-            assert bundle.hints["user_file"] == user_file_path
+            assert bundle.provenance["user_from"] == "user_file"
+            assert bundle.provenance["user_file"] == user_file_path
         finally:
             Path(user_file_path).unlink()
 
@@ -329,7 +329,7 @@ class TestPromptAssemblerFileInputs:
             bundle = assemble_prompts(command)
 
             assert bundle.user == ("Initial prompt",)
-            assert bundle.hints["user_from"] == "initial"
+            assert bundle.provenance["user_from"] == "initial"
         finally:
             Path(user_file_path).unlink()
 
@@ -457,7 +457,7 @@ class TestPromptAssemblerBuilderHook:
             return PromptBundle(
                 user=("Custom prompt",),
                 system="Custom system",
-                hints={"builder_used": True},
+                provenance={"builder_used": True},
             )
 
         # Mock the import
@@ -481,7 +481,7 @@ class TestPromptAssemblerBuilderHook:
 
             assert bundle.user == ("Custom prompt",)
             assert bundle.system == "Custom system"
-            assert bundle.hints["builder_used"] is True
+            assert bundle.provenance["builder_used"] is True
         finally:
             del sys.modules["test_module"]
 
@@ -493,7 +493,7 @@ class TestPromptAssemblerBuilderHook:
             return PromptBundle(
                 user=("Too", "Many", "Prompts"),  # 3 instead of 1
                 system=None,
-                hints={},
+                provenance={},
             )
 
         import sys
@@ -594,11 +594,11 @@ class TestPromptAssemblerTelemetry:
 
         bundle = assemble_prompts(command)
 
-        assert bundle.hints["user_from"] == "initial"
-        assert bundle.hints["system_from"] == "inline"
-        assert bundle.hints["has_sources"] is True
-        assert bundle.hints["system_len"] == len("Test system")
-        assert bundle.hints["user_total_len"] == len("Hello") + len("World")
+        assert bundle.provenance["user_from"] == "initial"
+        assert bundle.provenance["system_from"] == "inline"
+        assert bundle.provenance["has_sources"] is True
+        assert bundle.provenance["system_len"] == len("Test system")
+        assert bundle.provenance["user_total_len"] == len("Hello") + len("World")
 
     def test_telemetry_hints_file_paths(self):
         """Test file paths included in telemetry hints."""
@@ -617,7 +617,7 @@ class TestPromptAssemblerTelemetry:
 
             bundle = assemble_prompts(command)
 
-            assert bundle.hints["system_file"] == system_file_path
-            assert bundle.hints["system_from"] == "system_file"
+            assert bundle.provenance["system_file"] == system_file_path
+            assert bundle.provenance["system_from"] == "system_file"
         finally:
             Path(system_file_path).unlink()

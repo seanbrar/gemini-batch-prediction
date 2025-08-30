@@ -94,6 +94,7 @@ class TestConfigurationSecurityContracts:
             telemetry_enabled=True,
             provider="google",
             extra={},
+            request_concurrency=6,
         )
 
         # Create safe dict for serialization (without secrets)
@@ -167,6 +168,7 @@ class TestConfigurationSecurityContracts:
             telemetry_enabled=True,
             provider="google",
             extra={},
+            request_concurrency=6,
         )
 
         # Manual conversion to dict should still require explicit handling
@@ -246,6 +248,7 @@ class TestConfigurationSecurityContracts:
             telemetry_enabled=True,
             provider="google",
             extra={},
+            request_concurrency=6,
         )
 
         # FrozenConfig provides access to secret

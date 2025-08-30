@@ -134,6 +134,7 @@ class TestDoctor:
             tier=APITier.FREE,
             provider="google",
             extra={},
+            request_concurrency=6,
         )
 
         with patch("gemini_batch.config.core.resolve_config") as mock_resolve:
@@ -156,6 +157,7 @@ class TestDoctor:
             tier=APITier.FREE,
             provider="google",  # Provider defaulted to google
             extra={},
+            request_concurrency=6,
         )
 
         with patch("gemini_batch.config.core.resolve_config") as mock_resolve:

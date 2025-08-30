@@ -1,23 +1,7 @@
-"""Hint Capsules for extension-to-core communication.
+"""Structured, typed execution options for the pipeline.
 
-Precedence (cache)
-- Execution: `CacheHint` and `CachePolicyHint` are applied by the CacheStage
-  at execution time to reuse or create caches; `ExecutionCacheName` overrides
-  the cache name used for the API attempt. Best-effort; does not mutate the plan.
-
-This module defines immutable hint types that extensions can use to express
-intent to the pipeline without coupling the core to domain-specific logic.
-Hints are consumed by pipeline stages in a fail-soft manner — unknown or
-unsupported hints are silently ignored. If multiple hints of the same class
-are supplied, the first one encountered is used ("first one wins"). For
-boolean preference-style hints (e.g., ResultHint), the presence of any
-instance enabling the preference is sufficient.
-
-Design principles:
-- Immutable dataclasses (frozen=True)
-- Optional and fail-soft - system works identically when hints are None/empty
-- Provider-neutral - no provider-specific details in core pipeline
-- Data-driven preferences, not control flow changes
+Prefer this over the unstructured `hints` tuple for advanced behavior.
+Keeps options orthogonal and discoverable while remaining provider-neutral.
 """
 
 from __future__ import annotations
@@ -31,14 +15,14 @@ if TYPE_CHECKING:
 
 
 @dataclasses.dataclass(frozen=True, slots=True)
-class CacheHint:
-    """Hint for deterministic cache identity and policy knobs.
+class CacheOptions:
+    """Deterministic cache identity and policy knobs.
 
-    Used by the Execution Planner to override caching decisions and provide
-    explicit cache keys. Supports both create-new and reuse-only policies.
+    Consumed by the CacheStage at execution time (provider-neutral) to apply
+    explicit cache names and decide reuse vs creation.
 
     Attributes:
-        deterministic_key: Explicit cache key to use instead of planner-generated key
+        deterministic_key: Explicit cache key to use instead of computed shared key
         artifacts: Optional tuple of artifact identifiers for cache metadata
         ttl_seconds: Optional TTL override for cache entry lifetime
         reuse_only: If True, only reuse existing cache, don't create new entries
@@ -54,20 +38,24 @@ class CacheHint:
         # Enforce simple, explicit invariants to reduce downstream checks
         key = (self.deterministic_key or "").strip()
         if not key:
-            raise ValueError("CacheHint.deterministic_key must be a non-empty string")
+            raise ValueError(
+                "CacheOptions.deterministic_key must be a non-empty string"
+            )
         if self.ttl_seconds is not None and self.ttl_seconds < 0:
-            raise ValueError("CacheHint.ttl_seconds must be >= 0 when provided")
+            raise ValueError("CacheOptions.ttl_seconds must be >= 0 when provided")
 
         # Artifacts are optional metadata; if supplied, ensure all are non-empty strings
         def _all_non_empty_str(items: Iterable[str]) -> bool:
             return all(isinstance(a, str) and bool(a.strip()) for a in items)
 
         if self.artifacts and not _all_non_empty_str(self.artifacts):
-            raise ValueError("CacheHint.artifacts must contain only non-empty strings")
+            raise ValueError(
+                "CacheOptions.artifacts must contain only non-empty strings"
+            )
 
 
 @dataclasses.dataclass(frozen=True, slots=True)
-class EstimationOverrideHint:
+class EstimationOptions:
     """Hint for conservative adjustments to token estimates.
 
     Used by the Execution Planner to apply planner-scoped transforms to
@@ -90,16 +78,16 @@ class EstimationOverrideHint:
         # Keep override semantics conservative and explicit
         if not math.isfinite(self.widen_max_factor) or self.widen_max_factor < 1.0:
             raise ValueError(
-                "EstimationOverrideHint.widen_max_factor must be finite and >= 1.0"
+                "EstimationOptions.widen_max_factor must be finite and >= 1.0"
             )
         if self.clamp_max_tokens is not None and self.clamp_max_tokens < 0:
             raise ValueError(
-                "EstimationOverrideHint.clamp_max_tokens must be >= 0 when provided"
+                "EstimationOptions.clamp_max_tokens must be >= 0 when provided"
             )
 
 
 @dataclasses.dataclass(frozen=True, slots=True)
-class ResultHint:
+class ResultOption:
     """Hint for non-breaking transform preferences in extraction.
 
     Used by the Result Builder to bias transform order while preserving
@@ -110,25 +98,6 @@ class ResultHint:
     """
 
     prefer_json_array: bool = False
-
-
-@dataclasses.dataclass(frozen=True, slots=True)
-class ExecutionCacheName:
-    """Hint for execution-time cache name override.
-
-    Used by the API Handler to override cache names at execution time.
-    This is optional and best-effort - failures are silently ignored.
-
-    Attributes:
-        cache_name: The cache name to use for API execution
-    """
-
-    cache_name: str
-
-    def __post_init__(self) -> None:
-        """Validate cache name for execution-time override."""
-        if not (self.cache_name or "").strip():
-            raise ValueError("ExecutionCacheName.cache_name must be a non-empty string")
 
 
 @dataclasses.dataclass(frozen=True, slots=True)
@@ -160,11 +129,69 @@ class CachePolicyHint:
             raise ValueError("min_tokens_floor must be >= 0 when provided")
 
 
-# Union type for all supported hints (public capsule surface)
-type Hint = (
-    CacheHint
-    | EstimationOverrideHint
-    | ResultHint
-    | ExecutionCacheName
-    | CachePolicyHint
-)
+@dataclasses.dataclass(frozen=True, slots=True)
+class ExecutionOptions:
+    """Options to control pipeline execution behavior.
+
+    Attributes:
+        cache_policy: Policy knobs for cache creation behavior.
+        cache: Deterministic cache identity and reuse/create controls.
+        result: Preferences for result extraction biasing.
+        estimation: Conservative overrides for token estimation.
+    """
+
+    cache_policy: CachePolicyHint | None = None
+    cache: CacheOptions | None = None
+    result: ResultOption | None = None
+    estimation: EstimationOptions | None = None
+    # Optional best-effort cache name override applied at execution time.
+    # When provided, the cache stage annotates the plan's calls with this name
+    # without registry lookups or creation. The terminal flow handles
+    # best-effort resilience (e.g., a single no-cache retry) in a
+    # provider-neutral manner.
+    cache_override_name: str | None = None
+    # Optional bound for client-side request fan-out within vectorized execution.
+    # When None or <= 0, the handler chooses a default (sequential if constrained;
+    # otherwise unbounded up to number of calls). When a rate constraint is present,
+    # concurrency is forced to 1.
+    request_concurrency: int | None = None
+
+    def __post_init__(self) -> None:
+        """Validate simple invariants for option fields.
+
+        - cache_override_name: when provided, must be a non-empty string after trimming.
+        """
+        name = self.cache_override_name
+        if name is not None and (
+            not isinstance(name, str) or not name.strip()
+        ):  # pragma: no cover - trivial
+            raise ValueError(
+                "cache_override_name must be a non-empty string when provided"
+            )
+        rc = self.request_concurrency
+        if rc is not None and int(rc) < 0:
+            raise ValueError("request_concurrency must be >= 0 when provided")
+
+
+def make_execution_options(
+    *,
+    result_prefer_json_array: bool | None = None,
+    estimation: EstimationOptions | None = None,
+    cache: CacheOptions | None = None,
+    cache_policy: CachePolicyHint | None = None,
+    cache_override_name: str | None = None,
+    request_concurrency: int | None = None,
+) -> ExecutionOptions:
+    """Construct ExecutionOptions from slim, explicit kwargs.
+
+    Only sets fields that are provided; keeps options orthogonal and minimal.
+    """
+    result = ResultOption(prefer_json_array=True) if result_prefer_json_array else None
+    return ExecutionOptions(
+        cache_policy=cache_policy,
+        cache=cache,
+        result=result,
+        estimation=estimation,
+        cache_override_name=cache_override_name,
+        request_concurrency=request_concurrency,
+    )

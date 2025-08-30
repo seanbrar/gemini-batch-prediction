@@ -19,13 +19,13 @@ class CacheRegistry:
 
     Primary mapping `get/set` stores provider cache names as strings.
     A separate metadata channel `get_meta/set_meta` stores structured
-    information (e.g., cache_name, artifacts from CacheHint) keyed by the
+    information (e.g., cache_name, artifacts from CacheOptions) keyed by the
     same deterministic key. This separation maintains homogeneous value
     types in the primary map and improves robustness and testability.
 
     Metadata contains execution-relevant information actively maintained
     during cache operations. The API handler writes cache names and
-    artifacts from CacheHint instances to support the hint capsule system.
+    artifacts from CacheOptions instances to support the hint capsule system.
     While best-effort (failures are logged but don't break execution),
     the metadata provides structured, authoritative information about
     cache usage for audit, debugging, and potential future retrieval.

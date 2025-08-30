@@ -219,6 +219,7 @@ class TestConfigurationArchitecturalInvariants:
             telemetry_enabled=True,
             provider="google",
             extra={},
+            request_concurrency=6,
         )
 
         dict_config = {

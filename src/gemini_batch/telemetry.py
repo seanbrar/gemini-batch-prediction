@@ -27,7 +27,8 @@ _scope_stack_var: ContextVar[tuple[str, ...]] = ContextVar(
 _call_count_var: ContextVar[int] = ContextVar("call_count", default=0)
 
 # Minimal-overhead optimization - evaluated once at import time
-_TELEMETRY_ENABLED = os.getenv("GEMINI_TELEMETRY") == "1" or os.getenv("DEBUG") == "1"
+# Telemetry is enabled only via explicit env toggle to avoid unintended overhead
+_TELEMETRY_ENABLED = os.getenv("GEMINI_TELEMETRY") == "1"
 _STRICT_SCOPES = os.getenv("GEMINI_TELEMETRY_STRICT_SCOPES") == "1"
 
 # Built-in metadata keys (exported for clarity & resilience)
@@ -213,11 +214,16 @@ type TelemetryContextProtocol = _EnabledTelemetryContext | _NoOpTelemetryContext
 def TelemetryContext(*reporters: TelemetryReporter) -> TelemetryContextProtocol:  # noqa: N802
     """Return a telemetry context.
 
-    Factory returns either a full-featured context or a shared no-op instance
-    for maximum performance when disabled.
+    Behavior:
+    - When telemetry env flags are enabled (``GEMINI_TELEMETRY=1``),
+      return an enabled context. If no reporters are provided, install a default
+      in-memory ``_SimpleReporter`` for convenience.
+    - When telemetry env flags are disabled, return a shared no-op instance for
+      negligible overhead.
     """
-    if _TELEMETRY_ENABLED and reporters:
-        return _EnabledTelemetryContext(*reporters)
+    if _TELEMETRY_ENABLED:
+        reps = reporters or (_SimpleReporter(),)
+        return _EnabledTelemetryContext(*reps)
     # Always return the same, pre-existing no-op instance.
     return _NO_OP_SINGLETON
 

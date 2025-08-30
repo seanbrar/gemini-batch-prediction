@@ -7,5 +7,11 @@ are returned as `PromptBundle` from `gemini_batch.core.types`.
 
 from .assembler import assemble_prompts
 from .config_types import PromptsConfig, SourcesPolicy
+from .diagnostics import explain_prompt_assembly
 
-__all__ = ["PromptsConfig", "SourcesPolicy", "assemble_prompts"]
+__all__ = [
+    "PromptsConfig",
+    "SourcesPolicy",
+    "assemble_prompts",
+    "explain_prompt_assembly",
+]

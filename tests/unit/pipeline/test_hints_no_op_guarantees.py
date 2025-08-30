@@ -1,13 +1,19 @@
-"""No-op guarantee tests for hint capsules system.
+"""No-op guarantee tests for execution options.
 
 These tests verify the critical architectural invariant that the system
-behaves identically when hints are None, empty, or absent. This ensures
+behaves identically when options are None, empty, or absent. This ensures
 backward compatibility and fail-soft semantics.
 """
 
 import pytest
 
 from gemini_batch.config import resolve_config
+from gemini_batch.core.execution_options import (
+    CacheOptions,
+    EstimationOptions,
+    ExecutionOptions,
+    ResultOption,
+)
 from gemini_batch.core.types import (
     APICall,
     ExecutionPlan,
@@ -22,7 +28,6 @@ from gemini_batch.core.types import (
 from gemini_batch.executor import create_executor
 from gemini_batch.extensions.conversation import Conversation
 from gemini_batch.extensions.conversation_types import ConversationState
-from gemini_batch.pipeline.hints import CacheHint, EstimationOverrideHint, ResultHint
 from gemini_batch.pipeline.planner import ExecutionPlanner
 from gemini_batch.pipeline.result_builder import ResultBuilder
 
@@ -30,7 +35,7 @@ pytestmark = pytest.mark.unit
 
 
 class TestNoOpGuarantees:
-    """Verify hints=None produces identical behavior to no hints."""
+    """Verify options=None produces identical behavior to default/no options."""
 
     @pytest.fixture
     def basic_config(self):
@@ -70,7 +75,7 @@ class TestNoOpGuarantees:
                 prompts=initial_none.prompts,
                 config=initial_none.config,
                 history=initial_none.history,
-                hints=None,
+                options=None,
             ),
             resolved_sources=basic_resolved_command.resolved_sources,
         )
@@ -84,7 +89,7 @@ class TestNoOpGuarantees:
                 prompts=initial_empty.prompts,
                 config=initial_empty.config,
                 history=initial_empty.history,
-                hints=(),
+                options=ExecutionOptions(),
             ),
             resolved_sources=basic_resolved_command.resolved_sources,
         )
@@ -145,7 +150,7 @@ class TestNoOpGuarantees:
 
         # None hints
         initial_none = InitialCommand(
-            sources=(), prompts=("test",), config=config, hints=None
+            sources=(), prompts=("test",), config=config, options=None
         )
         resolved_none = ResolvedCommand(initial=initial_none, resolved_sources=())
         planned_none = PlannedCommand(resolved=resolved_none, execution_plan=plan)
@@ -156,7 +161,7 @@ class TestNoOpGuarantees:
 
         # Empty hints
         initial_empty = InitialCommand(
-            sources=(), prompts=("test",), config=config, hints=()
+            sources=(), prompts=("test",), config=config, options=ExecutionOptions()
         )
         resolved_empty = ResolvedCommand(initial=initial_empty, resolved_sources=())
         planned_empty = PlannedCommand(resolved=resolved_empty, execution_plan=plan)
@@ -217,19 +222,22 @@ class TestNoOpGuarantees:
 
     @pytest.mark.asyncio
     async def test_end_to_end_no_op_guarantee(self):
-        """End-to-end execution should be identical with hints=None vs no hints field."""
+        """End-to-end execution should be identical with options=None vs default options."""
         from gemini_batch.core.types import InitialCommand
 
         executor = create_executor()
 
-        # Command with explicit hints=None
+        # Command with explicit options=None
         cmd_none = InitialCommand(
-            sources=(), prompts=("e2e test",), config=resolve_config(), hints=None
+            sources=(), prompts=("e2e test",), config=resolve_config(), options=None
         )
 
         # Command with empty hints tuple
         cmd_empty = InitialCommand(
-            sources=(), prompts=("e2e test",), config=resolve_config(), hints=()
+            sources=(),
+            prompts=("e2e test",),
+            config=resolve_config(),
+            options=ExecutionOptions(),
         )
 
         # Execute both through full pipeline
@@ -244,22 +252,19 @@ class TestNoOpGuarantees:
         assert isinstance(result_empty["answers"], list)
 
     @pytest.mark.asyncio
-    async def test_unknown_hints_no_op_guarantee(self):
-        """Unknown hint types should not affect any pipeline stage."""
+    async def test_default_options_no_op_guarantee(self):
+        """Default/empty options should not affect any pipeline stage."""
         planner = ExecutionPlanner()
         builder = ResultBuilder()
 
         config = resolve_config()
 
-        # Create command with unknown hint type
-        class UnknownHint:
-            mysterious_field = "should be ignored"
-
+        # Create command with default/empty options
         initial = InitialCommand(
             sources=(),
-            prompts=("test with unknown hint",),
+            prompts=("test with empty options",),
             config=config,
-            hints=(UnknownHint(),),
+            options=ExecutionOptions(),
         )
         resolved = ResolvedCommand(initial=initial, resolved_sources=())
 
@@ -286,9 +291,9 @@ class TestNoOpGuarantees:
     def test_hint_type_equivalence_no_state_leakage(self):
         """Hint instances should be independent with no shared state."""
         # Create multiple instances of same hint
-        cache1 = CacheHint("key1")
-        cache2 = CacheHint("key1")
-        cache3 = CacheHint("key2")
+        cache1 = CacheOptions("key1")
+        cache2 = CacheOptions("key1")
+        cache3 = CacheOptions("key2")
 
         # Should be equal by value
         assert cache1 == cache2
@@ -298,12 +303,12 @@ class TestNoOpGuarantees:
         assert cache1 is not cache2
 
         # Same for other hint types
-        est1 = EstimationOverrideHint(widen_max_factor=2.0)
-        est2 = EstimationOverrideHint(widen_max_factor=2.0)
+        est1 = EstimationOptions(widen_max_factor=2.0)
+        est2 = EstimationOptions(widen_max_factor=2.0)
         assert est1 == est2
         assert est1 is not est2
 
-        result1 = ResultHint(prefer_json_array=True)
-        result2 = ResultHint(prefer_json_array=True)
+        result1 = ResultOption(prefer_json_array=True)
+        result2 = ResultOption(prefer_json_array=True)
         assert result1 == result2
         assert result1 is not result2

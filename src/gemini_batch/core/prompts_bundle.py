@@ -22,7 +22,9 @@ class PromptBundle:
         str, ...
     ]  # Transformed user prompts (prefix/suffix applied), count preserved
     system: str | None = None  # Optional system instruction
-    hints: typing.Mapping[str, typing.Any] = dataclasses.field(
+    # TODO: Renamed this field to `provenance` to avoid confusion with the
+    # removed InitialCommand.hints API. Update docs and in a follow-up.
+    provenance: typing.Mapping[str, typing.Any] = dataclasses.field(
         default_factory=dict
     )  # Provenance flags (has_sources, user_from, etc.)
 
@@ -62,7 +64,7 @@ class PromptBundle:
                 field_name="system",
             )
 
-        # Freeze hints mapping to prevent downstream mutation
-        frozen = _freeze_mapping(self.hints)
+        # Freeze provenance mapping to prevent downstream mutation
+        frozen = _freeze_mapping(self.provenance)
         if frozen is not None:
-            object.__setattr__(self, "hints", frozen)
+            object.__setattr__(self, "provenance", frozen)

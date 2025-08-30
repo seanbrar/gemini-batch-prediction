@@ -11,6 +11,7 @@ import typing
 
 from ._validation import _is_tuple_of, _require
 from .conversation import ConversationTurn
+from .execution_options import ExecutionOptions
 
 # Forward reference to avoid circular import with config module
 if typing.TYPE_CHECKING:
@@ -29,9 +30,8 @@ class InitialCommand:
     prompts: tuple[str, ...]
     config: FrozenConfig  # Forward reference
     history: tuple[ConversationTurn, ...] = dataclasses.field(default_factory=tuple)
-    # Extensions may attach immutable capsules; core remains agnostic to their types.
-    # Pipeline stages interpret hints in a fail-soft manner (unknown hints ignored).
-    hints: tuple[object, ...] | None = None
+    # Structured options conveying advanced execution behavior.
+    options: ExecutionOptions | None = None
 
     def __post_init__(self) -> None:
         """Validate InitialCommand invariants."""
@@ -63,9 +63,10 @@ class InitialCommand:
             exc=TypeError,
         )
         _require(
-            condition=self.hints is None or isinstance(self.hints, tuple),
-            message="must be a tuple[object, ...] or None",
-            field_name="hints",
+            condition=self.options is None
+            or isinstance(self.options, ExecutionOptions),
+            message="must be an ExecutionOptions or None",
+            field_name="options",
             exc=TypeError,
         )
 
@@ -78,7 +79,7 @@ class InitialCommand:
         prompts: tuple[str, ...],
         config: FrozenConfig,
         history: tuple[ConversationTurn, ...] = (),
-        hints: tuple[object, ...] | None = None,
+        options: ExecutionOptions | None = None,
     ) -> InitialCommand:
         """Construct an `InitialCommand` ensuring at least one non-empty prompt.
 
@@ -102,7 +103,7 @@ class InitialCommand:
             prompts=prompts,
             config=config,
             history=history,
-            hints=hints,
+            options=options,
         )
 
 
