@@ -287,12 +287,8 @@ class Source:
         if "arxiv.org/" in ul or "export.arxiv.org/" in ul:
             return True
 
-        # Modern bare id: 4 digits, dot, 4-5 digits, optional version vN
-        modern = re.compile(r"^\d{4}\.\d{4,5}(?:v\d+)?$")
-        # Legacy id: category tree and 7 digits, optional version vN
-        # Examples: cs/9901001, cs.CL/9901001, math.PR/9901001
-        legacy = re.compile(r"^[A-Za-z]+(?:\.[A-Za-z]+)?/\d{7}(?:v\d+)?$")
-        return bool(modern.match(u) or legacy.match(u))
+        # Reuse precompiled patterns for consistency and performance
+        return bool(MODERN_ARXIV_RE.match(u) or LEGACY_ARXIV_RE.match(u))
 
     @staticmethod
     def _normalize_arxiv_to_pdf_url(ref: str) -> str:

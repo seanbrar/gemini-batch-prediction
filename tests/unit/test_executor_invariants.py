@@ -19,7 +19,9 @@ class FailingStage(BaseAsyncHandler[Any, Any, GeminiBatchError]):
 
     async def handle(
         self, _command: Any
-    ) -> Result[Any, GeminiBatchError]:  # pragma: no cover - signature exercised by executor
+    ) -> Result[
+        Any, GeminiBatchError
+    ]:  # pragma: no cover - signature exercised by executor
         return Failure(GeminiBatchError("boom"))
 
 
@@ -28,7 +30,9 @@ class PassThroughStage(BaseAsyncHandler[Any, Any, GeminiBatchError]):
 
     async def handle(
         self, command: Any
-    ) -> Result[Any, GeminiBatchError]:  # pragma: no cover - signature exercised by executor
+    ) -> Result[
+        Any, GeminiBatchError
+    ]:  # pragma: no cover - signature exercised by executor
         return Success(command)
 
 
@@ -43,6 +47,7 @@ def _minimal_config() -> FrozenConfig:
         tier=APITier.FREE,
         provider="gemini",
         extra={},
+        request_concurrency=6,
     )
 
 

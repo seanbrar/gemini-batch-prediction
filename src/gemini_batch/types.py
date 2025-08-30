@@ -24,7 +24,14 @@ See Also:
 
 from __future__ import annotations
 
-from gemini_batch.core.execution_options import ExecutionOptions
+from gemini_batch.core.execution_options import (
+    CacheOptions,
+    CachePolicyHint,
+    EstimationOptions,
+    ExecutionOptions,
+    ResultOption,
+    make_execution_options,
+)
 from gemini_batch.core.sources import sources_from_directory
 from gemini_batch.core.types import (
     APICall,
@@ -41,10 +48,6 @@ from gemini_batch.core.types import (
     Success,
     TokenEstimate,
 )
-from gemini_batch.pipeline.hints import (
-    CacheHint,
-    ResultHint,
-)
 
 __all__ = [  # noqa: RUF022
     # Common data types
@@ -55,6 +58,10 @@ __all__ = [  # noqa: RUF022
     "sources_from_directory",
     "TokenEstimate",
     "ExecutionOptions",
+    # Execution options hint types
+    "EstimationOptions",
+    "CachePolicyHint",
+    "make_execution_options",
     # Pipeline execution types (for power users)
     "APICall",
     "ExecutionPlan",
@@ -66,6 +73,6 @@ __all__ = [  # noqa: RUF022
     "Success",
     "Failure",
     # Hint system (for extension authors)
-    "CacheHint",
-    "ResultHint",
+    "CacheOptions",
+    "ResultOption",
 ]
