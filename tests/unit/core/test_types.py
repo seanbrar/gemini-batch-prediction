@@ -13,7 +13,6 @@ import pytest
 from gemini_batch.config import resolve_config
 from gemini_batch.core.types import (
     APICall,
-    ConversationTurn,
     ExecutionPlan,
     Failure,
     FinalizedCommand,
@@ -23,6 +22,7 @@ from gemini_batch.core.types import (
     Source,
     Success,
     TextPart,
+    Turn,
 )
 
 
@@ -91,13 +91,13 @@ class TestResultMonadCompliance:
         assert failure1 != failure3  # Different messages
 
 
-class TestConversationTurnCompliance:
-    """Tests that verify ConversationTurn maintains data-centric design."""
+class TestTurnCompliance:
+    """Tests that verify Turn maintains data-centric design."""
 
     @pytest.mark.unit
-    def test_conversation_turn_constructor_is_immutable(self):
-        """ConversationTurn should be immutable by design."""
-        turn = ConversationTurn(
+    def test_turn_constructor_is_immutable(self):
+        """Turn should be immutable by design."""
+        turn = Turn(
             question="What is AI?", answer="Artificial Intelligence", is_error=False
         )
 
@@ -106,20 +106,18 @@ class TestConversationTurnCompliance:
             turn.question = "Modified question"  # type: ignore
 
     @pytest.mark.unit
-    def test_conversation_turn_has_sensible_defaults(self):
-        """ConversationTurn should have sensible defaults for optional fields."""
-        turn = ConversationTurn(
-            question="What is AI?", answer="Artificial Intelligence"
-        )
+    def test_turn_has_sensible_defaults(self):
+        """Turn should have sensible defaults for optional fields."""
+        turn = Turn(question="What is AI?", answer="Artificial Intelligence")
 
         assert turn.is_error is False
 
     @pytest.mark.unit
-    def test_conversation_turn_equality_is_content_based(self):
-        """ConversationTurn objects should be equal if their content is equal."""
-        turn1 = ConversationTurn("Q1", "A1", is_error=False)
-        turn2 = ConversationTurn("Q1", "A1", is_error=False)
-        turn3 = ConversationTurn("Q1", "A1", is_error=True)  # Different is_error
+    def test_turn_equality_is_content_based(self):
+        """Turn objects should be equal if their content is equal."""
+        turn1 = Turn("Q1", "A1", is_error=False)
+        turn2 = Turn("Q1", "A1", is_error=False)
+        turn3 = Turn("Q1", "A1", is_error=True)  # Different is_error
 
         assert turn1 == turn2
         assert turn1 != turn3
@@ -414,7 +412,7 @@ class TestDataCentricityCompliance:
         dataclasses = [
             Success,
             Failure,
-            ConversationTurn,
+            Turn,
             Source,
             InitialCommand,
             ResolvedCommand,
@@ -430,7 +428,7 @@ class TestDataCentricityCompliance:
             if cls in [Success, Failure]:
                 # These have simple constructors
                 instance = cls("test") if cls == Success else cls(ValueError("test"))
-            elif cls == ConversationTurn:
+            elif cls == Turn:
                 instance = cls("Q", "A")
             elif cls == Source:
                 instance = cls(

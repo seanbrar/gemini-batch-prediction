@@ -126,9 +126,12 @@ class TestSourceHandlerContracts:
         throwing exceptions. The pipeline should not crash.
         """
         handler = SourceHandler()
-        # Create a command with an invalid source type (string), which the handler must reject
+        # Create a command with invalid source objects that the handler must reject
+        # The handler expects Source objects, but we'll pass a raw string to trigger an error
         problematic_command = InitialCommand(
-            sources=("/non/existent/file/path.txt",),
+            sources=(
+                "not a source object",
+            ),  # This should trigger SourceHandler validation
             prompts=("test",),
             config=resolve_config(overrides={"api_key": "test-key"}),
         )
@@ -139,3 +142,4 @@ class TestSourceHandlerContracts:
         # Assert: The handler MUST return a Failure with SourceError.
         assert isinstance(result, Failure)
         assert isinstance(result.error, SourceError)
+        assert "explicit `Source` objects" in str(result.error)

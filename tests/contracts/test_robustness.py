@@ -13,7 +13,7 @@ class TestRobustnessCompliance:
         dataclasses = [
             types.Success,
             types.Failure,
-            types.ConversationTurn,
+            types.Turn,
             types.Source,
             types.InitialCommand,
             types.ResolvedCommand,

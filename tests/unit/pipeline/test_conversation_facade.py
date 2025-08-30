@@ -27,7 +27,7 @@ def mock_executor():
 def mock_result():
     """Mock execution result."""
     return {
-        "success": True,
+        "status": "ok",
         "answers": ["This is a test response."],
         "metrics": {
             "token_validation": {

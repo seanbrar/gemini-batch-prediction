@@ -2,7 +2,7 @@
 
 import pytest
 
-from gemini_batch.core.conversation import ConversationTurn
+from gemini_batch.core.turn import Turn
 from gemini_batch.extensions.conversation_modes import (
     SequentialMode,
     SingleMode,
@@ -98,7 +98,7 @@ def test_conversation_plan_attributes():
     """Test ConversationPlan attributes."""
     plan = ConversationPlan(
         sources=("doc.pdf", "notes.txt"),
-        history=(ConversationTurn("Q1", "A1"), ConversationTurn("Q2", "A2")),
+        history=(Turn("Q1", "A1"), Turn("Q2", "A2")),
         prompts=("What is this?", "Summarize"),
         strategy="vectorized",
         hints=(object(), object()),  # Mock hint objects

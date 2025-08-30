@@ -11,7 +11,7 @@ from pathlib import Path
 import typing
 
 from ._validation import _is_tuple_of, _require
-from .conversation import ConversationTurn
+from .turn import Turn
 
 
 @dataclasses.dataclass(frozen=True, slots=True)
@@ -125,13 +125,13 @@ class HistoryPart:
     data-centric and decoupled from provider SDK details.
     """
 
-    turns: tuple[ConversationTurn, ...]
+    turns: tuple[Turn, ...]
 
     def __post_init__(self) -> None:
         """Validate HistoryPart shape."""
         _require(
-            condition=_is_tuple_of(self.turns, ConversationTurn),
-            message="turns must be a tuple[ConversationTurn, ...]",
+            condition=_is_tuple_of(self.turns, Turn),
+            message="turns must be a tuple[Turn, ...]",
             exc=TypeError,
         )
 
@@ -140,21 +140,21 @@ class HistoryPart:
         """Validate and normalize raw history data into a HistoryPart.
 
         Accepted item shapes per turn (strict):
-        - ConversationTurn instance (used as-is)
+        - Turn instance (used as-is)
         - Mapping with string keys 'question' and 'answer' whose values are str
         - Object with string attributes 'question' and 'answer'
 
         Empty or None input yields an empty history. Invalid items raise
         ValueError/TypeError with precise index and reason. Both fields cannot
-        be empty strings simultaneously.
+        be empty after stripping whitespace.
         """
         if not raw_turns:
             return cls(turns=())
 
-        validated: list[ConversationTurn] = []
+        validated: list[Turn] = []
         for i, raw in enumerate(raw_turns):
             try:
-                if isinstance(raw, ConversationTurn):
+                if isinstance(raw, Turn):
                     q_val: object | None = raw.question
                     a_val: object | None = raw.answer
                 elif isinstance(raw, dict):
@@ -171,9 +171,9 @@ class HistoryPart:
                     raise ValueError("question and answer cannot both be empty")
 
                 # After the checks above, both are str for type checkers
-                validated.append(ConversationTurn(question=q_val, answer=a_val))
+                validated.append(Turn(question=q_val, answer=a_val))
             except Exception as e:
-                raise ValueError(f"Invalid conversation turn at index {i}: {e}") from e
+                raise ValueError(f"Invalid turn at index {i}: {e}") from e
 
         return cls(turns=tuple(validated))
 

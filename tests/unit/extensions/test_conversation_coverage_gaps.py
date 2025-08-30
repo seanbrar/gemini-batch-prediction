@@ -33,21 +33,20 @@ class _StubExecutor:
 
 
 def _base_env() -> dict[str, Any]:
-    return {"status": "ok", "answers": [], "usage": {}, "metrics": {}}
+    return {
+        "status": "ok",
+        "answers": [],
+        "extraction_method": "stub",
+        "confidence": 1.0,
+        "usage": {},
+        "metrics": {},
+    }
 
 
 @pytest.mark.asyncio
-async def test_error_detection_variants() -> None:
-    # Variant 1: explicit error flag
+async def test_error_detection_status_only() -> None:
     env = _base_env()
-    env.update({"error": True, "answers": ["A"]})
-    conv = Conversation.start(_StubExecutor(env))
-    conv2, _, _ = await conv.run(PromptSet.single("Q"))
-    assert conv2.state.turns[-1].error is True
-
-    # Variant 2: ok flag false
-    env = _base_env()
-    env.update({"ok": False, "answers": ["A"]})
+    env.update({"status": "error", "answers": ["A"]})
     conv = Conversation.start(_StubExecutor(env))
     conv2, _, _ = await conv.run(PromptSet.single("Q"))
     assert conv2.state.turns[-1].error is True

@@ -261,7 +261,7 @@ class ExecutionPlanner(
         Keeps handler preparation symmetrical for single and vectorized shapes.
         """
         # InitialCommand.history is validated by core types as a tuple
-        # of ConversationTurn, so use it directly without redundant guards.
+        # of Turn, so use it directly without redundant guards.
         history_turns = initial.history
         parts: list[APIPart] = []
         if history_turns:

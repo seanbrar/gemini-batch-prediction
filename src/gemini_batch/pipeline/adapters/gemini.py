@@ -182,7 +182,7 @@ class GoogleGenAIAdapter(GenerationAdapter):
         if isinstance(part, HistoryPart):
 
             def _render_history(turns: tuple[Any, ...]) -> str:
-                # HistoryPart.turns is tuple[ConversationTurn, ...]; question/answer are str
+                # HistoryPart.turns is tuple[Turn, ...]; question/answer are str
                 if not turns:
                     return ""
                 lines: list[str] = []

@@ -30,6 +30,8 @@ class _StubExecutor:
         return {
             "status": "ok",
             "answers": [f"ok: {p}" for p in prompts],
+            "extraction_method": "stub",
+            "confidence": 1.0,
             "usage": {"total_tokens": 10},
             "metrics": {"token_validation": {"estimated_max": 20, "actual": 10}},
         }
