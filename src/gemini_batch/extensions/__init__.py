@@ -1,66 +1,66 @@
-"""Data-centric conversation extensions for Gemini batch processing.
+"""Extensions for Gemini batch processing framework.
 
-This module provides a minimal, data-driven conversation extension that implements
-the A+B hybrid design with single pipeline seam. The extension focuses on multi-turn
-conversations with advanced batch processing while delegating complexity to the core.
+High-level, data-centric add-ons that build on the core pipeline while keeping
+the single execution seam intact. Extensions favor immutable data, pure
+compilation, and minimal façades for excellent auditability and DX.
 
-Key components:
-- Conversation: Tiny facade for conversation operations
-- ConversationPolicy: Immutable policy controlling behavior
-- PromptSet: Prompts with execution mode (single/sequential/vectorized)
-- ConversationPlan: Compiled execution plan for auditability
-- compile_conversation: Pure function for plan compilation
-- execute_plan: Single pipeline seam for execution
+Extensions overview:
+- Conversation: Available. Multi-turn conversation with planning, modes, and store-backed engine.
+- Visualization: Upcoming. Notebook-first helpers under `gemini_batch.extensions.visualization`.
+- Token Counting: Upcoming. Provider-aware token counting under `gemini_batch.extensions.token_counting`.
 
 Architecture principles:
 - Data-centric design with immutable state
 - Pure compile-then-execute pattern
 - Single pipeline seam via GeminiExecutor
-- Minimal facade with essential operations
-- Full alignment with architecture rubric
+- Minimal façades with essential operations
+- Aligned with Architecture Rubric (simplicity, clarity, robustness, DX, extensibility)
 
-Example:
+Quick start:
     from gemini_batch import create_executor
     from gemini_batch.extensions import Conversation, PromptSet
 
     executor = create_executor()
     conv = Conversation.start(executor)
-
-    # Simple usage
     conv = await conv.ask("Hello")
 
     # Advanced batch with policy
     from gemini_batch.extensions import ConversationPolicy
     policy = ConversationPolicy.cost_saver()
     conv, answers, metrics = await conv.with_policy(policy).run(
-        PromptSet.vec("Q1", "Q2", "Q3")
+        PromptSet.vectorized("Q1", "Q2", "Q3")
     )
 """
 
-from .conversation import (
-    Conversation,
-    ConversationState,
-    Exchange,
-)
+from .conversation import Conversation
+from .conversation_engine import ConversationEngine
 from .conversation_planner import ConversationPlan, compile_conversation
+from .conversation_store import ConversationStore, JSONStore
 from .conversation_types import (
     BatchMetrics,
     ConversationAnalytics,
     ConversationPolicy,
+    ConversationState,
+    Exchange,
     PromptSet,
 )
 
 __all__ = [  # noqa: RUF022
-    # Core conversation facade
+    # Conversation extension
     "Conversation",
     "ConversationState",
     "Exchange",
-    # Data-centric types
     "BatchMetrics",
     "ConversationAnalytics",
     "ConversationPolicy",
     "PromptSet",
     "ConversationPlan",
-    # Planning
     "compile_conversation",
+    # Advanced ergonomics
+    "ConversationEngine",
+    "ConversationStore",
+    "JSONStore",
 ]
+
+# Note: Visualization and Token Counting are intentionally not re-exported here yet.
+# They are tracked as upcoming extensions to keep this PR focused on Conversation.

@@ -1,3 +1,9 @@
+"""Append-only, versioned store interfaces and JSON implementation.
+
+Defines the `ConversationStore` protocol and a simple `JSONStore` that
+persists conversation state with optimistic concurrency.
+"""
+
 from __future__ import annotations
 
 from dataclasses import asdict
@@ -5,18 +11,24 @@ import json
 from pathlib import Path
 from typing import TYPE_CHECKING, Protocol
 
-from .conversation import ConversationState, Exchange
+from .conversation_types import ConversationState, Exchange
 
 if TYPE_CHECKING:
     import os
 
 
 class ConversationStore(Protocol):
-    async def load(self, conversation_id: str) -> ConversationState: ...
+    """Protocol for loading and appending conversation state."""
+
+    async def load(self, conversation_id: str) -> ConversationState:
+        """Load a conversation state by identifier."""
+        ...
 
     async def append(
         self, conversation_id: str, expected_version: int, ex: Exchange
-    ) -> ConversationState: ...
+    ) -> ConversationState:
+        """Append an exchange using OCC and return the updated state."""
+        ...
 
 
 class JSONStore:
@@ -33,9 +45,11 @@ class JSONStore:
     """
 
     def __init__(self, path: str | os.PathLike[str]) -> None:
+        """Initialize the store pointing at a JSON file path."""
         self._path = Path(path)
 
     async def load(self, conversation_id: str) -> ConversationState:
+        """Load conversation state or return an empty default state."""
         data = self._read_all()
         entry = data.get(conversation_id)
         if not isinstance(entry, dict):
@@ -58,6 +72,16 @@ class JSONStore:
             for t in turns_raw:
                 if not isinstance(t, dict):
                     continue
+                # Normalize warnings tuple if present
+                w = t.get("warnings", ())
+                warnings: tuple[str, ...]
+                if isinstance(w, str):
+                    warnings = (w,)
+                elif isinstance(w, list | tuple):
+                    warnings = tuple(str(x) for x in w)
+                else:
+                    warnings = ()
+
                 turns.append(
                     Exchange(
                         user=str(t.get("user", "")),
@@ -67,6 +91,7 @@ class JSONStore:
                         estimate_max=t.get("estimate_max"),
                         actual_tokens=t.get("actual_tokens"),
                         in_range=t.get("in_range"),
+                        warnings=warnings,
                     )
                 )
         cache_raw = entry.get("cache")
@@ -94,6 +119,7 @@ class JSONStore:
     async def append(
         self, conversation_id: str, expected_version: int, ex: Exchange
     ) -> ConversationState:
+        """Append an exchange with optimistic concurrency enforcement."""
         data = self._read_all()
         entry = data.get(conversation_id)
         if not isinstance(entry, dict):
@@ -122,6 +148,7 @@ class JSONStore:
         return await self.load(conversation_id)
 
     def _read_all(self) -> dict[str, dict[str, object]]:
+        """Read and deserialize the entire JSON file into a mapping."""
         if not self._path.exists():
             return {}
         try:
@@ -131,6 +158,7 @@ class JSONStore:
             return {}
 
     def _write_all(self, data: dict[str, dict[str, object]]) -> None:
+        """Persist data atomically via temp file rename."""
         self._path.parent.mkdir(parents=True, exist_ok=True)
         tmp = self._path.with_suffix(self._path.suffix + ".tmp")
         tmp.write_text(json.dumps(data, indent=2), encoding="utf-8")
