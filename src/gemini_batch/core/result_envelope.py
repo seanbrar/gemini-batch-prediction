@@ -72,7 +72,7 @@ def is_result_envelope(obj: object) -> TypeGuard[ResultEnvelope]:
     Notes:
     - This helper focuses on clarity and fast guards; it may evolve along with
       the envelope's structural contract.
-    - Dev-time validation can be enabled via ``GEMINI_PIPELINE_VALIDATE=1`` and
+    - Dev-time validation can be enabled via ``GEMINI_BATCH_PIPELINE_VALIDATE=1`` and
       related helpers in ``pipeline._devtools``.
     """
     return _validate_result_envelope_reason(obj) is None

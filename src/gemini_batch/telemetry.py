@@ -28,8 +28,8 @@ _call_count_var: ContextVar[int] = ContextVar("call_count", default=0)
 
 # Minimal-overhead optimization - evaluated once at import time
 # Telemetry is enabled only via explicit env toggle to avoid unintended overhead
-_TELEMETRY_ENABLED = os.getenv("GEMINI_TELEMETRY") == "1"
-_STRICT_SCOPES = os.getenv("GEMINI_TELEMETRY_STRICT_SCOPES") == "1"
+_TELEMETRY_ENABLED = os.getenv("GEMINI_BATCH_TELEMETRY") == "1"
+_STRICT_SCOPES = os.getenv("GEMINI_BATCH_TELEMETRY_STRICT_SCOPES") == "1"
 
 # Built-in metadata keys (exported for clarity & resilience)
 DEPTH: Final[str] = "depth"
@@ -215,7 +215,7 @@ def TelemetryContext(*reporters: TelemetryReporter) -> TelemetryContextProtocol:
     """Return a telemetry context.
 
     Behavior:
-    - When telemetry env flags are enabled (``GEMINI_TELEMETRY=1``),
+    - When telemetry env flags are enabled (``GEMINI_BATCH_TELEMETRY=1``),
       return an enabled context. If no reporters are provided, install a default
       in-memory ``_SimpleReporter`` for convenience.
     - When telemetry env flags are disabled, return a shared no-op instance for

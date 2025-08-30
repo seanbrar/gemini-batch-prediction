@@ -17,8 +17,8 @@ def dev_validate_enabled(*, override: bool | None = None) -> bool:
 
     - If ``override`` is provided, it takes precedence.
     - Otherwise, returns True when the environment variable
-      ``GEMINI_PIPELINE_VALIDATE`` is exactly ``"1"``.
+      ``GEMINI_BATCH_PIPELINE_VALIDATE`` is exactly ``"1"``.
     """
     if override is not None:
         return bool(override)
-    return os.getenv("GEMINI_PIPELINE_VALIDATE") == "1"
+    return os.getenv("GEMINI_BATCH_PIPELINE_VALIDATE") == "1"

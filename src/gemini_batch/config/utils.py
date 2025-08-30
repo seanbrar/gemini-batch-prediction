@@ -85,6 +85,7 @@ def get_config_path(path_type: Literal["project", "home"]) -> Path:
         ),
     }
     env_var, default_factory = specs[path_type]
+    # Only respect the library's primary override variable for clarity
     if override := os.environ.get(env_var):
         return Path(override)
     try:
@@ -116,13 +117,12 @@ def get_home_config_path() -> Path:
 
 # --- Constants ---
 
-ENV_PREFIX = (
-    "GEMINI_"  # TODO: Consider changing prefix to prevent conflicts with other projects
-)
-CONFIG_HOME_VAR = "GEMINI_CONFIG_HOME"
-PYPROJECT_PATH_VAR = "GEMINI_PYPROJECT_PATH"
-PROFILE_VAR = "GEMINI_PROFILE"
-DEBUG_CONFIG_VAR = "GEMINI_DEBUG_CONFIG"
+ENV_PREFIX = "GEMINI_BATCH_"
+
+CONFIG_HOME_VAR = "GEMINI_BATCH_CONFIG_HOME"
+PYPROJECT_PATH_VAR = "GEMINI_BATCH_PYPROJECT_PATH"
+PROFILE_VAR = "GEMINI_BATCH_PROFILE"
+DEBUG_CONFIG_VAR = "GEMINI_BATCH_DEBUG_CONFIG"
 
 # --- Environment Utilities ---
 

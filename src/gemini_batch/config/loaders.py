@@ -47,43 +47,46 @@ def load_env() -> Mapping[str, Any]:
     """Load configuration from environment variables.
 
     Behavior:
-    - Reads `GEMINI_*` environment variables and performs schema-informed type
-      coercion (bool/int/float) based on `Settings` model annotations.
-    - Intentionally excludes meta/control variables from the returned mapping
-      to avoid polluting `FrozenConfig.extra` with non-config fields:
-        `GEMINI_PROFILE`, `GEMINI_PYPROJECT_PATH`, `GEMINI_CONFIG_HOME`,
-        `GEMINI_DEBUG_CONFIG`.
-    - `.env` loading is handled at higher-level entry points; this function is
-      pure and only reads from `os.environ`.
+    - Reads only `GEMINI_BATCH_*` variables for this library's configuration.
+      This avoids collisions with official provider SDK variables (e.g.,
+      `GEMINI_API_KEY`).
+    - Performs schema-informed type coercion (bool/int/float) using `Settings`.
+    - Skips meta/control variables (profile/path/debug) entirely.
+    - `.env` loading happens at higher levels; this function only reads `os.environ`.
 
     Returns:
         Dictionary of configuration values with appropriate types.
     """
     config: dict[str, Any] = {}
 
-    for key, value in os.environ.items():
-        if not key.startswith(utils.ENV_PREFIX):
-            continue
+    def _process_with_prefix(prefix: str) -> None:
+        for key, value in os.environ.items():
+            if not key.startswith(prefix):
+                continue
+            field_name = key[len(prefix) :].lower()
+            if field_name in META_ENV_FIELDS:
+                continue
+            try:
+                from .core import Settings  # local import to keep loaders import-light
 
-        field_name = key[len(utils.ENV_PREFIX) :].lower()
-
-        # Skip meta/control variables
-        if field_name in META_ENV_FIELDS:
-            continue
-
-        # Derive target type from Settings schema lazily to avoid import cycles
-        try:
-            from .core import Settings  # local import to keep loaders import-light
-
-            info = Settings.model_fields.get(field_name)
-            target_type = info.annotation if info is not None else None
-            # Only coerce for simple primitives; let Pydantic handle others
-            if target_type not in {bool, int, float}:
+                info = Settings.model_fields.get(field_name)
+                target_type = info.annotation if info is not None else None
+                if target_type not in {bool, int, float}:
+                    target_type = None
+            except Exception:
                 target_type = None
-        except Exception:
-            # On any issue determining type, fall back to string (no coercion)
-            target_type = None
-        config[field_name] = _coerce_env_value(value, target_type)
+            config[field_name] = _coerce_env_value(value, target_type)
+
+    # Read only the primary prefix to prevent ambiguity with provider SDK envs
+    _process_with_prefix(utils.ENV_PREFIX)
+
+    # Exception: accept official provider API key env as a convenience.
+    # Prefer GEMINI_BATCH_API_KEY when both are set.
+    if "api_key" not in config:
+        provider_key = os.environ.get("GEMINI_API_KEY")
+        if provider_key is not None:
+            # No special coercion; Pydantic validator will normalize SecretStr
+            config["api_key"] = provider_key
 
     return config
 
@@ -225,7 +228,7 @@ def load_pyproject(profile: str | None = None) -> Mapping[str, Any]:
     """Load configuration from pyproject.toml in current working directory.
 
     Args:
-        profile: Optional profile name to use. If None, checks GEMINI_PROFILE
+        profile: Optional profile name to use. If None, checks GEMINI_BATCH_PROFILE
             environment variable.
 
     Returns:
@@ -238,7 +241,7 @@ def load_home(profile: str | None = None) -> Mapping[str, Any]:
     """Load configuration from user's home directory config file.
 
     Args:
-        profile: Optional profile name to use. If None, checks GEMINI_PROFILE
+        profile: Optional profile name to use. If None, checks GEMINI_BATCH_PROFILE
             environment variable.
 
     Returns:

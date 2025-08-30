@@ -63,7 +63,7 @@ class GeminiExecutor:
       is a `ResultEnvelope`-shaped dict. This is the authoritative invariant.
     - The optional `validate` flag is for development-time ergonomics only
       (richer shape checks and diagnostics). It does not change the runtime
-      contract and defaults to the `GEMINI_PIPELINE_VALIDATE=1` environment
+      contract and defaults to the `GEMINI_BATCH_PIPELINE_VALIDATE=1` environment
       toggle when not provided.
     """
 
@@ -83,7 +83,7 @@ class GeminiExecutor:
         Args:
             config: Configuration for the pipeline (FrozenConfig).
             pipeline_handlers: Optional list of handlers to override the default pipeline.
-            validate: Enable dev-time validation (overrides GEMINI_PIPELINE_VALIDATE).
+            validate: Enable dev-time validation (overrides GEMINI_BATCH_PIPELINE_VALIDATE).
         """
         self.config = config
         self._cache_registry = CacheRegistry()
@@ -262,7 +262,7 @@ def create_executor(
 
     Args:
         config: Optional configuration object (FrozenConfig or None).
-        validate: Enable dev-time validation (overrides GEMINI_PIPELINE_VALIDATE).
+        validate: Enable dev-time validation (overrides GEMINI_BATCH_PIPELINE_VALIDATE).
         This does not affect the executor's final invariant, which always
         ensures a valid `ResultEnvelope`.
 
