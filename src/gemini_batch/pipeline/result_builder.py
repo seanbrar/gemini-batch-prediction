@@ -10,6 +10,7 @@ and when diagnostics are produced.
 
 from collections.abc import Mapping
 from dataclasses import asdict
+import logging
 import time
 from typing import Any, Never
 
@@ -31,6 +32,8 @@ from gemini_batch.pipeline.results.extraction import (
 )
 from gemini_batch.pipeline.results.minimal_projection import MinimalProjection
 from gemini_batch.pipeline.results.transforms import default_transforms
+
+log = logging.getLogger(__name__)
 
 
 class ResultBuilder(BaseAsyncHandler[FinalizedCommand, ResultEnvelope, Never]):
@@ -342,6 +345,9 @@ class ResultBuilder(BaseAsyncHandler[FinalizedCommand, ResultEnvelope, Never]):
         # Include token usage details when provided by telemetry (optional)
         if isinstance(usage_obj, dict) and usage_obj:
             envelope["usage"] = dict(usage_obj)
+
+        # Note: raw preview is now attached upstream (APIHandler) under
+        # telemetry_data["metrics"]["raw_preview"] for pass-through.
 
         return envelope
 

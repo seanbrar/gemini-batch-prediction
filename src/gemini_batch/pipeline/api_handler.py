@@ -28,9 +28,8 @@ from pathlib import Path
 from time import perf_counter
 from typing import TYPE_CHECKING, Any, TypedDict, cast
 
+from gemini_batch._dev_flags import dev_raw_preview_enabled
 from gemini_batch.core.concurrency import resolve_request_concurrency
-
-# Removed ConfigCompatibilityShim import - no longer needed
 from gemini_batch.core.exceptions import APIError
 from gemini_batch.core.types import (
     APICall,
@@ -45,6 +44,7 @@ from gemini_batch.core.types import (
     TextPart,
     UploadTask,
 )
+from gemini_batch.pipeline._debug_preview import build_raw_preview
 from gemini_batch.pipeline.adapters.base import (
     ExecutionHintsAware,
     GenerationAdapter,
@@ -115,6 +115,8 @@ class APIHandler(BaseAsyncHandler[PlannedCommand, FinalizedCommand, APIError]):
         registries: dict[str, SimpleRegistry] | None = None,
         adapter: GenerationAdapter | None = None,
         adapter_factory: Callable[[str], GenerationAdapter] | None = None,
+        *,
+        include_raw_preview: bool | None = None,
     ) -> None:
         """Initialize a thin API execution handler with optional telemetry.
 
@@ -127,6 +129,8 @@ class APIHandler(BaseAsyncHandler[PlannedCommand, FinalizedCommand, APIError]):
         self._file_registry = regs.get("files")
         self._adapter: GenerationAdapter | None = adapter
         self._adapter_factory = adapter_factory
+        # Debug/telemetry preview toggle (None -> inherit from env)
+        self._include_raw_preview: bool | None = include_raw_preview
         # Concurrency primitives
         self._uploads_inflight: dict[str, asyncio.Future[Any]] = {}
         self._uploads_lock = asyncio.Lock()
@@ -568,6 +572,26 @@ class APIHandler(BaseAsyncHandler[PlannedCommand, FinalizedCommand, APIError]):
 
         # Token validation compares estimated aggregate to actual aggregate
         self._attach_token_validation(finalized)
+
+        # Optionally attach compact raw previews for researcher debugging
+        try:
+            enabled = (
+                self._include_raw_preview
+                if self._include_raw_preview is not None
+                else dev_raw_preview_enabled()
+            )
+            if enabled:
+                previews = tuple(build_raw_preview(r) for r in raw_list)
+                dbg = cast(
+                    "dict[str, Any]", finalized.telemetry_data.setdefault("metrics", {})
+                )
+                # Keep under metrics for envelope pass-through without schema changes
+                dbg["raw_preview"] = {  # compact, provider-agnostic view
+                    "model": plan.calls[0].model_name,
+                    "batch": previews,
+                }
+        except Exception as e:
+            logger.debug("Failed to attach raw_preview; continuing.", exc_info=e)
         return finalized
 
     def _extract_text_from_parts(self, parts: tuple[APIPart, ...]) -> str:

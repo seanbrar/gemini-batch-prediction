@@ -9,7 +9,7 @@ from __future__ import annotations
 
 import os
 
-__all__ = ["dev_validate_enabled"]
+__all__ = ["dev_raw_preview_enabled", "dev_validate_enabled"]
 
 
 def dev_validate_enabled(*, override: bool | None = None) -> bool:
@@ -22,3 +22,22 @@ def dev_validate_enabled(*, override: bool | None = None) -> bool:
     if override is not None:
         return bool(override)
     return os.getenv("GEMINI_BATCH_PIPELINE_VALIDATE") == "1"
+
+
+def dev_raw_preview_enabled(*, override: bool | None = None) -> bool:
+    """Return True when attaching raw preview debug data is enabled.
+
+    Semantics:
+    - If ``override`` is provided, it takes precedence.
+    - Otherwise, returns True when the environment variable
+      ``GEMINI_BATCH_TELEMETRY_RAW_PREVIEW`` is exactly ``"1"``.
+
+    Notes:
+    - Kept independent from ``GEMINI_BATCH_TELEMETRY`` to allow researchers to
+      enable previews without enabling full telemetry collection.
+    - This helper centralizes env handling to keep hot paths import-fast and
+      to simplify tests.
+    """
+    if override is not None:
+        return bool(override)
+    return os.getenv("GEMINI_BATCH_TELEMETRY_RAW_PREVIEW") == "1"
