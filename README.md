@@ -1,24 +1,44 @@
 # Gemini Batch Prediction Framework
 
-> **Google Summer of Code 2025 Project**
-> Creating efficient video content analysis through intelligent batching and context caching with the Gemini API
+> **Google Summer of Code 2025 Project** — Efficient multimodal analysis via batching and context caching on Gemini.
 
 **Organization:** Google DeepMind
+
+![CI](https://github.com/seanbrar/gemini-batch-prediction/actions/workflows/ci.yml/badge.svg)
+![Docs](https://img.shields.io/badge/docs-MkDocs-blue)
+![Python](https://img.shields.io/badge/Python-3.13+-brightgreen)
+![License](https://img.shields.io/badge/License-MIT-yellow)
 
 ---
 
 ## 🎯 Project Overview
 
-This project develops a framework for efficiently analyzing educational video content using Google's Gemini API. By implementing intelligent batch processing and context caching strategies, we achieve **4-5x reduction in API calls** with **up to 75% cost savings** while maintaining high-quality responses for educational content analysis.
+This project delivers a **production-ready framework** for efficient multimodal analysis on Google's Gemini API. A modern **command pipeline** with intelligent batching and context caching yields **4–5x fewer API calls** and **up to 75% cost savings** while maintaining quality.
 
 ### Key Features
 
-- **Batch Processing**: Group related questions to minimize redundant API calls
-- **Context Caching**: Leverage Gemini's implicit and explicit caching for cost reduction
-- **Multimodal Analysis**: Support text, PDFs, videos, images, YouTube URLs, and mixed content
-- **Conversation Memory**: Maintain coherent follow-up question handling across multi-source analysis
-- **Professional Infrastructure**: Production-ready CI/CD, automated testing, and semantic versioning
-- **Performance Monitoring**: Ultra-low overhead telemetry system with extensible reporting
+- **Command pipeline**: Modern async pipeline built for reliability and maintainability
+- **Intelligent batching**: Automatic grouping/optimization of related API calls
+- **Context caching**: Cut costs via Gemini’s context caching with safe fallbacks
+- **Multimodal**: Unified interface for text, PDFs, images, videos, and YouTube URLs
+- **Conversation memory**: Multi‑turn sessions with persistence and overflow handling
+- **Production‑grade**: Strong tests, CI/CD, telemetry (opt‑in), and semantic releases
+
+## ⚡ TL;DR
+
+```python
+import asyncio
+from gemini_batch import run_simple, types
+
+async def main():
+    result = await run_simple(
+        "Summarize the key insights",
+        source=types.Source.from_file("content.pdf"),
+    )
+    print(result["answers"][0])
+
+asyncio.run(main())
+```
 
 ## 🚀 Current Status
 
@@ -40,11 +60,15 @@ This project develops a framework for efficiently analyzing educational video co
 - Modern CI/CD pipeline with automated releases and changelog generation
 - Professional Python tooling (ruff, mypy, pre-commit) and semantic versioning
 
-**Next: Architectural Modernization (Week 9+)**: ⚪ **CURRENT**
+**Pipeline Architecture Implementation (Week 9-11)**: ✅ **COMPLETED**
 
-- Pipeline architecture refactor for enhanced maintainability and performance
-- Advanced video processing features and optimization
-- Final delivery preparation and documentation
+- Command pipeline architecture with async handler pattern
+- Legacy system removal and API surface refinement
+- Comprehensive documentation and testing infrastructure
+
+**Final Delivery (Week 12)**: 🎯 **CURRENT**
+
+- Production readiness verification and final optimizations
 
 ## 📦 Installation
 
@@ -94,16 +118,16 @@ This project uses modern Python tooling including `ruff`, `mypy`, `pre-commit`, 
 Get your API key from [Google AI Studio](https://ai.dev/) and configure:
 
 ```bash
-# Create .env file
-GEMINI_API_KEY=your_api_key_here
-GEMINI_MODEL=gemini-2.0-flash
-GEMINI_ENABLE_CACHING=true     # Enable context caching
-GEMINI_TIER=free              # Options: free, tier_1, tier_2, tier_3
+# Create .env (or export)
+GEMINI_API_KEY=your_api_key_here                  # Provider key (fallback supported)
+GEMINI_BATCH_MODEL=gemini-2.0-flash               # Library config
+GEMINI_BATCH_TIER=free                            # free | tier_1 | tier_2 | tier_3
+GEMINI_BATCH_ENABLE_CACHING=true                  # Enable context caching
 ```
 
 See [docs/SETUP.md](docs/SETUP.md) for detailed configuration options.
 
-### ⚡ Rate Limit Configuration
+### Rate Limit Configuration
 
 **Important**: Gemini API rate limits vary substantially by billing tier. Configure your tier for optimal performance:
 
@@ -113,73 +137,82 @@ See [docs/SETUP.md](docs/SETUP.md) for detailed configuration options.
 - `tier_1` - Billing enabled (most common paid tier)
 - `tier_2`, `tier_3` - Higher volume plans
 
-**Without tier configuration**, all users default to free tier limits.
+If no tier is configured, the library defaults to free tier limits. Use `gb-config doctor` to confirm.
+
+### One-Command Health Check
+
+```bash
+gb-config doctor
+# or inspect resolved config
+gb-config audit
+```
 
 ## 🔥 Quick Start
 
-### Basic Usage with Caching
+### Basic Usage
 
 ```python
-from gemini_batch import BatchProcessor
+import asyncio
+from gemini_batch import run_simple, types
 
-# Automatic caching for supported models
-processor = BatchProcessor(enable_caching=True)
+async def main():
+    # Simple single-source analysis
+    result = await run_simple(
+        "What are the main points and key insights?",
+        source=types.Source.from_file("content.pdf"),
+    )
+    print(result["answers"][0])
 
-questions = ["What are the main points?", "What are the key insights?"]
-
-# Works with any content type
-results = processor.process_questions("content.pdf", questions)
+asyncio.run(main())
 ```
 
-### Conversation Analysis
+### Multi-Source Batch Processing
 
 ```python
-from gemini_batch import create_conversation
+import asyncio
+from gemini_batch import run_batch, types
 
-# Create persistent conversation session
-session = create_conversation("research_papers/")
+async def main():
+    sources = [
+        types.Source.from_file("research_papers/paper1.pdf"),
+        types.Source.from_url("https://youtube.com/watch?v=example"),
+        types.Source.from_directory("data/")
+    ]
+    prompts = [
+        "What are the main research themes?",
+        "How do these sources complement each other?",
+    ]
 
-# Ask initial questions
-answers = session.ask_multiple([
-    "What are the main research themes?",
-    "Which papers discuss efficiency techniques?"
-])
+    envelope = await run_batch(prompts, sources=sources)
+    for i, answer in enumerate(envelope["answers"], start=1):
+        print(f"Q{i}: {answer}")
 
-# Natural follow-up with full context
-followup = session.ask("How do these techniques compare in practice?")
-
-# Session automatically maintains context and can be saved/loaded
-session_id = session.save()
+asyncio.run(main())
 ```
 
-### Unified Content Processing
+### Advanced Configuration
 
 ```python
-questions = ["What are the main points?", "What are the key insights?"]
+from gemini_batch import create_executor, types
+from gemini_batch.config import resolve_config
 
-# YouTube video
-results = processor.process_questions("https://youtube.com/watch?v=example", questions)
+# Configure execution with custom options
+config = resolve_config(overrides={
+    "model": "gemini-2.0-flash",
+    "tier": "tier_1",
+    "enable_caching": True
+})
 
-# Multiple research sources
-sources = [
-    "research_papers/",           # Directory of papers
-    "https://arxiv.org/pdf/...",  # arXiv paper
-    "https://youtube.com/watch?v=...",  # Educational video
-]
+executor = create_executor(config)
 
-# Single API call processes all sources with caching
-results = processor.process_questions_multi_source(sources, questions)
-```
-
-### Configuration Options
-
-```python
-# Automatic tier detection from environment
-processor = BatchProcessor()  # Reads GEMINI_TIER from .env
-
-# Or specify explicitly
-from gemini_batch.config import APITier
-processor = BatchProcessor(tier=APITier.TIER_1)
+# Execute with specific options
+result = await executor.execute(types.InitialCommand(
+    prompt="Analyze this content for key insights",
+    sources=[types.Source.from_file("analysis.pdf")],
+    options=types.make_execution_options(
+        result_prefer_json_array=True,
+    )
+))
 ```
 
 ## 📚 Documentation
@@ -194,7 +227,14 @@ processor = BatchProcessor(tier=APITier.TIER_1)
 ### Examples & Demos
 
 - **[Examples Directory](examples/)** - Complete usage demonstrations
-- **[Research Notebook](notebooks/literature_review_demo.ipynb)** - Academic workflow with 12 sources
+- **[Research Notebook](notebooks/week3_literature_review_demo.ipynb)** - Academic workflow with 12 sources
+
+## 🧭 Architecture At A Glance
+
+- **`config/`**: Deterministic resolution across env, files, and overrides; includes `gb-config` CLI.
+- **`pipeline/`**: Async handler chain for source prep, planning, extraction, and result building.
+- **`executor.py`**: Orchestrates the command pipeline, enforcing result invariants.
+- **`telemetry.py`**: Opt‑in, ultra‑low‑overhead telemetry (`GEMINI_BATCH_TELEMETRY=1`).
 
 ## 🛠️ Development Roadmap
 
@@ -204,8 +244,8 @@ processor = BatchProcessor(tier=APITier.TIER_1)
 | 4-5 | Context caching & conversation memory | ✅ **Completed** |
 | 6 | Performance infrastructure & architecture modernization | ✅ **Completed** |
 | 7-8 | Testing foundation & professional infrastructure | ✅ **Completed** |
-| 9-11 | Architectural refactor & advanced optimization | ⚪ **Current** |
-| 12-13 | Documentation & final delivery | ⚪ Planned |
+| 9-11 | Command pipeline architecture & legacy removal | ✅ **Completed** |
+| 12 | Final delivery & production readiness | 🎯 **Current** |
 
 ## 🤝 Contributing
 
