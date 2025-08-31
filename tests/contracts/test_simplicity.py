@@ -16,18 +16,43 @@ class TestSimplicityCompliance:
     @pytest.mark.contract
     def test_core_module_has_minimal_public_interface(self):
         """The core module should have a minimal, focused public interface."""
-        # Check that core module doesn't expose too many public items
-        core_public_items = [
+        # Assert an intentional, curated public surface for discoverability.
+        # This is more robust than a raw count and documents the contract.
+        actual = {
             name
             for name in dir(types)
             if not name.startswith("_") and not inspect.ismodule(getattr(types, name))
-        ]
-
-        # Should have a reasonable number of public items (not too many)
-        # Allow for 25 items to account for type imports and core functionality
-        # TODO: Remove temporary increase from 25 to 35
-        assert len(core_public_items) <= 35, (
-            f"Too many public items: {core_public_items}"
+        }
+        expected = {
+            "APICall",
+            "APIPart",
+            "Turn",
+            "ExecutionPlan",
+            "Failure",
+            "FileInlinePart",
+            "FilePlaceholder",
+            "FileRefPart",
+            "FinalizedCommand",
+            "GenerationConfigDict",
+            "HistoryPart",
+            "InitialCommand",
+            "PlannedCommand",
+            "PromptBundle",
+            "RateConstraint",
+            "ResolvedCommand",
+            "Result",
+            "ResultEnvelope",
+            "Source",
+            "Success",
+            "TextPart",
+            "TokenEstimate",
+            "UploadTask",
+            "explain_invalid_result_envelope",
+            "is_result_envelope",
+        }
+        assert actual == expected, (
+            f"Public surface mismatch. Extra: {sorted(actual - expected)}; "
+            f"Missing: {sorted(expected - actual)}"
         )
 
     @pytest.mark.unit
@@ -37,7 +62,7 @@ class TestSimplicityCompliance:
         dataclasses = [
             types.Success,
             types.Failure,
-            types.ConversationTurn,
+            types.Turn,
             types.Source,
             types.InitialCommand,
             types.ResolvedCommand,
