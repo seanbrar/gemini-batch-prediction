@@ -13,6 +13,7 @@ and conservative content-type/size checks. HTTPS is required by default.
 
 from __future__ import annotations
 
+import asyncio
 import contextlib
 from dataclasses import replace
 import logging
@@ -168,6 +169,9 @@ class RemoteMaterializationStage(
                     float(max(1, int(policy.download_concurrency))),
                 )
             return Success(updated)
+        except asyncio.CancelledError:
+            # Preserve cooperative cancellation semantics
+            raise
         except APIError as e:
             return Failure(e)
         except Exception as e:  # pragma: no cover - defensive normalization
@@ -206,43 +210,20 @@ def _scan_parts(
 async def _download_uris(
     uris: list[str], policy: RemoteFilePolicy
 ) -> tuple[dict[str, dict[str, int | str | None]], dict[str, int]]:
-    # Concurrency and single-flight dedup by URI
-    import asyncio
-
+    # Concurrency with bounded semaphore; URIs are deduplicated prior to scheduling
     sem = asyncio.Semaphore(max(1, int(policy.download_concurrency)))
-    inflight: dict[str, asyncio.Future[tuple[str, int]]] = {}
-    lock = asyncio.Lock()
     downloads: dict[str, dict[str, int | str | None]] = {}
     errors = 0
-
-    async def _ensure(uri: str) -> tuple[str, int]:
-        async with lock:
-            fut = inflight.get(uri)
-            if fut is None:
-                fut = asyncio.get_running_loop().create_future()
-                inflight[uri] = fut
-                creator = True
-            else:
-                creator = False
-        if not creator:
-            return await fut
-        try:
-            async with sem:
-                path, nbytes = await _download_to_temp(uri, policy)
-                fut.set_result((path, nbytes))
-                return path, nbytes
-        except Exception as e:
-            fut.set_exception(e)
-            raise
-        finally:
-            async with lock:
-                inflight.pop(uri, None)
 
     async def _one(uri: str) -> None:
         nonlocal errors
         try:
-            path, nbytes = await _ensure(uri)
-            downloads[uri] = {"path": path, "bytes": nbytes}
+            async with sem:
+                path, nbytes = await _download_to_temp(uri, policy)
+                downloads[uri] = {"path": path, "bytes": nbytes}
+        except asyncio.CancelledError:
+            # Propagate cancellation without counting as an error
+            raise
         except Exception:
             if policy.on_error == "skip":
                 logger.debug(
@@ -260,7 +241,22 @@ async def _download_uris(
             unique.append(u)
             seen.add(u)
 
-    await asyncio.gather(*(_one(u) for u in unique))
+    # Use named tasks + robust cancellation/drain
+    tasks = [
+        asyncio.create_task(_one(u), name=f"remote_materialization:{u}") for u in unique
+    ]
+    try:
+        await asyncio.gather(*tasks, return_exceptions=False)
+    except asyncio.CancelledError:
+        for t in tasks:
+            t.cancel()
+        await asyncio.gather(*tasks, return_exceptions=True)
+        raise
+    except Exception:
+        for t in tasks:
+            t.cancel()
+        await asyncio.gather(*tasks, return_exceptions=True)
+        raise
 
     total_bytes = 0
     skipped = 0
@@ -404,6 +400,8 @@ async def _download_to_temp(uri: str, policy: RemoteFilePolicy) -> tuple[str, in
                     os.close(tmp_fd)  # type: ignore[arg-type]
                 with contextlib.suppress(Exception):
                     Path(path).unlink()
+                # Avoid double-close in finally
+                tmp_fd = None
             raise
         finally:
             if tmp_fd is not None:

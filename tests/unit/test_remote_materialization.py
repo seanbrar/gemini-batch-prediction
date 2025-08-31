@@ -1,3 +1,4 @@
+import asyncio
 from collections.abc import Iterable
 from pathlib import Path
 from types import TracebackType
@@ -12,6 +13,25 @@ from gemini_batch.core.execution_options import ExecutionOptions, RemoteFilePoli
 from gemini_batch.core.models import APITier
 from gemini_batch.core.types import APIPart, FileRefPart, Success
 from gemini_batch.pipeline.remote_materialization import RemoteMaterializationStage
+
+
+@pytest.fixture(autouse=True)
+def cleanup_async_tasks():
+    """Clean up any lingering async tasks after each test."""
+    yield
+    # Give any pending async tasks a chance to complete
+    try:
+        loop = asyncio.get_running_loop()
+        # Cancel any pending tasks created by remote materialization
+        pending = [task for task in asyncio.all_tasks(loop) if not task.done()]
+        for task in pending:
+            get_name = getattr(task, "get_name", None)
+            name = get_name() if callable(get_name) else ""
+            if isinstance(name, str) and name.startswith("remote_materialization"):
+                task.cancel()
+    except RuntimeError:
+        # No running loop
+        pass
 
 
 def _cfg() -> FrozenConfig:
@@ -102,36 +122,38 @@ async def test_shared_pdf_promotion(monkeypatch: MonkeyPatch) -> None:
         c.last_url = str(url)
         return _FakeResp(b"%PDF-1.4\n...")
 
-    monkeypatch.setattr("urllib.request.urlopen", fake_urlopen)
-    policy = RemoteFilePolicy(enabled=True)
-    cmd = _mk_cmd(
-        shared_parts=(
-            FileRefPart(uri="https://host/file.pdf", mime_type="application/pdf"),
+    # Use context manager to ensure proper cleanup
+    with monkeypatch.context() as m:
+        m.setattr("urllib.request.urlopen", fake_urlopen)
+        policy = RemoteFilePolicy(enabled=True)
+        cmd = _mk_cmd(
+            shared_parts=(
+                FileRefPart(uri="https://host/file.pdf", mime_type="application/pdf"),
+            )
         )
-    )
-    # Inject options
-    cmd = PlannedCommand(
-        resolved=ResolvedCommand(
-            initial=InitialCommand.strict(
-                sources=(),
-                prompts=("p",),
-                config=_cfg(),
-                options=ExecutionOptions(remote_files=policy),
+        # Inject options
+        cmd = PlannedCommand(
+            resolved=ResolvedCommand(
+                initial=InitialCommand.strict(
+                    sources=(),
+                    prompts=("p",),
+                    config=_cfg(),
+                    options=ExecutionOptions(remote_files=policy),
+                ),
+                resolved_sources=(),
             ),
-            resolved_sources=(),
-        ),
-        execution_plan=cmd.execution_plan,
-    )
-    stage = RemoteMaterializationStage()
-    out = await stage.handle(cmd)
-    assert isinstance(out, Success)
-    new_shared = out.value.execution_plan.shared_parts
-    # The stage should replace FileRefPart with FilePlaceholder (duck by attrs)
-    fp = new_shared[0]
-    assert hasattr(fp, "local_path")
-    assert getattr(fp, "ephemeral", False) is True
-    assert Path(fp.local_path).exists()
-    assert c.count == 1
+            execution_plan=cmd.execution_plan,
+        )
+        stage = RemoteMaterializationStage()
+        out = await stage.handle(cmd)
+        assert isinstance(out, Success)
+        new_shared = out.value.execution_plan.shared_parts
+        # The stage should replace FileRefPart with FilePlaceholder (duck by attrs)
+        fp = new_shared[0]
+        assert hasattr(fp, "local_path")
+        assert getattr(fp, "ephemeral", False) is True
+        assert Path(fp.local_path).exists()
+        assert c.count == 1
 
 
 @pytest.mark.asyncio
