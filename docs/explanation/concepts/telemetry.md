@@ -12,7 +12,7 @@ Telemetry in Gemini Batch is an extension point that gives users fine-grained me
 ## Core Abstractions
 
 - **TelemetryContext**: A factory that returns either a fully featured context (enabled) or a shared no-op instance (disabled). The context is callable and also acts as a context manager.
-  - Enabled when an env flag is set (`GEMINI_TELEMETRY=1` or `DEBUG=1`) and at least one reporter is provided.
+  - Enabled when an env flag is set (`GEMINI_BATCH_TELEMETRY=1` or `DEBUG=1`) and at least one reporter is provided.
   - Offers helpers: `time(name)`, `count(name, increment=1, **metadata)`, `gauge(name, value, **metadata)`.
 
 - **TelemetryReporter**: A structural protocol with two methods:
@@ -43,3 +43,7 @@ Telemetry in Gemini Batch is an extension point that gives users fine-grained me
 - [Deep Dive — Telemetry Spec](../deep-dives/telemetry-spec.md)
 - [ADR-0006 — Telemetry](../decisions/ADR-0006-telemetry.md)
 - [Architecture at a Glance](../architecture.md)
+
+## Raw Preview (Research)
+
+For debugging and research, you can opt in to attach a compact, sanitized preview of provider responses into the result envelope (`metrics.raw_preview`). Enable globally with `GEMINI_BATCH_TELEMETRY_RAW_PREVIEW=1` or per handler via `APIHandler(include_raw_preview=True)`. See the Telemetry Guide for examples and field details.

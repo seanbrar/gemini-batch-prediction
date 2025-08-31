@@ -22,11 +22,11 @@ processor = BatchProcessor(client=client)
 
 ```bash
 # Enable caching globally
-GEMINI_ENABLE_CACHING=true
+GEMINI_BATCH_ENABLE_CACHING=true
 
 # Model selection affects caching capabilities
-GEMINI_MODEL=gemini-2.5-flash-preview-05-20  # Supports implicit + explicit
-GEMINI_MODEL=gemini-2.0-flash                # Supports explicit only
+GEMINI_BATCH_MODEL=gemini-2.5-flash-preview-05-20  # Supports implicit + explicit
+GEMINI_BATCH_MODEL=gemini-2.0-flash                # Supports explicit only
 ```
 
 ### Model Caching Capabilities

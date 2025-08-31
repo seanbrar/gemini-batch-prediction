@@ -13,7 +13,7 @@ This deep dive documents the Telemetry system’s behavior, interfaces, and perf
 ### Factory and Contexts
 
 - `TelemetryContext(*reporters)` is the entry point.
-  - If `GEMINI_TELEMETRY=1` or `DEBUG=1` and at least one reporter is provided, returns `_EnabledTelemetryContext`.
+  - If `GEMINI_BATCH_TELEMETRY=1` or `DEBUG=1` and at least one reporter is provided, returns `_EnabledTelemetryContext`.
   - Otherwise returns `_NO_OP_SINGLETON` of `_NoOpTelemetryContext`.
 
 ### Enabled Context
@@ -48,7 +48,7 @@ This deep dive documents the Telemetry system’s behavior, interfaces, and perf
 ## Scope Naming and Validation
 
 - Recommended schema: `lowercase` segments separated by dots with digits/underscores allowed.
-- Optional strict regex validation via `GEMINI_TELEMETRY_STRICT_SCOPES=1`.
+- Optional strict regex validation via `GEMINI_BATCH_TELEMETRY_STRICT_SCOPES=1`.
 
 ## Performance Considerations
 
@@ -67,7 +67,7 @@ Example usage:
 
 ```python
 import os
-os.environ["GEMINI_TELEMETRY"] = "1"
+os.environ["GEMINI_BATCH_TELEMETRY"] = "1"
 
 from gemini_batch.telemetry import _SimpleReporter, TelemetryContext
 

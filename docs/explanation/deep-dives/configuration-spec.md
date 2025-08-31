@@ -52,6 +52,7 @@ A **Pydantic BaseModel** (`Settings`) provides strong typing, field validation, 
 - `use_real_api: bool = False`.
 - `ttl_seconds: int = 3600` (≥0).
 - `telemetry_enabled: bool = False`.
+- `request_concurrency: int = 6` (≥0) — client-side fan-out bound for vectorized calls.
   (Derived/runtime fields like `provider` and `extra` live on `FrozenConfig`, not on `Settings`.)
 
 Schema provides automatic coercion from env strings and TOML types with clear error messages.
@@ -85,6 +86,7 @@ class FrozenConfig:
     ttl_seconds: int
     telemetry_enabled: bool
     tier: APITier
+    request_concurrency: int
     provider: str  # Derived via pattern-based provider inference
     extra: dict[str, Any]  # Validated extra fields
 ```
@@ -124,7 +126,7 @@ def validate_extra_field(name: str, value: Any) -> list[str]:
 
 ### 3.6 Debug Audit Emission
 
-Controlled via `GEMINI_DEBUG_CONFIG` and emitted through Python’s warnings module. By default, warnings print once per callsite; values are redacted to avoid secret leaks.
+Controlled via `GEMINI_BATCH_DEBUG_CONFIG` and emitted through Python’s warnings module. By default, warnings print once per callsite; values are redacted to avoid secret leaks.
 
 ---
 
@@ -133,7 +135,7 @@ Controlled via `GEMINI_DEBUG_CONFIG` and emitted through Python’s warnings mod
 **Order (highest → lowest):**
 
 1. Programmatic overrides (dict passed to `resolve_config()` or via `with_overrides`)
-2. Environment variables (`GEMINI_*`)
+2. Environment variables (`GEMINI_BATCH_*`)
 3. Project file: `./pyproject.toml`
 4. Home file: `~/.config/gemini_batch.toml`
 5. Defaults (schema)
@@ -144,7 +146,7 @@ Controlled via `GEMINI_DEBUG_CONFIG` and emitted through Python’s warnings mod
 
 - Project file tables: `[tool.gemini_batch]` and `[tool.gemini_batch.profiles.<name>]`.
 - Home file uses the same tables (`[tool.gemini_batch]` and optional `[tool.gemini_batch.profiles.<name>]`).
-- Selection: `GEMINI_PROFILE=<name>` or `resolve_config(profile=...)`.
+- Selection: `GEMINI_BATCH_PROFILE=<name>` or `resolve_config(profile=...)`.
 
 **.env support:** `resolve_config()` attempts to load a `.env` file if `python-dotenv` is available; failures are ignored for robustness.
 
@@ -192,9 +194,11 @@ model = "gemini-2.0-flash"
 
 ## 6. Environment Variables
 
-- Prefix: `GEMINI_` (e.g., `GEMINI_MODEL`, `GEMINI_TIER`).
-- Case insensitive where supported by the settings library; normalized to lower‑case keys.
+- Prefix: `GEMINI_BATCH_` (e.g., `GEMINI_BATCH_MODEL`, `GEMINI_BATCH_TIER`).
+- Field names are normalized to lower‑case after the prefix is stripped; variable names must match exactly.
 - Type coercion: booleans (`true/false/1/0`), integers, enums (`APITier`).
+- Also recognized: `GEMINI_API_KEY` (convenience; preferred if `GEMINI_BATCH_API_KEY` is not set).
+- Additional field: `GEMINI_BATCH_REQUEST_CONCURRENCY` (int; default 6).
 
 ---
 
@@ -361,7 +365,7 @@ Errors abort resolution; callers may catch and surface actionable messages.
 
 - **Phase 1:** Introduce resolver and `FrozenConfig`; leave dict reads in place with a warning log path.
 - **Phase 2:** Codemod handler reads to attribute access; drop dict branch.
-- **Phase 3:** Enable profiles and document `GEMINI_PROFILE`.
+- **Phase 3:** Enable profiles and document `GEMINI_BATCH_PROFILE`.
 - **Deprecations:** Old field names may be kept as **aliases** with warnings for one minor version.
 
 ---

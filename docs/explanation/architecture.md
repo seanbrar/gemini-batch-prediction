@@ -95,6 +95,7 @@ flowchart LR
 - [Concept – Command Pipeline](./concepts/command-pipeline.md)
 - [Deep Dive – Command Pipeline Spec](./deep-dives/command-pipeline-spec.md)
 - [ADR-0001 – Command Pipeline](./decisions/ADR-0001-command-pipeline.md)
+- [ADR-0011 – Cache Policy & Planner Simplification](./decisions/ADR-0011-cache-policy-and-planner-simplification.md)
 - [Architecture Rubric](./architecture-rubric.md)
 - [Concept – Token Counting & Estimation](./concepts/token-counting.md)
 - [Glossary](./glossary.md)

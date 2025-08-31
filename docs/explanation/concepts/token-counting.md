@@ -85,6 +85,15 @@ TokenEstimate {min, expected, max, confidence, breakdown}
 - **Unknowns:** Unknown content types fall back to conservative byte-based heuristics with lower confidence.
 - **Mixed content:** Confidence is reduced for heterogeneous batches, widening the range.
 
+### Cache policy and floors (ADR‑0011)
+
+Cache creation is governed by a small, explicit policy resolved from configuration and hints:
+
+- **First‑turn‑only by default:** Shared cache creation is attempted only on the first turn (empty history). Later attempts are opt‑in via `CachePolicyHint(first_turn_only=False)`.
+- **Confidence floor skip:** Skip creation when both are true: `estimate.max_tokens < floor` and `estimate.confidence ≥ conf_skip_floor` and `respect_floor=True`.
+- **Floor resolution:** Prefer model capability thresholds (`explicit_minimum_tokens` → `implicit_minimum_tokens`), otherwise use 4096; override via `CachePolicyHint(min_tokens_floor=...)`.
+- **Planner purity:** The planner applies this policy as a pure data transform. It does not call any provider SDK or read content.
+
 ---
 
 ## Data Flow (within the pipeline)
@@ -103,7 +112,7 @@ sequenceDiagram
   Exec->>Plan: plan(resolved_sources, config)
   Plan->>Est: estimate(per-source) + aggregate
   Est-->>Plan: TokenEstimate {min, expected, max, confidence, breakdown}
-  Plan-->>Exec: ExecutionPlan (+ TokenEstimate)
+  Plan-->>Exec: ExecutionPlan (+ TokenEstimate, + CacheDecision)
   Exec->>API: execute(ExecutionPlan)
   API->>Tele: record(actual_tokens, accuracy_ratio, in_range)
   API-->>Exec: Result
