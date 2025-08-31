@@ -15,7 +15,7 @@ from gemini_batch.core.execution_options import (
     ExecutionOptions,
     ResultOption,
 )
-from gemini_batch.core.types import ConversationTurn
+from gemini_batch.core.types import Turn
 
 if TYPE_CHECKING:
     from .conversation_types import ConversationPolicy, ConversationState, PromptSet
@@ -26,7 +26,7 @@ class ConversationPlan:
     """Pure, inspectable plan for executing a conversation step."""
 
     sources: tuple[Any, ...]
-    history: tuple[ConversationTurn, ...]
+    history: tuple[Turn, ...]
     prompts: tuple[str, ...]
     strategy: Literal["sequential", "vectorized"]
     # Back-compat, inspectable hints view for audits/demos/tests
@@ -48,7 +48,7 @@ def compile_conversation(
         An immutable plan that can be inspected or executed.
     """
     # history window
-    full = tuple(ConversationTurn(q.user, q.assistant, q.error) for q in state.turns)
+    full = tuple(Turn(q.user, q.assistant, q.error) for q in state.turns)
     hist = (
         full[-policy.keep_last_n :]
         if (policy and policy.keep_last_n and policy.keep_last_n > 0)

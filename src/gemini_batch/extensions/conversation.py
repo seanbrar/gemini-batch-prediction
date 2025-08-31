@@ -42,7 +42,13 @@ from __future__ import annotations
 from dataclasses import replace
 from typing import TYPE_CHECKING, Any, Protocol
 
-from gemini_batch.core.types import InitialCommand, ResultEnvelope
+from gemini_batch.core.exceptions import InvariantViolationError
+from gemini_batch.core.types import (
+    InitialCommand,
+    ResultEnvelope,
+    explain_invalid_result_envelope,
+    is_result_envelope,
+)
 
 from .conversation_planner import compile_conversation
 from .conversation_types import (
@@ -149,17 +155,14 @@ class Conversation:
             cmd
         )  # core builds answers+metrics; do not reimplement
 
+        # Immediate validation: fail fast on invalid envelopes
+        if not is_result_envelope(res):
+            reason = explain_invalid_result_envelope(res) or "Invalid ResultEnvelope"
+            raise InvariantViolationError(reason, stage_name="conversation")
+
         # Map results minimally → Exchanges (no parsing/validation logic here)
-        # Robust error detection: support multiple envelope shapes
-        status = res.get("status")
-        is_error = False
-        if isinstance(res.get("error"), bool):
-            is_error = bool(res.get("error"))
-        elif isinstance(res.get("ok"), bool):
-            is_error = not bool(res.get("ok"))
-        else:
-            status_str = str(status or "ok").lower()
-            is_error = status_str == "error"
+        status_str = str(res.get("status")).lower()
+        is_error = status_str == "error"
         answers = tuple(str(a) for a in (res.get("answers") or []))
         usage = res.get("usage") or {}
         metrics = res.get("metrics") or {}
