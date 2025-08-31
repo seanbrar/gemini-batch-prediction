@@ -34,7 +34,7 @@ from gemini_batch.core.types import (
 from gemini_batch.pipeline.base import BaseAsyncHandler
 from gemini_batch.telemetry import TelemetryContext
 
-logger = logging.getLogger(__name__)
+log = logging.getLogger(__name__)
 
 if TYPE_CHECKING:  # pragma: no cover - typing only
     from gemini_batch.core.api_plan import ExecutionPlan
@@ -226,8 +226,10 @@ async def _download_uris(
             raise
         except Exception:
             if policy.on_error == "skip":
-                logger.debug(
-                    "remote materialization skipped due to error for URI: %s", uri
+                log.debug(
+                    "remote materialization skipped due to error for URI: %s",
+                    uri,
+                    exc_info=True,
                 )
                 downloads[uri] = {"path": None, "bytes": 0}
             else:

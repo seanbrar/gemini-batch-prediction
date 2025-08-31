@@ -46,7 +46,7 @@ if TYPE_CHECKING:
     from gemini_batch.pipeline.registries import SimpleRegistry
     from gemini_batch.telemetry import TelemetryContextProtocol
 
-logger = logging.getLogger(__name__)
+log = logging.getLogger(__name__)
 
 
 class CacheStage(BaseAsyncHandler[PlannedCommand, PlannedCommand, APIError]):
@@ -252,7 +252,7 @@ class CacheStage(BaseAsyncHandler[PlannedCommand, PlannedCommand, APIError]):
                 created_name = None
             fut.set_result(created_name)
         except Exception as e:
-            logger.debug("create_cache failed: %s", e, exc_info=True)
+            log.debug("create_cache failed: %s", e, exc_info=True)
             fut.set_result(None)
             created_name = None
         finally:
@@ -277,7 +277,7 @@ def _inline_file_placeholders(parts: list[Any]) -> list[Any]:
                 except Exception:
                     size = None
                 if size is not None and size > INLINE_CACHE_MAX_BYTES:
-                    logger.debug(
+                    log.debug(
                         "Skipping inline caching for large file: %s (%d bytes > %d limit)",
                         p.local_path.name,
                         size,
@@ -294,7 +294,7 @@ def _inline_file_placeholders(parts: list[Any]) -> list[Any]:
                     )
                 )
             except Exception:
-                logger.debug("skipping unreadable file for caching purposes: %s", p)
+                log.debug("skipping unreadable file for caching purposes: %s", p)
                 continue
         else:
             inline.append(p)

@@ -13,7 +13,7 @@ from gemini_batch.core.types import (
 )
 from gemini_batch.pipeline.base import BaseAsyncHandler
 
-logger = logging.getLogger(__name__)
+log = logging.getLogger(__name__)
 
 
 class SourceHandler(BaseAsyncHandler[InitialCommand, ResolvedCommand, SourceError]):

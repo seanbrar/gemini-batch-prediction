@@ -15,6 +15,7 @@ from typing import TYPE_CHECKING, Any, Literal
 if TYPE_CHECKING:
     from collections.abc import Callable, Mapping
 
+log = logging.getLogger(__name__)
 # --- Transform Specification ---
 
 
@@ -246,7 +247,6 @@ class ExtractionResult:
             if dev_validate_enabled() and (
                 nested_detected[0] or nonlocal_coerce_flag[0]
             ):
-                log = logging.getLogger(__name__)
                 reasons: list[str] = []
                 if nested_detected[0]:
                     reasons.append("nested_answer_sequence")
@@ -258,9 +258,7 @@ class ExtractionResult:
                         ",".join(reasons),
                     )
         except Exception as e:
-            logging.getLogger(__name__).debug(
-                "ExtractionResult advisory hook failed: %s", e
-            )
+            log.debug("ExtractionResult advisory hook failed: %s", e)
 
         # Validate method
         if not self.method:

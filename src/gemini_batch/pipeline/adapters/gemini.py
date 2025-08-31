@@ -22,7 +22,7 @@ if TYPE_CHECKING:
     from gemini_batch.config import FrozenConfig
     from gemini_batch.pipeline.execution_state import ExecutionHints
 
-logger = logging.getLogger(__name__)
+log = logging.getLogger(__name__)
 
 
 class GoogleGenAIAdapter(GenerationAdapter):
@@ -107,7 +107,7 @@ class GoogleGenAIAdapter(GenerationAdapter):
                         raw_provider_data=uploaded,
                     )
         except Exception:  # pragma: no cover - never fail upload due to normalization
-            logger.debug(
+            log.debug(
                 "upload normalization failed; returning raw object", exc_info=True
             )
 
@@ -229,7 +229,7 @@ class GoogleGenAIAdapter(GenerationAdapter):
                 except Exception:  # pragma: no cover
                     return {"inline_data": True, "mime_type": part.mime_type}
         except Exception:  # pragma: no cover - type import issues shouldn't break
-            logger.exception("Failed to convert part")
+            log.exception("Failed to convert part")
         return part
 
     def _to_provider_config(self, api_config: dict[str, object]) -> Any:
@@ -309,7 +309,7 @@ class GoogleGenAIAdapter(GenerationAdapter):
                     }
                 )
         except Exception:
-            logger.exception("Failed to extract usage metadata")
+            log.exception("Failed to extract usage metadata")
         return usage
 
 

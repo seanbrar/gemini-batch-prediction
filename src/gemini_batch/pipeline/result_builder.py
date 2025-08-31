@@ -10,7 +10,6 @@ and when diagnostics are produced.
 
 from collections.abc import Mapping
 from dataclasses import asdict
-import logging
 import time
 from typing import Any, Never
 
@@ -32,8 +31,6 @@ from gemini_batch.pipeline.results.extraction import (
 )
 from gemini_batch.pipeline.results.minimal_projection import MinimalProjection
 from gemini_batch.pipeline.results.transforms import default_transforms
-
-log = logging.getLogger(__name__)
 
 
 class ResultBuilder(BaseAsyncHandler[FinalizedCommand, ResultEnvelope, Never]):

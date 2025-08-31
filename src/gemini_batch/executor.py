@@ -50,6 +50,8 @@ from gemini_batch.pipeline.result_builder import ResultBuilder
 from gemini_batch.pipeline.source_handler import SourceHandler
 from gemini_batch.telemetry import TelemetryContext
 
+log = logging.getLogger(__name__)
+
 if TYPE_CHECKING:
     from collections.abc import Iterable
 
@@ -233,9 +235,7 @@ class GeminiExecutor:
                     metrics_obj["durations"] = dict(stage_durations)
         except Exception as e:  # pragma: no cover - best-effort telemetry only
             # Never fail post-invariant; metrics are best-effort
-            logging.getLogger(__name__).debug(
-                "Duration fallback attachment failed: %s", e
-            )
+            log.debug("Duration fallback attachment failed: %s", e, exc_info=True)
         return current
 
     def _cleanup_ephemeral_placeholders(self, obj: Any) -> None:

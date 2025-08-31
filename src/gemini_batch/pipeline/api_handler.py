@@ -65,7 +65,7 @@ if TYPE_CHECKING:
 # Note: Provider adapters are injected explicitly via `adapter` or `adapter_factory`.
 # No import-time aliasing is required.
 
-logger = logging.getLogger(__name__)
+log = logging.getLogger(__name__)
 
 
 class UploadPhase(str, Enum):
@@ -365,7 +365,7 @@ class APIHandler(BaseAsyncHandler[PlannedCommand, FinalizedCommand, APIError]):
                                 Path(os.fspath(t.local_path)).unlink()
                 except Exception as _cleanup_err:
                     # Never fail upload due to cleanup; surface at debug level
-                    logger.debug("Ephemeral file cleanup failed: %s", _cleanup_err)
+                    log.debug("Ephemeral file cleanup failed: %s", _cleanup_err)
                 return i, uploaded
             except Exception as e:
                 fut.set_exception(e)
@@ -602,7 +602,7 @@ class APIHandler(BaseAsyncHandler[PlannedCommand, FinalizedCommand, APIError]):
                     )
             except Exception as _agg_err:
                 # Best-effort; keep envelope robust if shape varies
-                logger.debug(
+                log.debug(
                     "Failed to aggregate per-call flags; continuing.",
                     exc_info=_agg_err,
                 )
@@ -619,7 +619,7 @@ class APIHandler(BaseAsyncHandler[PlannedCommand, FinalizedCommand, APIError]):
                 )
         except Exception as e:
             # Best-effort: never fail execution due to metrics attachment
-            logger.debug("Failed to attach execution metrics; continuing.", exc_info=e)
+            log.debug("Failed to attach execution metrics; continuing.", exc_info=e)
 
         # Token validation compares estimated aggregate to actual aggregate
         self._attach_token_validation(finalized)
@@ -642,7 +642,7 @@ class APIHandler(BaseAsyncHandler[PlannedCommand, FinalizedCommand, APIError]):
                     "batch": previews,
                 }
         except Exception as e:
-            logger.debug("Failed to attach raw_preview; continuing.", exc_info=e)
+            log.debug("Failed to attach raw_preview; continuing.", exc_info=e)
         return finalized
 
     def _extract_text_from_parts(self, parts: tuple[APIPart, ...]) -> str:
