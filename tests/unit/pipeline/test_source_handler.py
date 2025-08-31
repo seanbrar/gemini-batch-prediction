@@ -8,6 +8,7 @@ document. They act as guardians of the architecture.
 
 from copy import deepcopy
 import inspect
+from typing import cast
 
 import pytest
 
@@ -129,9 +130,13 @@ class TestSourceHandlerContracts:
         # Create a command with invalid source objects that the handler must reject
         # The handler expects Source objects, but we'll pass a raw string to trigger an error
         problematic_command = InitialCommand(
-            sources=(
-                "not a source object",
-            ),  # This should trigger SourceHandler validation
+            sources=cast(
+                "tuple[Source, ...]",
+                (
+                    # intentionally wrong to trigger validation
+                    "not a source object",
+                ),
+            ),
             prompts=("test",),
             config=resolve_config(overrides={"api_key": "test-key"}),
         )

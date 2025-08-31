@@ -4,7 +4,7 @@ import asyncio
 from dataclasses import dataclass
 from pathlib import Path
 import tempfile
-from typing import Any
+from typing import TYPE_CHECKING, TypedDict
 
 import pytest
 
@@ -13,12 +13,22 @@ from gemini_batch.core.types import APIPart, FilePlaceholder, TextPart
 from gemini_batch.pipeline.adapters.base import UploadsCapability
 from gemini_batch.pipeline.api_handler import APIHandler
 
+if TYPE_CHECKING:
+    from os import PathLike
+
+
+class _UploadRef(TypedDict):
+    uri: str
+    mime_type: str | None
+
 
 @dataclass
 class _FakeUploadsAdapter(UploadsCapability):
     calls: int = 0
 
-    async def upload_file_local(self, path: str | Path, mime_type: str | None) -> Any:
+    async def upload_file_local(
+        self, path: str | PathLike[str], mime_type: str | None
+    ) -> _UploadRef:
         self.calls += 1
         await asyncio.sleep(0.01)
         return {"uri": f"mock://{Path(path)}", "mime_type": mime_type}
