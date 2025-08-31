@@ -66,6 +66,38 @@ clean: ## 🧹 Clean up all test and build artifacts
 	@echo "✅ Cleanup completed"
 
 # ------------------------------------------------------------------------------
+# Optimized CI Test Targets
+# ------------------------------------------------------------------------------
+.PHONY: test-fast test-progressive test-pr test-main test-fast-timed
+
+test-fast: ## ⚡ Fast tests only (~30s): contracts + unit + characterization
+	@echo "⚡ Running fast test suite..."
+	$(PYTEST) $(PYTEST_ARGS) --log-cli-level=$(TEST_LOG_LEVEL) \
+		-m "(contract or unit or characterization) and not slow and not api"
+
+test-progressive: ## 📈 Progressive tests with fail-fast (contracts → unit → characterization)
+	@echo "📈 Running progressive test suite with fail-fast..."
+	@echo "  1️⃣ Architectural contracts..."
+	@$(PYTEST) $(PYTEST_ARGS) -x --log-cli-level=$(TEST_LOG_LEVEL) -m "contract" || exit 1
+	@echo "  2️⃣ Unit tests..."
+	@$(PYTEST) $(PYTEST_ARGS) -x --log-cli-level=$(TEST_LOG_LEVEL) -m "unit" || exit 1
+	@echo "  3️⃣ Characterization tests..."
+	@$(PYTEST) $(PYTEST_ARGS) -x --log-cli-level=$(TEST_LOG_LEVEL) -m "characterization" || { ec=$$?; if [ $$ec -eq 5 ]; then echo "ℹ️  No characterization tests collected. Skipping step."; else exit $$ec; fi; }
+	@echo "✅ Progressive test suite passed"
+
+test-pr: test-progressive test-integration test-workflows ## 🔍 Pull Request suite (no slow tests)
+	@echo "✅ Pull Request test suite complete"
+
+test-main: test-all test-coverage ## 🎯 Main branch suite (everything + coverage)
+	@echo "✅ Main branch test suite complete"
+
+test-fast-timed: ## ⏱️ Fast tests with timing information
+	@echo "⏱️ Running fast tests with timing..."
+	@time $(PYTEST) $(PYTEST_ARGS) --log-cli-level=$(TEST_LOG_LEVEL) \
+		--durations=10 \
+		-m "(contract or unit or characterization) and not slow and not api"
+
+# ------------------------------------------------------------------------------
 # Granular Test Targets
 # ------------------------------------------------------------------------------
 .PHONY: test-unit test-golden-files test-integration test-api test-workflows
@@ -89,6 +121,16 @@ test-api: .check-api-key ## 🔑 Run API tests (requires GEMINI_API_KEY)
 test-workflows: ## 🔧 Run workflow configuration tests
 	@echo "🔧 Running workflow configuration tests..."
 	$(PYTEST) $(PYTEST_ARGS) --log-cli-level=$(TEST_LOG_LEVEL) -m "workflows"
+
+# Contract-first testing
+test-contracts: ## 🏛️ Run architectural contract tests (fast guards)
+	@echo "🏛️ Running architectural contract tests..."
+	$(PYTEST) $(PYTEST_ARGS) --log-cli-level=$(TEST_LOG_LEVEL) -m "contract"
+
+# Fast vs slow differentiation
+test-slow: ## 🐌 Run slow tests only
+	@echo "🐌 Running slow tests..."
+	$(PYTEST) $(PYTEST_ARGS) --log-cli-level=$(TEST_LOG_LEVEL) -m "slow"
 
 # ------------------------------------------------------------------------------
 # Prerequisite Checks (Internal)

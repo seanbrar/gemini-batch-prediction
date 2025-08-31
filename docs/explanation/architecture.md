@@ -38,7 +38,8 @@ Command → Source Handler → Execution Planner → API Handler → Result Buil
 - **Command** – Immutable description of the request (sources, prompts, configuration)
 - **Source Handler** – Resolves and normalizes raw inputs
 - **Execution Planner** – Makes strategic decisions (token budgeting, caching, batching, prompt assembly)
-- **API Handler** – Executes the plan via the Gemini API, handling rate limits and errors
+- **API Handler** – Executes the plan via provider adapter(s) and errors
+- **Rate Limit Handler** – Enforces vendor-neutral request/token pacing prior to API execution
 - **Result Builder** – Parses output, validates schema, merges telemetry, calculates metrics
 - **Executor** – Orchestrates handlers in order
 
@@ -73,7 +74,8 @@ flowchart LR
     User[Developer App] --> Command
     Command --> SH[Source Handler]
     SH --> EP[Execution Planner]
-    EP --> AH[API Handler]
+    EP --> RLH[Rate Limit Handler]
+    RLH --> AH[API Handler]
     AH --> RB[Result Builder]
     RB --> Result
 ```
@@ -82,7 +84,8 @@ flowchart LR
 
 - Source Handler: Normalize raw inputs into structured `Source` data.
 - Execution Planner: Decide batching, caching, token budgeting, and prompt assembly.
-- API Handler: Execute the plan (rate limits, retries, provider SDK calls).
+- Rate Limit Handler: Enforce vendor-neutral pacing before API execution.
+- API Handler: Execute the plan (uploads, caching, retries, provider SDK calls).
 - Result Builder: Parse output, validate schemas, and merge telemetry/metrics.
 
 ---
@@ -92,6 +95,7 @@ flowchart LR
 - [Concept – Command Pipeline](./concepts/command-pipeline.md)
 - [Deep Dive – Command Pipeline Spec](./deep-dives/command-pipeline-spec.md)
 - [ADR-0001 – Command Pipeline](./decisions/ADR-0001-command-pipeline.md)
+- [ADR-0011 – Cache Policy & Planner Simplification](./decisions/ADR-0011-cache-policy-and-planner-simplification.md)
 - [Architecture Rubric](./architecture-rubric.md)
 - [Concept – Token Counting & Estimation](./concepts/token-counting.md)
 - [Glossary](./glossary.md)

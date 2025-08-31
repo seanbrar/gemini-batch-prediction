@@ -1,6 +1,12 @@
 # Reusable workflow for code quality checks
 # Called by both CI and release workflows to ensure consistency
 # Accepts Python version as input to support version matrix testing
+#
+# Testing Strategy:
+# - Feature branch pushes: Fast tests only (~30s)
+# - Draft PRs: Fast tests with DEBUG logging
+# - Ready PRs: Progressive + integration + workflows (< 2 min)
+# - Main branch: Everything + coverage
 name: Reusable Python Checks
 
 "on":

@@ -1,78 +1,46 @@
-"""Gemini Batch Processing Framework"""  # noqa: D415
+"""Gemini Batch: Efficient, scenario-first batch interactions with Gemini APIs."""
+
+from __future__ import annotations
 
 import importlib.metadata
 import logging
-from typing import Any, List, Unpack  # noqa: UP035
 
-from .analysis.schema_analyzer import SchemaAnalyzer
-from .batch_processor import BatchProcessor
-from .config import (
-    ConversationConfig,
-    GeminiConfig,
-    config_scope,
-    debug_config,
-    get_config,
-    get_effective_config,
+from gemini_batch.core.exceptions import GeminiBatchError
+from gemini_batch.executor import GeminiExecutor, create_executor
+from gemini_batch.frontdoor import (
+    run_batch,
+    run_multi,
+    run_parallel,
+    run_rag,
+    run_simple,
+    run_synthesis,
 )
-from .conversation import (
-    ConversationSession,
-    ConversationTurn,  # Keep for type hinting
-    create_conversation,
-    load_conversation,
-)
-from .exceptions import APIError, GeminiBatchError, MissingKeyError, NetworkError
-from .files import FileType
-from .gemini_client import GeminiClient
-from .telemetry import TelemetryContext, TelemetryReporter
+
+# Curated public namespaces for clarity
+from . import exceptions as exceptions  # Re-exported public exceptions
+from . import types as types  # Re-exported public types
 
 # Version handling
 try:
     __version__ = importlib.metadata.version("gemini-batch")
-except importlib.metadata.PackageNotFoundError:
+except importlib.metadata.PackageNotFoundError:  # pragma: no cover - dev mode
     __version__ = "development"
 
-# Set up a null handler for the library's root logger.
-# This prevents 'No handler found' errors if the consuming app has no logging configured.
+# Set up a null handler for the library's root logger to be polite to apps
 logging.getLogger(__name__).addHandler(logging.NullHandler())
 
-
-def process_questions(
-    content: Any,
-    questions: list[str],
-    **config: Unpack[GeminiConfig],
-) -> dict:
-    """Process questions against content in a single call. Perfect for scripts and notebooks."""
-    processor = BatchProcessor(**config)
-    return processor.process_questions(content, questions)
-
-
-# Public API
 __all__ = [  # noqa: RUF022
-    # Core Classes
-    "GeminiClient",
-    "BatchProcessor",
-    "ConversationSession",
-    # Factory Functions
-    "create_conversation",
-    "load_conversation",
-    # One-shot function
-    "process_questions",
-    # Configuration
-    "config_scope",
-    "get_config",
-    "get_effective_config",
-    "debug_config",
-    "GeminiConfig",
-    "ConversationConfig",
-    # Supporting Types & Exceptions
-    "ConversationTurn",
-    "FileType",
+    # Primary entry points
+    "GeminiExecutor",
+    "create_executor",
+    "run_simple",
+    "run_batch",
+    "run_rag",
+    "run_multi",
+    "run_synthesis",
+    "run_parallel",
+    # Root exception and curated namespaces
     "GeminiBatchError",
-    "APIError",
-    "MissingKeyError",
-    "NetworkError",
-    "SchemaAnalyzer",
-    # Telemetry
-    "TelemetryContext",
-    "TelemetryReporter",
+    "types",
+    "exceptions",
 ]

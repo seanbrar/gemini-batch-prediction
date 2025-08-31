@@ -19,9 +19,9 @@ Get your API key from [Google AI Studio](https://ai.dev/) and configure it using
 ```bash
 # Create .env file or export directly
 GEMINI_API_KEY=your_api_key_here
-GEMINI_MODEL=gemini-2.0-flash       # Optional
-GEMINI_TIER=free                    # Options: free, tier_1, tier_2, tier_3
-GEMINI_ENABLE_CACHING=true          # Enable context caching for cost optimization
+GEMINI_BATCH_MODEL=gemini-2.0-flash       # Optional
+GEMINI_BATCH_TIER=free                    # Options: free, tier_1, tier_2, tier_3
+GEMINI_BATCH_ENABLE_CACHING=true          # Enable context caching for cost optimization
 ```
 
 > **Note**: Free tier limits vary by model (typically 10-30 requests/minute). For higher limits, enable billing in Google AI Studio.

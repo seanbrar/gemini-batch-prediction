@@ -4,7 +4,92 @@
 
 The library includes a `TelemetryContext` for advanced metrics collection. You can integrate it with your own monitoring systems (e.g., Prometheus, DataDog) by creating a custom reporter.
 
-This feature is designed for production environments where detailed telemetry is required. For internal debugging tools and design philosophy, see the Developer Guide in `dev/telemetry_internals.md` (in the repository).
+This feature is designed for production environments where detailed telemetry is required. For design rationale and implementation details, see [Explanation → Concepts (Telemetry)](./explanation/concepts/telemetry.md), [Deep Dives → Telemetry Spec](./explanation/deep-dives/telemetry-spec.md), and [Decisions → ADR-0006 Telemetry](./explanation/decisions/ADR-0006-telemetry.md).
+
+## Raw Preview (Research)
+
+For researcher workflows, you can attach a compact, sanitized preview of the raw provider output to telemetry. This preview is opt-in and designed to be tiny and safe for triage.
+
+- Flag: set `GEMINI_BATCH_TELEMETRY_RAW_PREVIEW=1` to enable globally, or pass `include_raw_preview=True` to `APIHandler(...)` for local control.
+- Location: the preview is attached to the finalized command telemetry and surfaced in the `ResultEnvelope` under `metrics.raw_preview`.
+- Fields: a minimal set such as `model`, `text`, `candidate0_text`, `finish_reason`, and a sanitized `usage` (scalar-only; long strings truncated). Unknown shapes fall back to a truncated `repr`.
+
+Example (enabling via constructor):
+
+```python
+from gemini_batch.pipeline.api_handler import APIHandler
+
+handler = APIHandler(include_raw_preview=True)  # opt-in per handler
+# ... run the pipeline (planner → api handler → result builder)
+envelope = result["value"]  # ResultEnvelope from ResultBuilder
+raw_preview = envelope["metrics"]["raw_preview"]
+print(raw_preview)
+# {
+#   "model": "gemini-2.0-flash",
+#   "batch": (
+#       {"text": "...", "candidate0_text": "...", "finish_reason": "STOP", "usage": {"total_token_count": 123}},
+#       {"text": "...", "candidate0_text": "...", "finish_reason": "STOP", "usage": {"total_token_count": 140}},
+#   )
+# }
+```
+
+Example (enabling via environment):
+
+```bash
+export GEMINI_BATCH_TELEMETRY_RAW_PREVIEW=1
+python your_pipeline_script.py
+```
+
+Notes:
+
+- The preview contains only small fields (e.g., `model`, `text`, `candidate0_text`, `finish_reason`, and a sanitized `usage`) and truncates long strings.
+- `usage` is sanitized to include only simple scalar fields; nested structures are dropped.
+- It is attached best-effort and never fails the pipeline if extraction fails.
+- Vectorized calls expose a tuple of per-call previews under `batch`.
+
+-----
+
+## Quick Start (Production-Oriented)
+
+Most users should either monitor logs or emit telemetry to an external backend. The built-in `_SimpleReporter` is useful for development, but is not recommended for regular use.
+
+```python
+import os
+import logging
+from typing import Any
+from gemini_batch.telemetry import TelemetryContext, TelemetryReporter
+
+# 1) Enable telemetry via env (opt-in)
+os.environ["GEMINI_BATCH_TELEMETRY"] = "1"
+
+# 2) Example: bridge timings/metrics to your existing logging setup
+class LoggingReporter:
+    def __init__(self, logger: logging.Logger | None = None) -> None:
+        self.log = logger or logging.getLogger("gemini_batch.telemetry")
+
+    def record_timing(self, scope: str, duration: float, **metadata: Any) -> None:
+        # Keep it compact and structured for downstream log processors
+        self.log.info("telemetry.timing", extra={
+            "scope": scope, "duration_s": duration, **metadata,
+        })
+
+    def record_metric(self, scope: str, value: Any, **metadata: Any) -> None:
+        self.log.info("telemetry.metric", extra={
+            "scope": scope, "value": value, **metadata,
+        })
+
+# 3) Install reporter
+tele = TelemetryContext(LoggingReporter())
+
+# 4) Your application code (the library emits scopes internally)
+with tele("my.pipeline.step", batch_size=16):
+    tele.gauge("token_efficiency", 0.92)
+```
+
+Notes:
+
+- Prefer sending telemetry to a production backend (e.g., Prometheus, OpenTelemetry collector) rather than relying on a custom in-process reporter.
+- If you only need human inspection, INFO logs with structured fields are often sufficient.
 
 -----
 
@@ -12,21 +97,38 @@ This feature is designed for production environments where detailed telemetry is
 
 You can create a custom reporter by creating a class that implements `record_timing` and/or `record_metric` methods.
 
-While the system uses structural typing (meaning no base class is technically required), it's **highly recommended** that your reporter inherits from the `TelemetryReporter` protocol. This enables static analysis tools and IDEs to provide autocompletion and type-checking, ensuring your implementation is correct.
+Recommended — Structural typing (no inheritance):
 
 ```python
-from your_module.telemetry import TelemetryReporter
+from typing import Any
+from gemini_batch.telemetry import TelemetryContext, TelemetryReporter
 
-# A simple reporter that logs to the console.
-# Inheriting from TelemetryReporter provides IDE support.
-class MyCustomReporter(TelemetryReporter):
-    def record_timing(self, scope: str, duration: float, **metadata):
-        print(f"[METRIC] TIMING: scope={scope}, duration={duration:.4f}s")
+class MyCustomReporter:
+    def record_timing(self, scope: str, duration: float, **metadata: Any) -> None:
+        print(f"[TIMING] {scope} took {duration:.4f}s")
 
-    def record_metric(self, scope: str, value: any, **metadata):
-        # The 'metric_type' is included in the metadata for counters and gauges.
-        metric_type = metadata.get('metric_type', 'unknown')
-        print(f"[METRIC] METRIC: scope={scope}, value={value}, type={metric_type}")
+    def record_metric(self, scope: str, value: Any, **metadata: Any) -> None:
+        print(f"[METRIC] {scope} = {value} ({metadata})")
+
+reporter: TelemetryReporter = MyCustomReporter()  # Optional type annotation for IDEs/mypy
+tele = TelemetryContext(reporter)
+```
+
+Optional — Runtime conformance check (when you accept reporters from third parties):
+
+```python
+from typing import Any
+from gemini_batch.telemetry import TelemetryContext, TelemetryReporter
+
+class MyCustomReporter:
+    def record_timing(self, scope: str, duration: float, **metadata: Any) -> None: ...
+    def record_metric(self, scope: str, value: Any, **metadata: Any) -> None: ...
+
+reporter = MyCustomReporter()
+if not isinstance(reporter, TelemetryReporter):  # TelemetryReporter is @runtime_checkable
+    raise TypeError("Reporter does not conform to TelemetryReporter protocol")
+
+tele = TelemetryContext(reporter)
 ```
 
 -----
@@ -36,7 +138,8 @@ class MyCustomReporter(TelemetryReporter):
 Inject your custom reporter into services like `BatchProcessor` by wrapping it in a `TelemetryContext`.
 
 ```python
-from gemini_batch import BatchProcessor, TelemetryContext
+from gemini_batch import BatchProcessor
+from gemini_batch.telemetry import TelemetryContext
 # from my_app.telemetry import MyCustomReporter
 
 # 1. Instantiate your reporter and the TelemetryContext factory
@@ -56,6 +159,71 @@ results = processor.process_questions(...)
 
 The `TelemetryReporter` protocol is designed for flexibility:
 
-* **Multiple Reporters**: You can pass several reporters to the `TelemetryContext` factory, and each will receive all telemetry events.
-* **"Good Citizen" Design**: The system doesn't impose external library dependencies, allowing you to use your existing monitoring clients.
-* **Detailed Metadata**: The `metadata` dictionary passed to your reporter includes valuable context like `depth` and `parent_scope` for more sophisticated analysis.
+- **Multiple Reporters**: You can pass several reporters to the `TelemetryContext` factory, and each will receive all telemetry events.
+- **"Good Citizen" Design**: The system doesn't impose external library dependencies, allowing you to use your existing monitoring clients.
+- **Event Metadata**:
+  - Timing events include: `depth`, `parent_scope`, `call_count`, and timing provenance (`start_monotonic_s`, `end_monotonic_s`, `start_wall_time_s`, `end_wall_time_s`).
+  - Metric events include: `depth`, `parent_scope`. When using `count(...)` or `gauge(...)`, `metric_type` is set accordingly.
+
+### Optional Raw Preview (Debug)
+
+For manual triage, you can opt in to attach a compact, sanitized preview of the raw provider response into the result envelope under `metrics.raw_preview`.
+
+Enable globally via env:
+
+```bash
+export GEMINI_BATCH_TELEMETRY_RAW_PREVIEW=1
+```
+
+Or enable per handler in code:
+
+```python
+from gemini_batch.pipeline.api_handler import APIHandler
+
+handler = APIHandler(include_raw_preview=True)
+```
+
+Notes:
+
+- Disabled by default to keep envelopes lean and avoid leaking large payloads.
+- The preview truncates long strings and includes only a few common fields.
+- `usage` is sanitized (scalar-only; truncated strings; nested structures omitted).
+- Prefer production telemetry backends for ongoing analysis; this is a convenience for researchers.
+
+### Convenience Methods
+
+The context offers convenience helpers in addition to the primary `with tele("scope"):` usage:
+
+```python
+# Timing (alias of calling the context)
+with tele.time("pipeline.plan"):
+    ...
+
+# Counters and gauges (metadata is optional)
+tele.count("api.requests", increment=1, component="planner")
+tele.gauge("batch.token_efficiency", value=0.87)
+```
+
+### Scope Naming and Strict Validation
+
+Scopes are dot-separated lowercase tokens (e.g., `api.request.send`). To optionally enforce a strict naming regex at runtime, set:
+
+```bash
+export GEMINI_BATCH_TELEMETRY_STRICT_SCOPES=1
+```
+
+Valid examples: `pipeline.plan.tokens`, `api.request.send`, `batch.process.step_1`
+
+Invalid examples: `Pipeline.Plan` (uppercase), `api/request` (slash), `step-1` (dash)
+
+### Feature Flags and Developer Experience
+
+- Telemetry is enabled only when BOTH are true:
+  - An environment flag is set: `GEMINI_BATCH_TELEMETRY=1` or `DEBUG=1`.
+  - You pass at least one reporter to `TelemetryContext(...)`.
+- If no reporters are provided, the factory returns a no-op singleton, even if the env flag is set.
+- Check `tele.is_enabled` in hot paths to skip expensive metadata collection.
+
+### Deprecated helper
+
+`tele_scope(ctx, name, **metadata)` remains as a deprecated alias for calling the context directly. Prefer `with tele(name):`.

@@ -2,7 +2,8 @@
 Global test configuration with support for different test types.
 """
 
-from collections.abc import Generator
+from collections.abc import Callable, Generator
+from contextlib import contextmanager, suppress
 from datetime import datetime
 import logging
 import os
@@ -18,8 +19,178 @@ from pydantic import BaseModel
 import pytest
 import yaml
 
-from gemini_batch import BatchProcessor, GeminiClient
 from tests.helpers import ActTestHelper, GitHelper, MockCommit
+
+# Note: Old BatchProcessor and GeminiClient imports removed during transition
+# The test adapter provides the interface compatibility needed for existing tests
+
+
+# --- Environment Isolation (Autouse) ---
+@pytest.fixture(autouse=True)
+def block_dotenv(request, monkeypatch):
+    """Prevent python-dotenv from loading project .env files during tests.
+
+    Architecture Rubric: remove hidden state and action-at-a-distance. Tests
+    should only see environment that they explicitly set.
+
+    Opt-in escape hatch: mark a test with @pytest.mark.allow_dotenv
+    to permit .env loading for that specific test.
+    """
+    if request.node.get_closest_marker("allow_dotenv"):
+        return
+    # If dotenv is installed, replace load_dotenv with a no-op for this test.
+    with suppress(Exception):
+        monkeypatch.setattr(
+            "dotenv.load_dotenv", lambda *_args, **_kwargs: False, raising=False
+        )
+
+
+@pytest.fixture(autouse=True)
+def isolate_gemini_env(request, monkeypatch):
+    """Ensure a clean GEMINI_* environment for each test.
+
+    - Removes all GEMINI_* variables and debug toggles before each test
+    - Leaves non-GEMINI_* variables intact for stability
+
+    Escape hatches:
+      - @pytest.mark.allow_env_pollution: keep current env unchanged
+      - tests marked with @pytest.mark.api automatically bypass isolation
+        so real environment can be used when explicitly running API tests.
+    """
+    if request.node.get_closest_marker("allow_env_pollution") or (
+        "api" in request.node.keywords
+    ):
+        return
+
+    for key in list(os.environ.keys()):
+        if key.startswith("GEMINI_"):
+            monkeypatch.delenv(key, raising=False)
+    # Avoid DEBUG toggles affecting telemetry/config debug paths
+    monkeypatch.delenv("DEBUG", raising=False)
+    monkeypatch.delenv("GEMINI_BATCH_DEBUG_CONFIG", raising=False)
+
+
+@pytest.fixture(autouse=True)
+def neutral_home_config(request, monkeypatch, tmp_path):
+    """Point home-config path to an isolated temp file by default.
+
+    Prevents reading a developer's real ~/.config/gemini_batch.toml during tests.
+
+    Escape hatch: mark test with @pytest.mark.allow_real_home_config to use
+    the real path.
+    """
+    if request.node.get_closest_marker("allow_real_home_config"):
+        return
+
+    fake_home_dir = tmp_path / "home_config_isolated"
+    fake_home_dir.mkdir(parents=True, exist_ok=True)
+    fake_home_file = fake_home_dir / "gemini_batch.toml"
+    # Prefer environment override to avoid monkeypatching internals
+    monkeypatch.setenv("GEMINI_BATCH_CONFIG_HOME", str(fake_home_file))
+
+
+@pytest.fixture
+def clean_env_patch():
+    """Helper to apply a clean env baseline plus overrides.
+
+    Usage:
+        with clean_env_patch({"GEMINI_BATCH_MODEL": "env-model"}):
+            ...
+    """
+
+    def _apply(extra: dict[str, str] | None = None) -> Generator[None]:
+        base = {k: v for k, v in os.environ.items() if not k.startswith("GEMINI_")}
+        if extra:
+            base.update(extra)
+        with patch.dict(os.environ, base, clear=True):
+            yield
+
+    return _apply
+
+
+@pytest.fixture
+def isolated_config_sources(tmp_path):
+    """Completely isolate configuration sources for testing.
+
+    This fixture ensures that:
+    1. No environment variables affect config resolution
+    2. No real home config is loaded
+    3. No real pyproject.toml is loaded
+    4. Only explicitly provided configs are used
+
+    Returns a helper function to set up specific config sources.
+    """
+
+    @contextmanager
+    def _setup(
+        *,
+        pyproject_content: str = "",
+        home_content: str = "",
+        env_vars: dict[str, str] | None = None,
+    ) -> Generator[None]:
+        """Set up isolated config sources with specific content.
+
+        Args:
+            pyproject_content: TOML content for pyproject file
+            home_content: TOML content for home config file
+            env_vars: Environment variables to set (GEMINI_ prefix added automatically)
+        """
+        # Clean environment
+        clean_env = {k: v for k, v in os.environ.items() if not k.startswith("GEMINI_")}
+        if env_vars:
+            for key, value in env_vars.items():
+                if not key.startswith("GEMINI_"):
+                    key = f"GEMINI_BATCH_{key.upper()}"
+                clean_env[key] = value
+
+        # Set up file paths
+        project_dir = tmp_path / "project"
+        project_dir.mkdir(exist_ok=True)
+        pyproject_path = project_dir / "pyproject.toml"
+
+        home_dir = tmp_path / "home"
+        home_dir.mkdir(exist_ok=True)
+        home_config_path = home_dir / "gemini_batch.toml"
+
+        # Write config files if content provided
+        if pyproject_content:
+            pyproject_path.write_text(pyproject_content)
+        if home_content:
+            home_config_path.write_text(home_content)
+
+        # Prefer environment overrides for paths to avoid monkeypatching internals
+        clean_env["GEMINI_BATCH_PYPROJECT_PATH"] = str(pyproject_path)
+        clean_env["GEMINI_BATCH_CONFIG_HOME"] = str(home_config_path)
+
+        # Apply environment and yield control
+        with patch.dict(os.environ, clean_env, clear=True):
+            yield
+
+    return _setup
+
+
+@pytest.fixture
+def temp_toml_file():
+    """Create temporary TOML files for testing.
+
+    Returns a context manager that creates a temp file with given content.
+    """
+    from contextlib import contextmanager
+    import tempfile
+
+    @contextmanager
+    def _create(content: str) -> Generator[Path]:
+        with tempfile.NamedTemporaryFile(mode="w", suffix=".toml", delete=False) as f:
+            f.write(content)
+            f.flush()
+            temp_path = Path(f.name)
+        try:
+            yield temp_path
+        finally:
+            if temp_path.exists():
+                temp_path.unlink()
+
+    return _create
 
 
 # --- Logging Fixtures ---
@@ -46,9 +217,12 @@ def pytest_configure(config):
 
 def pytest_collection_modifyitems(config, items):  # noqa: ARG001
     """Automatically skip API tests when API key is unavailable."""
-    if not (os.getenv("GEMINI_API_KEY") and os.getenv("ENABLE_API_TESTS")):
+    if not (
+        (os.getenv("GEMINI_BATCH_API_KEY") or os.getenv("GEMINI_API_KEY"))
+        and os.getenv("ENABLE_API_TESTS")
+    ):
         skip_api = pytest.mark.skip(
-            reason="API tests require GEMINI_API_KEY and ENABLE_API_TESTS=1",
+            reason="API tests require GEMINI_BATCH_API_KEY or GEMINI_API_KEY and ENABLE_API_TESTS=1",
         )
         for item in items:
             if "api" in item.keywords:
@@ -71,24 +245,22 @@ def mock_env(mock_api_key, monkeypatch):
     consistent, isolated environment.
     """
     monkeypatch.setenv("GEMINI_API_KEY", mock_api_key)
-    monkeypatch.setenv("GEMINI_MODEL", "gemini-2.0-flash")
-    monkeypatch.setenv("GEMINI_ENABLE_CACHING", "False")
+    monkeypatch.setenv("GEMINI_BATCH_MODEL", "gemini-2.0-flash")
+    monkeypatch.setenv("GEMINI_BATCH_ENABLE_CACHING", "False")
 
 
 @pytest.fixture
 def mock_gemini_client(mock_env):  # noqa: ARG001
     """
-    Provides a MagicMock of the GeminiClient.
+    Provides a MagicMock for the old GeminiClient interface.
 
-    This is a powerful fixture that prevents real API calls. The mock's methods,
-    like `generate_content`, can be configured within individual tests to return
-    specific, predictable responses, making tests deterministic and fast.
+    This fixture is kept for backward compatibility with existing tests,
+    but the actual mocking is now handled by the new architecture's test adapter.
     """
-    # We create a mock instance that has the same interface as the real GeminiClient.
-    mock_client = MagicMock(spec=GeminiClient)
+    # Create a generic mock that can be configured by tests
+    mock_client = MagicMock()
 
-    # We mock the `generate_content` method, as this is the primary method
-    # called by BatchProcessor.
+    # Set up default return values for the old interface
     mock_client.generate_content.return_value = {
         "text": '["Default mock answer"]',
         "usage": {
@@ -101,15 +273,223 @@ def mock_gemini_client(mock_env):  # noqa: ARG001
 
 
 @pytest.fixture
-def batch_processor(mock_gemini_client):
+def batch_processor(mock_gemini_client):  # noqa: ARG001
     """
-    Provides a BatchProcessor instance that is pre-configured with a
-    mocked GeminiClient. This is the standard way to test BatchProcessor
-    without hitting the actual API.
+    Provides a BatchProcessor-like object for testing using the new executor.
+
+    This keeps characterization tests unchanged while removing the tests/adapters.py file.
     """
-    # We inject the mock client directly into the processor.
-    # This is a key principle of Dependency Injection for testability.
-    return BatchProcessor(_client=mock_gemini_client)
+    from typing import Any
+
+    from gemini_batch.config import resolve_config
+    from gemini_batch.core.types import InitialCommand, ResultEnvelope
+    from gemini_batch.executor import GeminiExecutor
+
+    class _TestAdapterBatchProcessor:
+        def __init__(self, **config_overrides: Any):
+            programmatic: dict[str, Any] = {
+                "api_key": config_overrides.get("api_key", "mock_api_key_for_tests"),
+                "model": config_overrides.get("model", "gemini-2.0-flash"),
+                "enable_caching": config_overrides.get("enable_caching", False),
+                "use_real_api": config_overrides.get("use_real_api", False),
+            }
+            if "tier" in config_overrides:
+                programmatic["tier"] = config_overrides["tier"]
+            if "ttl_seconds" in config_overrides:
+                programmatic["ttl_seconds"] = config_overrides["ttl_seconds"]
+
+            self.config = resolve_config(overrides=programmatic)
+            self.executor = GeminiExecutor(config=self.config)
+
+        def process_questions(
+            self,
+            content: Any,
+            questions: list[str],
+            _compare_methods: bool = False,  # noqa: FBT001, FBT002
+            _response_schema: Any | None = None,
+            _return_usage: bool = False,  # noqa: FBT001, FBT002
+            **_kwargs: Any,
+        ) -> ResultEnvelope:
+            sources = tuple(content) if isinstance(content, list) else (content,)
+            prompts = tuple(questions)
+            command = InitialCommand(
+                sources=sources, prompts=prompts, config=self.config
+            )
+
+            import asyncio
+
+            try:
+                return asyncio.run(self.executor.execute(command))
+            except Exception as e:
+                return {
+                    "status": "error",
+                    "answers": [],
+                    "extraction_method": "error",
+                    "confidence": 0.0,
+                    "metrics": {"error": str(e)},
+                    "usage": {},
+                }
+
+        def process_questions_multi_source(
+            self,
+            sources: list[Any],
+            questions: list[str],
+            response_schema: Any | None = None,
+            **kwargs: Any,
+        ) -> ResultEnvelope:
+            flat_sources: list[Any] = []
+            for src in sources:
+                if isinstance(src, list):
+                    flat_sources.extend(src)
+                else:
+                    flat_sources.append(src)
+            return self.process_questions(
+                content=flat_sources,
+                questions=questions,
+                response_schema=response_schema,
+                **kwargs,
+            )
+
+    return _TestAdapterBatchProcessor(api_key="mock_api_key_for_tests")
+
+
+# --- Characterization Executor Fixture (new arch) ---
+
+
+@pytest.fixture
+def char_executor(mock_gemini_client):
+    """Provide a GeminiExecutor wired with a controllable test adapter.
+
+    - Uses the new pipeline directly.
+    - Adapter returns values from the legacy `mock_gemini_client` when set
+      via its `generate_content.side_effect` or `return_value`.
+    - Implements a trivial cache capability so tests can observe cache
+      creation and application when desired.
+    """
+    from typing import Any, cast
+
+    from gemini_batch.config import resolve_config
+    from gemini_batch.executor import GeminiExecutor
+    from gemini_batch.pipeline.adapters.base import (
+        CachingCapability,
+        ExecutionHintsAware,
+        GenerationAdapter,
+    )
+    from gemini_batch.pipeline.api_handler import APIHandler
+    from gemini_batch.pipeline.cache_stage import CacheStage
+    from gemini_batch.pipeline.execution_state import ExecutionHints
+    from gemini_batch.pipeline.rate_limit_handler import RateLimitHandler
+    from gemini_batch.pipeline.result_builder import ResultBuilder
+    from gemini_batch.pipeline.source_handler import SourceHandler
+
+    class _Adapter(GenerationAdapter, CachingCapability, ExecutionHintsAware):
+        def __init__(self) -> None:
+            self._hints: ExecutionHints | None = None
+            self.interaction_log: list[dict[str, object]] | None = None
+            self.queue: list[dict[str, Any]] = []
+
+        def apply_hints(self, hints: Any) -> None:
+            if isinstance(hints, ExecutionHints):
+                self._hints = hints
+
+        async def create_cache(
+            self,
+            *,
+            model_name: str,  # noqa: ARG002
+            content_parts: tuple[Any, ...],  # noqa: ARG002
+            system_instruction: str | None,  # noqa: ARG002
+            ttl_seconds: int | None,  # noqa: ARG002
+        ) -> str:
+            name = "cachedContents/mock-cache-123"
+            if self.interaction_log is not None:
+                self.interaction_log.append({"method": "caches.create"})
+            return name
+
+        async def generate(
+            self,
+            *,
+            model_name: str,  # noqa: ARG002
+            api_parts: tuple[Any, ...],
+            api_config: dict[str, object],
+        ) -> dict[str, Any]:
+            # Prefer explicit queued responses set by tests
+            if self.queue:
+                return self.queue.pop(0)
+
+            # Record generate call and any applied cache
+            if self.interaction_log is not None:
+                cached_value = cast("str | None", api_config.get("cached_content"))
+                entry: dict[str, object] = {"method": "generate_content"}
+                if cached_value is not None:
+                    entry["cached_content"] = cached_value
+                self.interaction_log.append(entry)
+
+            # Bridge to legacy mock if configured by tests
+            if hasattr(mock_gemini_client, "generate_content"):
+                fn = mock_gemini_client.generate_content
+                se = getattr(fn, "side_effect", None)
+                if callable(se) or isinstance(se, list):
+                    if isinstance(se, list):
+                        # Pop sequential results if list provided
+                        return cast("dict[str, Any]", se.pop(0))
+                    return cast("dict[str, Any]", fn.side_effect())
+                rv = getattr(fn, "return_value", None)
+                if isinstance(rv, dict):
+                    return cast("dict[str, Any]", rv)
+
+            # Default minimal response
+            text = ""
+            try:
+                part0 = next(iter(api_parts))
+                text = getattr(part0, "text", str(part0))
+            except StopIteration:
+                text = ""
+            return {"text": text, "usage": {"total_token_count": 0}}
+
+    adapter = _Adapter()
+
+    def make_executor(
+        *, interaction_log: list[dict[str, object]] | None = None
+    ) -> GeminiExecutor:
+        from gemini_batch.pipeline.planner import ExecutionPlanner
+
+        cfg = resolve_config(
+            overrides={
+                "api_key": "mock_api_key_for_tests",
+                "model": "gemini-2.0-flash",
+                "enable_caching": True,
+                "use_real_api": False,
+            }
+        )
+        adapter.interaction_log = interaction_log
+        from gemini_batch.pipeline.registries import CacheRegistry
+
+        cache_reg = CacheRegistry()
+        pipeline: list[Any] = [
+            SourceHandler(),
+            ExecutionPlanner(),
+            RateLimitHandler(),
+            CacheStage(
+                registries={"cache": cache_reg}, adapter_factory=lambda _k: adapter
+            ),
+            APIHandler(adapter=adapter, registries={"cache": cache_reg}),
+            ResultBuilder(),
+        ]
+        return GeminiExecutor(cfg, pipeline_handlers=pipeline)
+
+    class _Exec:
+        def __init__(self, factory: Callable[..., GeminiExecutor]):
+            self._factory = factory
+            self.adapter = adapter
+
+        def build(
+            self, *, interaction_log: list[dict[str, object]] | None = None
+        ) -> GeminiExecutor:
+            # Forward provided interaction_log into the executor factory so
+            # the adapter can record interactions for characterization tests.
+            return self._factory(interaction_log=interaction_log)
+
+    return _Exec(make_executor)
 
 
 # --- Advanced Fixtures for Client Behavior Testing ---
@@ -124,7 +504,7 @@ def mocked_internal_genai_client():
     low-level API calls it attempts to make, without any real network activity.
     """
     # We patch the class that our client will instantiate.
-    with patch("gemini_batch.gemini_client.genai.Client") as mock_genai:
+    with patch("google.genai.Client") as mock_genai:
         # Create an instance of the mock to be used by our client
         mock_instance = mock_genai.return_value
 
@@ -145,15 +525,15 @@ def mocked_internal_genai_client():
 @pytest.fixture
 def caching_gemini_client(mock_env, mocked_internal_genai_client):  # noqa: ARG001
     """
-    Provides a real GeminiClient instance configured for caching, but with
-    its internal API calls mocked.
+    Provides a mock client configured for caching testing.
+
+    This fixture is kept for backward compatibility but now returns a mock
+    since the new architecture handles caching differently.
     """
-    # We instantiate our actual GeminiClient. Because the `genai.Client` is
-    # patched, our client will receive the `mocked_internal_genai_client`
-    # when it tries to initialize its internal client.
-    # We explicitly enable caching for this test client.
-    client = GeminiClient(enable_caching=True)
-    return client  # noqa: RET504
+    # Return a mock client for backward compatibility
+    mock_client = MagicMock()
+    mock_client.enable_caching = True
+    return mock_client
 
 
 @pytest.fixture
@@ -162,30 +542,15 @@ def mock_httpx_client():
     Mocks the httpx.Client to prevent real network requests for URL processing.
     """
     # We patch the client where it's used in the extractors module.
-    with patch("gemini_batch.files.extractors.httpx.Client") as mock_client_class:
-        mock_instance = mock_client_class.return_value.__enter__.return_value
-        yield mock_instance
+    yield MagicMock()
 
 
 @pytest.fixture
 def mock_get_mime_type():
-    """
-    Mocks the get_mime_type utility function to prevent python-magic
-    from bypassing pyfakefs, making MIME type detection deterministic in tests.
-    """
-    # We patch the function in the `utils` module where it is defined.
-    with patch("gemini_batch.files.utils.get_mime_type") as mock_func:
-        # Define a simple side effect to simulate MIME type detection based on file extension.
-        def side_effect(file_path, use_magic=True):  # noqa: ARG001, FBT002
-            if str(file_path).endswith(".png"):
-                return "image/png"
-            if str(file_path).endswith(".txt") or str(file_path).endswith(".md"):
-                return "text/plain"
-            # Provide a sensible default for any other file types in tests.
-            return "application/octet-stream"
-
-        mock_func.side_effect = side_effect
-        yield mock_func
+    """Deprecated shim: MIME detection handled in Source.from_file()."""
+    m = MagicMock()
+    m.side_effect = lambda *_a, **_k: "application/octet-stream"
+    yield m
 
 
 # --- Helper Fixtures ---
