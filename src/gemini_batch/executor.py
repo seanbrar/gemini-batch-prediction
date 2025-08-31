@@ -304,9 +304,7 @@ def create_executor(
 
     Args:
         config: Optional configuration object (FrozenConfig or None).
-        validate: Enable dev-time validation (overrides GEMINI_BATCH_PIPELINE_VALIDATE).
-        This does not affect the executor's final invariant, which always
-        ensures a valid `ResultEnvelope`.
+        validate: Enable dev-time validation (overrides GEMINI_BATCH_PIPELINE_VALIDATE). This does not affect the executor's final invariant, which always ensures a valid `ResultEnvelope`.
 
     Returns:
         An instance of GeminiExecutor.
