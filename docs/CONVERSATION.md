@@ -1,174 +1,166 @@
-# Conversation System Guide
+# Conversation Guide (Extension)
 
-The Gemini Batch Framework supports **conversation sessions** - persistent, stateful interactions that maintain context across multiple questions and sources.
+The Conversation extension provides a tiny, immutable API for multi‑turn interactions that composes the core pipeline. It maintains context across turns, supports sequential and vectorized execution, and surfaces audit‑friendly metrics — without modifying the core library.
 
 ## Quick Start
 
 ```python
-from gemini_batch import create_conversation
+import asyncio
+from gemini_batch import create_executor
+from gemini_batch.core.types import Source
+from gemini_batch.extensions import Conversation, PromptSet
 
-# Create session with sources
-session = create_conversation("research_papers/")
+async def main():
+    ex = create_executor()
+    # Use explicit Sources (provider‑agnostic, validated)
+    sources = [
+        Source.from_file("document.pdf"),
+        Source.from_text("Pinned context for this session", identifier="preamble"),
+    ]
+    conv = Conversation.start(ex, sources=sources)  # immutable facade
 
-# Ask questions with context retention
-answers = session.ask_multiple([
-    "What are the main research themes?",
-    "Which papers discuss efficiency techniques?"
+    # Single turn
+    conv = await conv.ask("What is this about?")
+
+    # Sequential turns in one call
+    conv, answers, metrics = await conv.run(PromptSet.sequential("Q1", "Q2"))
+    print(answers, metrics.totals)
+
+    # Vectorized batch (one synthetic turn)
+    conv, answers, _ = await conv.run(PromptSet.vectorized("A", "B", "C"))
+    print(conv.state.turns[-1].user)  # => "[vectorized x3]"
+
+asyncio.run(main())
+```
+
+## Core Concepts
+
+- Immutable state: `ConversationState` is never mutated; every operation returns a new `Conversation` instance with an incremented `version`.
+- Single pipeline seam: all execution flows through `executor.execute(InitialCommand)`; the extension never calls provider SDKs directly.
+- Modes as data: `PromptSet` carries both prompts and the mode (`Single`, `Sequential`, `Vectorized`), which determines strategy and result formatting.
+- Policy: `ConversationPolicy` influences planning hints (estimation/result/cache overrides) and history windowing.
+
+## API Surface
+
+- `Conversation.start(executor, sources=()) -> Conversation`
+- `Conversation.with_sources(sources) -> Conversation`
+- `Conversation.with_policy(policy) -> Conversation`
+- `await Conversation.ask(prompt: str) -> Conversation`
+- `await Conversation.run(prompt_set: PromptSet) -> (Conversation, tuple[str, ...], BatchMetrics)`
+- `Conversation.analytics() -> ConversationAnalytics`
+
+## Sources
+
+```python
+from gemini_batch.core.types import Source
+
+# Replace sources immutably with explicit `Source` objects
+conv = conv.with_sources([
+    Source.from_file("paper1.pdf"),
+    Source.from_file("paper2.pdf"),
+])  # returns new instance
+
+# Text context can be pinned via `Source.from_text`
+conv = conv.with_sources([
+    Source.from_text("You are a helpful assistant.", identifier="sys"),
 ])
-
-# Natural follow-up builds on previous context
-followup = session.ask("How do these techniques compare in practice?")
 ```
 
-## Core Functionality
-
-### Session Management
+## Modes
 
 ```python
-# Create with single or multiple sources
-session = create_conversation("document.pdf")
-session = create_conversation(["paper1.pdf", "paper2.pdf", "video.mp4"])
+from gemini_batch.extensions import PromptSet
 
-# Ask single or multiple questions
-answer = session.ask("What is this about?")
-answers = session.ask_multiple(["Q1", "Q2", "Q3"])
+# Single (one Q→A turn)
+await conv.run(PromptSet.single("Hello"))
 
-# Session maintains context automatically
-history = session.get_history()
-stats = session.get_stats()
+# Sequential (n Q→A turns)
+await conv.run(PromptSet.sequential("Q1", "Q2"))
+
+# Vectorized (one synthetic turn with combined answers)
+await conv.run(PromptSet.vectorized("Q1", "Q2", "Q3"))
 ```
 
-### Context Persistence
+## Policy & Planning
 
 ```python
-# Save/load conversation state
-session.save("conversation.json")
-session = load_conversation("conversation.json")
+from gemini_batch.extensions import ConversationPolicy
 
-# Add/remove sources dynamically
-session.add_source("new_paper.pdf")
-session.remove_source("old_paper.pdf")
+policy = ConversationPolicy(
+    keep_last_n=3,            # window history turns
+    widen_max_factor=1.2,     # planner estimation widening
+    clamp_max_tokens=16000,   # planner clamp
+    prefer_json_array=True,   # extraction bias
+    execution_cache_name="demo-cache",  # best-effort cache override
+    reuse_cache_only=False,   # intent; provider decides capability
+)
 
-# Clear history while keeping sources
-session.clear_history()
+conv = conv.with_policy(policy)
 ```
 
-### Advanced Configuration
+`compile_conversation(state, prompt_set, policy)` produces a pure `ConversationPlan` with:
+
+- `sources`, `history` (windowed), `prompts`
+- `strategy`: `"sequential" | "vectorized"`
+- `options`: structured `ExecutionOptions` (estimation/result/cache)
+- `hints`: inspectable tuple mirroring options for audits/demos/tests
+
+### Advanced: Cache identity & reuse
 
 ```python
-# Custom processor settings
-processor = BatchProcessor(model="gemini-2.0-flash", enable_caching=True)
-session = ConversationSession("sources/", _processor=processor, max_history_turns=15)
+# Attach a deterministic cache identity and artifacts to the state
+state = conv.state
+conv = Conversation(
+    state.__class__(
+        sources=state.sources,
+        turns=state.turns,
+        cache_key="demo:my‑cache‑key",
+        cache_artifacts=("v1",),
+        policy=state.policy,
+        version=state.version,
+    ),
+    conv._Conversation__dict__["_executor"],  # internal; prefer start() in real code
+)
 
-# System instructions per question
-answer = session.ask("Summarize this", system_instruction="You are a research assistant.")
+# Prefer reuse of existing cache only (provider capability‑dependent)
+conv = conv.with_policy(ConversationPolicy(reuse_cache_only=True))
+
+# Best‑effort override to use a known provider cache name
+conv = conv.with_policy(ConversationPolicy(execution_cache_name="cachedContents/xyz"))
 ```
 
-## Context Management
+## Metrics & Analytics
 
-### Automatic Token Budgeting
-
-The framework automatically manages context length:
+`run()` returns `BatchMetrics` with `per_prompt` and `totals`. The extension distributes totals if per‑prompt metrics aren’t provided. Token validation info is surfaced as warnings on the first exchange of a batch when significantly out of range.
 
 ```python
-# Framework handles large documents + long history
-session = create_conversation("large_document.pdf")
-
-# Automatically:
-# - Estimates token usage
-# - Truncates history when needed
-# - Preserves most recent/relevant context
-# - Logs context management decisions
-
-for i in range(20):
-    session.ask(f"Question {i}")  # History automatically managed
+conv, answers, metrics = await conv.run(PromptSet.sequential("Q1", "Q2"))
+print(metrics.per_prompt)
+print(metrics.totals)
+print(conv.analytics())  # lightweight conversation summary
 ```
 
-### Context Overflow Handling
+## Persistence (optional)
+
+For backends, use the store-backed engine to load → execute → append using optimistic concurrency.
 
 ```python
-# Graceful handling of context overflow
-session = create_conversation("very_large_document.pdf")
+from gemini_batch.extensions.conversation_store import JSONStore
+from gemini_batch.extensions.conversation_engine import ConversationEngine
 
-# Framework:
-# - Preserves essential context
-# - Logs overflow warnings
-# - Continues processing
-# - Maintains conversation coherence
+store = JSONStore("./conversations.json")
+engine = ConversationEngine(executor, store)
+
+ex = await engine.ask("conv-123", "Hello?")
 ```
 
-## Session Data Structure
+## Notes
 
-```json
-{
-  "session_id": "uuid",
-  "sources": ["document.pdf", "https://..."],
-  "history": [
-    {
-      "question": "What is this about?",
-      "answer": "This document discusses...",
-      "timestamp": "2024-01-01T12:00:00Z",
-      "sources_snapshot": ["document.pdf"],
-      "cache_info": {"cache_hit_ratio": 0.8}
-    }
-  ],
-  "created_at": "2024-01-01T12:00:00Z"
-}
-```
+- The extension is provider-neutral and never imports SDKs; all provider behavior flows through the core pipeline.
+- Vectorized execution returns one synthetic exchange containing combined answers; sequential returns one exchange per prompt.
 
-## Best Practices
+## Cheat Sheet: Strategies & Modes
 
-### Efficient Conversations
-
-```python
-# Batch related questions for efficiency
-session.ask_multiple([
-    "What are the main themes?",
-    "What are the key findings?",
-    "What are the implications?"
-])
-
-# Use follow-ups for clarification
-session.ask("Can you elaborate on the third point?")
-
-# Save progress for long conversations
-if len(session.get_history()) > 10:
-    session.save("checkpoint.json")
-```
-
-### Source Organization
-
-```python
-# Group related sources
-session = create_conversation([
-    "papers/neural_networks/",
-    "papers/attention_mechanisms/",
-    "videos/lectures/"
-])
-
-# Add sources as conversation progresses
-session.add_source("new_paper.pdf")
-session.ask("How does this new paper relate to our discussion?")
-```
-
-## Troubleshooting
-
-### Common Issues
-
-#### "Context too long" warnings
-
-- Framework automatically truncates history
-- Consider saving/loading sessions for very long conversations
-- Use `max_history_turns` to limit history size
-
-#### Session loading errors
-
-- Check file permissions and JSON format
-- Verify sources still exist
-- Consider recreating session with same sources
-
-#### Memory usage
-
-- Large history can consume memory
-- Use `clear_history()` periodically
-- Consider session checkpoints for very long conversations
+- `PromptSet.single("...")` → strategy: `sequential`, one exchange
+- `PromptSet.sequential("...", "...")` → strategy: `sequential`, N exchanges
+- `PromptSet.vectorized("...", "...")` → strategy: `vectorized`, one synthetic exchange

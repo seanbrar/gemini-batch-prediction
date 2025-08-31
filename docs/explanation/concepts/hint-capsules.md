@@ -9,7 +9,7 @@
 
 ## Purpose
 
-Hint Capsules were introduced as a tiny, immutable way for extensions to express intent to the core pipeline without coupling the core to any domain (e.g., “conversation”). As the library matured, we evolved this seam into a single, typed object: **ExecutionOptions**. Options make advanced behavior discoverable and IDE‑friendly while preserving the same data‑centric, fail‑soft philosophy.
+Hint Capsules were introduced as a tiny, immutable way for extensions to express intent to the core pipeline without coupling the core to any domain (e.g., "conversation"). As the library matured, we evolved this seam into a single, typed object: **ExecutionOptions**. Options make advanced behavior discoverable and IDE‑friendly while preserving the same data‑centric, fail‑soft philosophy.
 
 Supported intent (preferred via ExecutionOptions; legacy hints still work for now):
 
@@ -78,6 +78,16 @@ InitialCommand(options?) ──► Execution Planner ──► Cache Stage ─�
 
   * Fields: `cache_name: str`.
   * **API Handler:** Best‑effort override of cache name at execution time. On cache‑related failure, triggers a single no‑cache retry. May be revisited as part of a future options extension.
+
+* **`CachePolicyHint`**
+
+  * Fields: `first_turn_only: bool | None = None`, `respect_floor: bool | None = None`, `conf_skip_floor: float | None = None`, `min_tokens_floor: int | None = None`.
+  * **Planner:** Adjusts the resolved cache planning policy (pure data) used to produce a `CacheDecision`. Defaults are conservative: first‑turn‑only enabled, confidence floor respected, and floor sourced from model capabilities unless overridden.
+  * **Semantics:**
+    * First‑turn‑only: create shared cache only when history is empty (turn 1) unless set to False.
+    * Confidence floor: skip creation when `estimate.max_tokens < floor` AND `estimate.confidence ≥ conf_skip_floor` AND `respect_floor=True`.
+    * Floor resolution: `explicit_minimum_tokens` → `implicit_minimum_tokens` from model capabilities; override via `min_tokens_floor` when needed.
+  * **API Handler:** Emits telemetry reflecting `CacheDecision`; failures to create cache are non‑fatal (fall back to no cache).
 
 * **`CachePolicyHint`**
 

@@ -13,12 +13,15 @@ without overwriting any existing values.
 
 from __future__ import annotations
 
+import contextlib
 import logging
+from pathlib import Path as _Path
 from time import perf_counter
 from typing import TYPE_CHECKING, Any
 
 from gemini_batch._dev_flags import dev_validate_enabled
 from gemini_batch.config import FrozenConfig, resolve_config
+from gemini_batch.core import types as _ctypes
 from gemini_batch.core.exceptions import (
     GeminiBatchError,
     InvariantViolationError,
@@ -42,9 +45,12 @@ from gemini_batch.pipeline.cache_stage import CacheStage
 from gemini_batch.pipeline.planner import ExecutionPlanner
 from gemini_batch.pipeline.rate_limit_handler import RateLimitHandler
 from gemini_batch.pipeline.registries import CacheRegistry, FileRegistry
+from gemini_batch.pipeline.remote_materialization import RemoteMaterializationStage
 from gemini_batch.pipeline.result_builder import ResultBuilder
 from gemini_batch.pipeline.source_handler import SourceHandler
 from gemini_batch.telemetry import TelemetryContext
+
+log = logging.getLogger(__name__)
 
 if TYPE_CHECKING:
     from collections.abc import Iterable
@@ -130,6 +136,7 @@ class GeminiExecutor:
         handlers: list[Any] = [
             SourceHandler(),
             ExecutionPlanner(),
+            RemoteMaterializationStage(),
             RateLimitHandler(),
         ]
 
@@ -189,6 +196,9 @@ class GeminiExecutor:
             if isinstance(result, Failure):
                 # Increment operational counter, then raise with true stage identity
                 ctx.count("pipeline.error", stage=last_stage_name)
+                # Best-effort cleanup of ephemeral materialized files if any exist
+                with contextlib.suppress(Exception):
+                    self._cleanup_ephemeral_placeholders(current)
                 raise PipelineError(str(result.error), last_stage_name, result.error)
             current = result.value
 
@@ -225,10 +235,42 @@ class GeminiExecutor:
                     metrics_obj["durations"] = dict(stage_durations)
         except Exception as e:  # pragma: no cover - best-effort telemetry only
             # Never fail post-invariant; metrics are best-effort
-            logging.getLogger(__name__).debug(
-                "Duration fallback attachment failed: %s", e
-            )
+            log.debug("Duration fallback attachment failed: %s", e, exc_info=True)
         return current
+
+    def _cleanup_ephemeral_placeholders(self, obj: Any) -> None:
+        """Unlink any ephemeral FilePlaceholder local files found in `obj`.
+
+        Scans PlannedCommand/FinalizedCommand shapes and their plans/calls for
+        FilePlaceholder entries with `ephemeral=True`. Errors are suppressed and
+        never affect pipeline behavior.
+        """
+        try:
+
+            def _scan_parts(parts: tuple[Any, ...] | list[Any]) -> None:
+                for p in parts:
+                    if isinstance(p, _ctypes.FilePlaceholder) and getattr(
+                        p, "ephemeral", False
+                    ):
+                        with contextlib.suppress(Exception):
+                            _Path(p.local_path).unlink()
+
+            plan = None
+            if isinstance(obj, _ctypes.PlannedCommand):
+                plan = obj.execution_plan
+            elif isinstance(obj, _ctypes.FinalizedCommand):
+                plan = obj.planned.execution_plan
+
+            if plan is None:
+                return
+
+            _scan_parts(plan.shared_parts)
+            for c in plan.calls:
+                if isinstance(c, _ctypes.APICall):
+                    _scan_parts(c.api_parts)
+        except Exception:
+            # Never propagate cleanup issues
+            return
 
     @property
     def stage_names(self) -> tuple[str, ...]:

@@ -15,6 +15,7 @@ from typing import TYPE_CHECKING, Any, Literal
 if TYPE_CHECKING:
     from collections.abc import Callable, Mapping
 
+log = logging.getLogger(__name__)
 # --- Transform Specification ---
 
 
@@ -198,8 +199,8 @@ class ExtractionResult:
     def __post_init__(self) -> None:
         """Normalize and validate extraction result invariants at the source.
 
-        - Answers: accept list/tuple/singleton/None; deep-flatten; bytes decode; coerce to str.
-        - Confidence: coerce to float, default on NaN/unparsable, clamp to [0.0, 1.0].
+        - Answers: must be a list; deep-flatten contents; bytes decode; coerce items to str.
+        - Confidence: coerce to float, default on NaN/unparsable to 0.5; require [0.0, 1.0].
         - Method: must be non-empty.
         """
 
@@ -233,12 +234,10 @@ class ExtractionResult:
                 out.append(_coerce(x))
 
         raw_answers = self.answers
-        if raw_answers is None:
-            out = []
-        else:
-            if not isinstance(raw_answers, list | tuple):
-                raw_answers = [raw_answers]
-            _flatten(raw_answers, 0)
+        # Enforce list type for answers
+        if not isinstance(raw_answers, list):
+            raise ValueError("answers must be a list")
+        _flatten(raw_answers, 0)
         object.__setattr__(self, "answers", out)
 
         # Dev-only advisory logs for broadened normalization
@@ -248,7 +247,6 @@ class ExtractionResult:
             if dev_validate_enabled() and (
                 nested_detected[0] or nonlocal_coerce_flag[0]
             ):
-                log = logging.getLogger(__name__)
                 reasons: list[str] = []
                 if nested_detected[0]:
                     reasons.append("nested_answer_sequence")
@@ -260,15 +258,13 @@ class ExtractionResult:
                         ",".join(reasons),
                     )
         except Exception as e:
-            logging.getLogger(__name__).debug(
-                "ExtractionResult advisory hook failed: %s", e
-            )
+            log.debug("ExtractionResult advisory hook failed: %s", e)
 
         # Validate method
         if not self.method:
             raise ValueError("method cannot be empty")
 
-        # Normalize and clamp confidence
+        # Normalize and validate confidence
         raw_conf = self.confidence
         try:
             confidence = float(raw_conf)
@@ -277,7 +273,8 @@ class ExtractionResult:
         else:
             if math.isnan(confidence):
                 confidence = 0.5
-        confidence = max(0.0, min(1.0, confidence))
+        if not (0.0 <= confidence <= 1.0):
+            raise ValueError("confidence must be in [0.0, 1.0]")
         object.__setattr__(self, "confidence", confidence)
 
 

@@ -10,8 +10,8 @@ import dataclasses
 import typing
 
 from ._validation import _is_tuple_of, _require
-from .conversation import ConversationTurn
 from .execution_options import ExecutionOptions
+from .turn import Turn
 
 # Forward reference to avoid circular import with config module
 if typing.TYPE_CHECKING:
@@ -29,7 +29,7 @@ class InitialCommand:
     sources: tuple[Source, ...]  # Forward reference to Source
     prompts: tuple[str, ...]
     config: FrozenConfig  # Forward reference
-    history: tuple[ConversationTurn, ...] = dataclasses.field(default_factory=tuple)
+    history: tuple[Turn, ...] = dataclasses.field(default_factory=tuple)
     # Structured options conveying advanced execution behavior.
     options: ExecutionOptions | None = None
 
@@ -57,8 +57,8 @@ class InitialCommand:
         # configuration and can provide more specific error messages
 
         _require(
-            condition=_is_tuple_of(self.history, ConversationTurn),
-            message="must be a tuple[ConversationTurn, ...]",
+            condition=_is_tuple_of(self.history, Turn),
+            message="must be a tuple[Turn, ...]",
             field_name="history",
             exc=TypeError,
         )
@@ -78,7 +78,7 @@ class InitialCommand:
         sources: tuple[Source, ...],
         prompts: tuple[str, ...],
         config: FrozenConfig,
-        history: tuple[ConversationTurn, ...] = (),
+        history: tuple[Turn, ...] = (),
         options: ExecutionOptions | None = None,
     ) -> InitialCommand:
         """Construct an `InitialCommand` ensuring at least one non-empty prompt.

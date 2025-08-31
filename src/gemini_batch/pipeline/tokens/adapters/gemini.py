@@ -7,11 +7,8 @@ base_tokens x bias_factor with a simple confidence-based range.
 from __future__ import annotations
 
 from dataclasses import dataclass
-import logging
 
 from gemini_batch.core.types import Source, TokenEstimate
-
-logger = logging.getLogger(__name__)
 
 # Provider knowledge (not configuration)
 HEURISTICS: dict[str, float] = {

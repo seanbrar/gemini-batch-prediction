@@ -241,7 +241,7 @@ raw = {"text": '["Answer 1", "Answer 2"]'}
 # Transform matches and extracts
 # Output
 {
-    "success": True,
+    "status": "ok",
     "answers": ["Answer 1", "Answer 2"],
     "extraction_method": "json_array",
     "confidence": 0.95
@@ -257,7 +257,7 @@ raw = {"text": "Single answer only"}
 # Minimal projection + padding
 # Output
 {
-    "success": True,
+    "status": "ok",
     "answers": ["Single answer only", "", ""],
     "extraction_method": "minimal_text",
     "confidence": 0.5
@@ -273,13 +273,16 @@ raw = {"text": '{"wrong": "shape"}'}
 # Extraction succeeds, violations recorded
 # Output
 {
-    "success": True,
+    "status": "ok",
     "answers": ['{"wrong": "shape"}'],
     "extraction_method": "minimal_text",
     "validation_warnings": [
         "Schema validation failed: ..."
     ]
 }
+
+Note: Confidence is required and validated in the core envelope validator.
+Consumers can rely on `confidence` being present and within [0.0, 1.0].
 ```
 
 ---

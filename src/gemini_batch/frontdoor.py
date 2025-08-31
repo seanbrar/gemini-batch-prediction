@@ -9,7 +9,7 @@ from __future__ import annotations
 import asyncio
 import contextlib
 import dataclasses
-from typing import TYPE_CHECKING, Any, overload
+from typing import TYPE_CHECKING, Any, Literal, overload
 
 from gemini_batch.config import FrozenConfig, resolve_config
 from gemini_batch.core.concurrency import resolve_request_concurrency
@@ -108,6 +108,7 @@ def run_batch(
     cfg: FrozenConfig | None = None,
     prefer_json: bool = False,
     options: ExecutionOptions | None = None,
+    concurrency: int | None = None,
 ) -> Coroutine[Any, Any, ResultEnvelope]: ...
 
 
@@ -119,6 +120,7 @@ def run_batch(
     cfg: FrozenConfig | None = None,
     prefer_json: bool = False,
     options: ExecutionOptions | None = None,
+    concurrency: int | None = None,
 ) -> Coroutine[Any, Any, ResultEnvelope]: ...
 
 
@@ -452,12 +454,18 @@ async def run_parallel(
             }
         )
 
-    # Important: ResultEnvelope contract requires success=True. Errors are surfaced
-    # via metrics/diagnostics instead of flipping success to False to keep the
-    # envelope shape stable across extraction paths.
+    # Determine aggregate status based on per-call outcomes
     error_count = len(errors)
+    status: Literal["ok", "partial", "error"]
+    if error_count == len(src_list) and len(src_list) > 0:
+        status = "error"
+    elif error_count > 0:
+        status = "partial"
+    else:
+        status = "ok"
+
     envelope: ResultEnvelope = {
-        "success": True,
+        "status": status,
         "answers": answers,
         "extraction_method": PARALLEL_AGG_METHOD,
         "confidence": sum(confidences) / len(confidences) if confidences else 0.0,

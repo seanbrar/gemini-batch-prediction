@@ -8,12 +8,12 @@ import pytest
 
 from gemini_batch.config import resolve_config
 from gemini_batch.core.types import (
-    ConversationTurn,
     HistoryPart,
     InitialCommand,
     PlannedCommand,
     ResolvedCommand,
     Success,
+    Turn,
 )
 from gemini_batch.pipeline.api_handler import APIHandler
 from gemini_batch.pipeline.planner import ExecutionPlanner
@@ -25,8 +25,8 @@ pytestmark = pytest.mark.unit
 async def test_planner_emits_calls_and_shared_parts_with_history() -> None:
     cfg = resolve_config(overrides={"api_key": "test-key"})
     history = (
-        ConversationTurn(question="Hello", answer="Hi"),
-        ConversationTurn(question="How are you?", answer="Great"),
+        Turn(question="Hello", answer="Hi"),
+        Turn(question="How are you?", answer="Great"),
     )
     initial = InitialCommand(
         sources=(),
@@ -123,7 +123,7 @@ async def test_api_handler_executes_vectorized_and_aggregates_usage() -> None:
 async def test_shared_cache_created_once_for_vectorized() -> None:
     # Attach history to trigger shared cache planning
     cfg = resolve_config(overrides={"api_key": "test-key"})
-    history = (ConversationTurn(question="hi", answer="there"),)
+    history = (Turn(question="hi", answer="there"),)
     initial = InitialCommand(
         sources=(), prompts=("A", "B"), config=cfg, history=history
     )

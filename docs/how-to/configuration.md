@@ -14,8 +14,8 @@ Goal: Run with the real API by setting just two variables.
 
 ```bash
 export GEMINI_API_KEY="<your key>"
-export GEMINI_MODEL="gemini-2.0-flash"
-export GEMINI_USE_REAL_API="true"
+export GEMINI_BATCH_MODEL="gemini-2.0-flash"
+export GEMINI_BATCH_USE_REAL_API="true"
 ```
 
 ```python
@@ -78,7 +78,7 @@ use_real_api = true
 Select a profile at runtime:
 
 ```bash
-export GEMINI_PROFILE=prod
+export GEMINI_BATCH_PROFILE=prod
 ```
 
 Or programmatically:
@@ -140,30 +140,31 @@ with config_scope({"use_real_api": False, "model": "test-model"}):
 Goal: Understand why values are what they are.
 
 ```python
-from gemini_batch.config import resolve_config, check_environment, doctor
+from gemini_batch.config import (
+    resolve_config,
+    check_environment,
+    doctor,
+    audit_text,
+    audit_layers_summary,
+)
 
-# Check environment variables (redacted)
+# Check environment variables (both GEMINI_* and GEMINI_BATCH_ are listed; secrets redacted)
 env_vars = check_environment()
-print("GEMINI_ environment variables:", env_vars)
+print("Environment snapshot:", env_vars)
 
 # Get diagnostic information
-diagnostics = doctor()
-for message in diagnostics:
+for message in doctor():
     print(f"🔍 {message}")
 
-# Audit configuration sources
-config, sources = resolve_config(explain=True)
-for field, origin in sources.items():
-    print(f"{field}: {origin.origin}")
-```
+# Redacted audit (human-readable origin labels)
+cfg, src = resolve_config(explain=True)
+print(audit_text(cfg, src))
+for line in audit_layers_summary(src):
+    print(line)
 
-Debug output example:
-
-```text
-api_key: env (redacted)
-model: file
-provider: derived
-tier: default
+# If you need raw origin enums per field:
+for field, fo in src.items():
+    print(field, fo.origin.value)
 ```
 
 For full diagnostics, provider inference rules, precedence, file discovery, and extra‑field validation patterns, see Reference → [Configuration](../reference/configuration.md).
@@ -177,7 +178,7 @@ Conventional patterns:
 
 ---
 
-## 9) Home‑level defaults
+## 7) Home‑level defaults
 
 Goal: Provide personal defaults across projects.
 
@@ -197,16 +198,16 @@ These values are lower priority than the project file and env, but higher than b
 
 Path override (advanced):
 
-- Set `GEMINI_CONFIG_HOME` to an alternate path (file path to `gemini_batch.toml`). This is helpful in containerized environments or test isolation.
+- Set `GEMINI_BATCH_CONFIG_HOME` to an alternate file path (e.g., `/tmp/gemini_batch.toml`). Helpful in containers or tests.
 
 ---
 
-## 10) Debug audit emission
+## 8) Debug audit emission
 
 Goal: Enable redacted debug audit output for troubleshooting.
 
 ```bash
-export GEMINI_DEBUG_CONFIG=1
+export GEMINI_BATCH_DEBUG_CONFIG=1
 ```
 
 ```python
@@ -219,4 +220,4 @@ config1 = resolve_config()
 config2 = resolve_config()
 ```
 
-Debug emission is controlled by `GEMINI_DEBUG_CONFIG` and uses Python’s warnings; audits are redacted.
+Debug emission is controlled by `GEMINI_BATCH_DEBUG_CONFIG` and uses Python’s warnings; audits are redacted.

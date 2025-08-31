@@ -11,7 +11,7 @@
 
 Provide a **simple, extensible, and audit‑grade** way to assemble prompts for batched requests. The system centralizes all prompt composition (system instruction + user prompts + light, source‑aware guidance) while preserving the **core batching invariants** and the **Command Pipeline** shape.
 
-**Key outcomes**
+### Key outcomes
 
 * Remove hard‑coded prompting from the planner’s control flow.
 * Keep batching UX straightforward: the **number of user prompts** remains the driver of expected outputs.
@@ -22,7 +22,7 @@ Provide a **simple, extensible, and audit‑grade** way to assemble prompts for 
 
 ## Scope & Non‑Goals
 
-**Scope**
+### Scope
 
 * Compose a **PromptBundle** (immutable):
 
@@ -31,7 +31,7 @@ Provide a **simple, extensible, and audit‑grade** way to assemble prompts for 
   * `hints: Mapping[str, Any]` – small provenance flags (e.g., `has_sources`, `user_from`).
 * Feed the bundle into the existing planner flow (token estimation, cache planning, API call preparation).
 
-**Non‑Goals**
+### Non‑Goals
 
 * Response shaping, parsing, or schema validation (owned by **Result Builder**).
 * Provider‑specific logic in the planner (remains in the adapter seam).

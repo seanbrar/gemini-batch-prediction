@@ -72,7 +72,7 @@ class TestClarityCompliance:
         dataclasses = [
             types.Success,
             types.Failure,
-            types.ConversationTurn,
+            types.Turn,
             types.Source,
             types.InitialCommand,
             types.ResolvedCommand,
@@ -99,7 +99,7 @@ class TestClarityCompliance:
         classes = [
             types.Success,
             types.Failure,
-            types.ConversationTurn,
+            types.Turn,
             types.Source,
             types.InitialCommand,
             types.ResolvedCommand,

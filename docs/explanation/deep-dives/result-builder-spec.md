@@ -76,7 +76,7 @@ class ExtractionContract:
 ```python
 class ResultEnvelope(TypedDict, total=False):
     """Stable result shape for all extractions."""
-    success: bool  # Always True (extraction never fails)
+    status: Literal["ok", "partial", "error"]  # End-to-end status
     answers: list[str]  # Always present, padded if needed
     extraction_method: str  # Which transform/fallback succeeded
     confidence: float  # 0.0-1.0 extraction confidence
@@ -86,6 +86,12 @@ class ResultEnvelope(TypedDict, total=False):
     diagnostics: dict[str, Any]  # When diagnostics enabled
     validation_warnings: tuple[str, ...]  # Schema/contract violations
 ```
+
+Note: The presence and range of `confidence` are enforced centrally by the
+core ResultEnvelope validator. Envelopes must include `confidence` and its
+value must be within [0.0, 1.0]. Custom terminal stages should construct
+valid envelopes up-front; invalid envelopes fail fast at the executor/consumer
+seam via the shared validator.
 
 ---
 
@@ -172,6 +178,38 @@ def provider_normalized_transform() -> TransformSpec:
         extractor=extractor,
         priority=80
     )
+```
+
+### Batch Response Transform
+
+Handles the library's internal vectorized container shape produced by the API handler:
+
+```python
+def batch_response_transform() -> TransformSpec:
+    """Extract answers from internal batch response format: {'batch': [...]}"""
+
+    def matcher(raw: Any) -> bool:
+        return isinstance(raw, dict) and isinstance(raw.get("batch"), (list, tuple)) and raw["batch"]
+
+    def extractor(raw: Any, _ctx: dict[str, Any]) -> dict[str, Any]:
+        def coerce(item: Any) -> str:
+            match item:
+                case str() as txt:
+                    return txt
+                case {"text": str(txt)} | {"content": str(txt)} | {"answer": str(txt)} | {"response": str(txt)} | {"message": str(txt)}:
+                    return txt
+                case {"candidates": [{"content": {"parts": [{"text": str(txt)}, *rest]}} , *more]}:
+                    return txt
+                case _ if hasattr(item, "text") and isinstance(getattr(item, "text"), str):
+                    return getattr(item, "text")
+                case _:
+                    return ""
+
+        batch = raw.get("batch")
+        answers = [coerce(it).strip() for it in batch]
+        return {"answers": answers, "confidence": 0.85, "structured_data": {"batch": batch}}
+
+    return TransformSpec(name="batch_response", matcher=matcher, extractor=extractor, priority=95)
 ```
 
 ---
@@ -435,7 +473,7 @@ def test_schema_violations_dont_fail():
     builder = ResultBuilder(enable_diagnostics=True)
 
     result = await builder.handle(mock_command_with_schema(schema))
-    assert result.success
+    assert result.status == "ok"
     assert "validation_warnings" in result.value or "diagnostics" in result.value
 ```
 
@@ -480,7 +518,7 @@ def test_pipeline_contract():
     assert isinstance(result, Success)
 
     # Returns stable envelope
-    assert "success" in result.value
+    assert "status" in result.value
     assert "answers" in result.value
     assert isinstance(result.value["answers"], list)
 ```

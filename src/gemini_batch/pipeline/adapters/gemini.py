@@ -22,7 +22,7 @@ if TYPE_CHECKING:
     from gemini_batch.config import FrozenConfig
     from gemini_batch.pipeline.execution_state import ExecutionHints
 
-logger = logging.getLogger(__name__)
+log = logging.getLogger(__name__)
 
 
 class GoogleGenAIAdapter(GenerationAdapter):
@@ -107,7 +107,7 @@ class GoogleGenAIAdapter(GenerationAdapter):
                         raw_provider_data=uploaded,
                     )
         except Exception:  # pragma: no cover - never fail upload due to normalization
-            logger.debug(
+            log.debug(
                 "upload normalization failed; returning raw object", exc_info=True
             )
 
@@ -182,7 +182,7 @@ class GoogleGenAIAdapter(GenerationAdapter):
         if isinstance(part, HistoryPart):
 
             def _render_history(turns: tuple[Any, ...]) -> str:
-                # HistoryPart.turns is tuple[ConversationTurn, ...]; question/answer are str
+                # HistoryPart.turns is tuple[Turn, ...]; question/answer are str
                 if not turns:
                     return ""
                 lines: list[str] = []
@@ -229,7 +229,7 @@ class GoogleGenAIAdapter(GenerationAdapter):
                 except Exception:  # pragma: no cover
                     return {"inline_data": True, "mime_type": part.mime_type}
         except Exception:  # pragma: no cover - type import issues shouldn't break
-            logger.exception("Failed to convert part")
+            log.exception("Failed to convert part")
         return part
 
     def _to_provider_config(self, api_config: dict[str, object]) -> Any:
@@ -298,15 +298,18 @@ class GoogleGenAIAdapter(GenerationAdapter):
                 pt = int(getattr(meta, "prompt_token_count", 0))
                 ot = int(getattr(meta, "candidates_token_count", 0))
                 tt = int(getattr(meta, "total_token_count", pt + ot))
+                # Optional cached content counter when provided by SDK
+                cc = int(getattr(meta, "cached_content_token_count", 0))
                 usage.update(
                     {
                         "prompt_token_count": pt,
                         "source_token_count": max(tt - pt, 0),
                         "total_token_count": tt,
+                        "cached_content_token_count": cc,
                     }
                 )
         except Exception:
-            logger.exception("Failed to extract usage metadata")
+            log.exception("Failed to extract usage metadata")
         return usage
 
 

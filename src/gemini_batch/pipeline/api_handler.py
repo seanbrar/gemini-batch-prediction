@@ -9,9 +9,11 @@ Implements a simple, capability-aligned execution flow with:
 - Single fallback attempt when primary execution fails
 - Orthogonal telemetry scopes for execute/generate/retry/fallback
 
-Design focuses on data-centricity and simplicity. Neutral types for files and
-explicit cache plans live in ``core.types``; this handler consumes them without
-leaking provider SDK details.
+Design focuses on data-centricity and simplicity. Remote HTTP(S) file
+materialization (e.g., arXiv PDFs) occurs in the dedicated
+``RemoteMaterializationStage`` prior to this handler; by the time we run,
+such inputs are represented as local ``FilePlaceholder`` parts that this
+handler uploads and replaces with provider file refs when supported.
 """
 
 from __future__ import annotations
@@ -22,11 +24,12 @@ from dataclasses import dataclass
 from enum import Enum
 import logging
 import os
+from pathlib import Path
+from time import perf_counter
 from typing import TYPE_CHECKING, Any, TypedDict, cast
 
+from gemini_batch._dev_flags import dev_raw_preview_enabled
 from gemini_batch.core.concurrency import resolve_request_concurrency
-
-# Removed ConfigCompatibilityShim import - no longer needed
 from gemini_batch.core.exceptions import APIError
 from gemini_batch.core.types import (
     APICall,
@@ -41,6 +44,7 @@ from gemini_batch.core.types import (
     TextPart,
     UploadTask,
 )
+from gemini_batch.pipeline._debug_preview import build_raw_preview
 from gemini_batch.pipeline.adapters.base import (
     ExecutionHintsAware,
     GenerationAdapter,
@@ -61,7 +65,7 @@ if TYPE_CHECKING:
 # Note: Provider adapters are injected explicitly via `adapter` or `adapter_factory`.
 # No import-time aliasing is required.
 
-logger = logging.getLogger(__name__)
+log = logging.getLogger(__name__)
 
 
 class UploadPhase(str, Enum):
@@ -111,6 +115,8 @@ class APIHandler(BaseAsyncHandler[PlannedCommand, FinalizedCommand, APIError]):
         registries: dict[str, SimpleRegistry] | None = None,
         adapter: GenerationAdapter | None = None,
         adapter_factory: Callable[[str], GenerationAdapter] | None = None,
+        *,
+        include_raw_preview: bool | None = None,
     ) -> None:
         """Initialize a thin API execution handler with optional telemetry.
 
@@ -123,6 +129,8 @@ class APIHandler(BaseAsyncHandler[PlannedCommand, FinalizedCommand, APIError]):
         self._file_registry = regs.get("files")
         self._adapter: GenerationAdapter | None = adapter
         self._adapter_factory = adapter_factory
+        # Debug/telemetry preview toggle (None -> inherit from env)
+        self._include_raw_preview: bool | None = include_raw_preview
         # Concurrency primitives
         self._uploads_inflight: dict[str, asyncio.Future[Any]] = {}
         self._uploads_lock = asyncio.Lock()
@@ -196,27 +204,47 @@ class APIHandler(BaseAsyncHandler[PlannedCommand, FinalizedCommand, APIError]):
 
     async def _prepare_effective_parts(
         self,
-        adapter: GenerationAdapter,
+        adapter: GenerationAdapter | UploadsCapability,
         base_parts: list[APIPart],
         *,
         upload_tasks: tuple[UploadTask, ...] | None = None,
         infer_placeholders: bool = True,
+        call_offset: int = 0,
     ) -> list[APIPart]:
         """Sanitize parts and perform upload substitution when supported.
 
         Callers pass explicit `upload_tasks` from the plan for per-call parts,
         or an empty tuple for shared parts. When `infer_placeholders` is True,
         FilePlaceholder entries are converted into inferred UploadTask entries.
+
+        Explicitness note:
+            If explicit `upload_tasks` are provided, they take precedence and
+            no additional inference is performed unless the explicit set is
+            empty. This avoids surprising partial merges; authors should include
+            all desired uploads explicitly when any are specified.
         """
         effective_parts = self._sanitize_history_parts(list(base_parts))
 
         # Determine upload tasks: prefer explicit, else infer from placeholders
         tasks: tuple[UploadTask, ...] = upload_tasks or ()
+        # UploadTask.part_index is defined relative to the per-call api_parts
+        # (i.e., it does not include any shared parts). When operating on a
+        # combined list of parts (shared + call), adjust indices by the length
+        # of the shared prefix so replacements target the correct slots.
+        if tasks and call_offset:
+            from dataclasses import replace as _dc_replace
+
+            adjusted: list[UploadTask] = []
+            for t in tasks:
+                adjusted.append(
+                    _dc_replace(t, part_index=int(call_offset) + int(t.part_index))
+                )
+            tasks = tuple(adjusted)
         if not tasks and infer_placeholders:
             tasks = self._infer_upload_tasks(effective_parts)
 
-        # If nothing to upload or adapter lacks capability, return early
-        if not tasks:
+        # If nothing to upload via placeholders and adapter lacks capability, return early
+        if not tasks and not isinstance(adapter, UploadsCapability):
             return effective_parts
         if not isinstance(adapter, UploadsCapability):
             if any(t.required for t in tasks):
@@ -227,10 +255,12 @@ class APIHandler(BaseAsyncHandler[PlannedCommand, FinalizedCommand, APIError]):
         with self._telemetry(UploadPhase.get_telemetry_scope(UploadPhase.PARTITION)):
             to_replace, pending = self._partition_uploads(tasks, effective_parts)
 
-        # Phase 2: perform uploads concurrently and update registry
+        # Phase 2a: perform uploads for local files (placeholder tasks)
         if pending:
             with self._telemetry(UploadPhase.get_telemetry_scope(UploadPhase.UPLOAD)):
-                uploaded_results = await self._upload_pending(adapter, pending)
+                uploaded_results = await self._upload_pending(
+                    adapter, pending, effective_parts
+                )
                 to_replace.extend(uploaded_results)
 
         # Phase 3: coerce to FileRefPart where needed and replace in parts
@@ -283,7 +313,10 @@ class APIHandler(BaseAsyncHandler[PlannedCommand, FinalizedCommand, APIError]):
         return to_replace, pending
 
     async def _upload_pending(
-        self, adapter: UploadsCapability, pending: list[tuple[int, UploadTask]]
+        self,
+        adapter: UploadsCapability,
+        pending: list[tuple[int, UploadTask]],
+        parts: list[APIPart],
     ) -> list[tuple[int, Any]]:
         async def _upload_one(i: int, t: UploadTask) -> tuple[int, Any]:
             local_id = os.fspath(t.local_path)
@@ -321,6 +354,18 @@ class APIHandler(BaseAsyncHandler[PlannedCommand, FinalizedCommand, APIError]):
                     with suppress(Exception):
                         self._file_registry.set(local_id, uploaded)
                 fut.set_result(uploaded)
+                # Best-effort cleanup: unlink ephemeral placeholders after upload
+                try:
+                    if 0 <= i < len(parts):
+                        ph = parts[i]
+                        if isinstance(ph, FilePlaceholder) and getattr(
+                            ph, "ephemeral", False
+                        ):
+                            with suppress(Exception):
+                                Path(os.fspath(t.local_path)).unlink()
+                except Exception as _cleanup_err:
+                    # Never fail upload due to cleanup; surface at debug level
+                    log.debug("Ephemeral file cleanup failed: %s", _cleanup_err)
                 return i, uploaded
             except Exception as e:
                 fut.set_exception(e)
@@ -430,9 +475,22 @@ class APIHandler(BaseAsyncHandler[PlannedCommand, FinalizedCommand, APIError]):
             combined_parts = self._combine_shared_with_call(
                 effective_shared, call.api_parts
             )
+            # Prepare effective parts per-call as well to ensure any placeholders
+            # in per-call parts are uploaded and replaced consistently.
+            # Prepare again at per-call granularity. Shared parts were already
+            # sanitized and had placeholders resolved; this pass handles any
+            # per-call placeholders uniformly and is a no-op for effective shared parts.
+            prepared_parts = await self._prepare_effective_parts(
+                adapter,
+                list(combined_parts),
+                upload_tasks=plan.upload_tasks,
+                infer_placeholders=True,
+                call_offset=len(effective_shared),
+            )
             async with sem:
+                t0 = perf_counter()
                 if isinstance(adapter, _MockAdapter):
-                    ptxt = self._extract_text_from_parts(combined_parts)
+                    ptxt = self._extract_text_from_parts(tuple(prepared_parts))
                     raw = {
                         "mock": True,
                         "model": call.model_name,
@@ -446,17 +504,19 @@ class APIHandler(BaseAsyncHandler[PlannedCommand, FinalizedCommand, APIError]):
                     used_fallback = False
                     retried_without_cache = False
                     primary_error_repr = None
+                    api_time_s = 0.0
                 else:
                     (
                         raw,
                         used_fallback,
                         retried_without_cache,
                         primary_error_repr,
+                        api_time_s,
                     ) = await self._execute_with_resilience(
                         adapter,
                         command,
                         call,
-                        tuple(combined_parts),
+                        tuple(prepared_parts),
                         call.cache_name_to_use,
                     )
                 raw_list[i] = raw
@@ -468,6 +528,20 @@ class APIHandler(BaseAsyncHandler[PlannedCommand, FinalizedCommand, APIError]):
                     meta["retried_without_cache"] = True
                 if primary_error_repr:
                     meta["primary_error"] = primary_error_repr
+                # Attach per-call duration (execution time within semaphore)
+                total_dur = max(perf_counter() - t0, 0.0)
+                meta["duration_s"] = total_dur
+                # Provide a split between provider API time and non-API time
+                try:
+                    api_dur = float(api_time_s)
+                except Exception:
+                    api_dur = 0.0
+                api_dur = api_dur if api_dur >= 0.0 else 0.0
+                meta["api_time_s"] = api_dur
+                meta["non_api_time_s"] = max(total_dur - api_dur, 0.0)
+
+                # Indicate whether a cache was applied to this call via the plan
+                meta["cache_applied"] = bool(call.cache_name_to_use)
                 per_call_meta[i] = meta
 
         await asyncio.gather(*(_one(i) for i in range(n)))
@@ -480,6 +554,7 @@ class APIHandler(BaseAsyncHandler[PlannedCommand, FinalizedCommand, APIError]):
                 "batch": tuple(raw_list),
             },
         )
+
         # Attach usage and per-prompt metrics prior to validation
         self._attach_vectorized_usage(
             finalized,
@@ -488,8 +563,86 @@ class APIHandler(BaseAsyncHandler[PlannedCommand, FinalizedCommand, APIError]):
             per_call_meta=per_call_meta,
         )
 
+        # Surface execution-level metrics helpful for batch efficiency analysis
+        try:
+            metrics = cast(
+                "dict[str, Any]", finalized.telemetry_data.setdefault("metrics", {})
+            )
+            metrics["concurrency_used"] = concurrency
+            metrics["cache_application"] = plan.cache_application
+            # Aggregate simple per-call flags for dashboards (high-value, low coupling)
+            try:
+                pcm = metrics.get("per_call_meta")
+                if isinstance(pcm, list | tuple):
+                    metrics["retry_no_cache_count"] = sum(
+                        1
+                        for m in pcm
+                        if isinstance(m, dict) and m.get("retried_without_cache")
+                    )
+                    metrics["fallback_count"] = sum(
+                        1 for m in pcm if isinstance(m, dict) and m.get("used_fallback")
+                    )
+
+                    # Aggregate total API and non-API time across calls (best-effort)
+                    def _num(x: Any) -> float:
+                        try:
+                            return float(x)
+                        except Exception:
+                            return 0.0
+
+                    metrics["api_time_total_s"] = sum(
+                        _num(cast("dict[str, Any]", m).get("api_time_s"))
+                        for m in pcm
+                        if isinstance(m, dict)
+                    )
+                    metrics["non_api_time_total_s"] = sum(
+                        _num(cast("dict[str, Any]", m).get("non_api_time_s"))
+                        for m in pcm
+                        if isinstance(m, dict)
+                    )
+            except Exception as _agg_err:
+                # Best-effort; keep envelope robust if shape varies
+                log.debug(
+                    "Failed to aggregate per-call flags; continuing.",
+                    exc_info=_agg_err,
+                )
+            # Surface per-call estimates when available for prediction vs actual analysis
+            if command.per_call_estimates:
+                metrics["per_call_estimates"] = tuple(
+                    {
+                        "min_tokens": e.min_tokens,
+                        "expected_tokens": e.expected_tokens,
+                        "max_tokens": e.max_tokens,
+                        "confidence": e.confidence,
+                    }
+                    for e in command.per_call_estimates
+                )
+        except Exception as e:
+            # Best-effort: never fail execution due to metrics attachment
+            log.debug("Failed to attach execution metrics; continuing.", exc_info=e)
+
         # Token validation compares estimated aggregate to actual aggregate
         self._attach_token_validation(finalized)
+
+        # Optionally attach compact raw previews for researcher debugging
+        try:
+            enabled = (
+                self._include_raw_preview
+                if self._include_raw_preview is not None
+                else dev_raw_preview_enabled()
+            )
+            if enabled:
+                previews = tuple(build_raw_preview(r) for r in raw_list)
+                dbg = cast(
+                    "dict[str, Any]", finalized.telemetry_data.setdefault("metrics", {})
+                )
+                # Keep under metrics for envelope pass-through without schema changes
+                dbg["raw_preview"] = {  # compact, provider-agnostic view
+                    "model": plan.calls[0].model_name,
+                    "batch": previews,
+                }
+        except Exception as e:
+            log.debug("Failed to attach raw_preview; continuing.", exc_info=e)
         return finalized
 
     def _extract_text_from_parts(self, parts: tuple[APIPart, ...]) -> str:
@@ -540,10 +693,11 @@ class APIHandler(BaseAsyncHandler[PlannedCommand, FinalizedCommand, APIError]):
         primary: APICall,
         parts: tuple[APIPart, ...],
         cache_name: str | None,
-    ) -> tuple[dict[str, Any], bool, bool, str | None]:
+    ) -> tuple[dict[str, Any], bool, bool, str | None, float]:
         used_fallback = False
         retried_without_cache = False
         primary_error_repr: str | None = None
+        total_api_time_s: float = 0.0
         with self._telemetry("api.execute", model=primary.model_name):
             try:
                 # Convert Mapping to dict for the method that needs to modify it
@@ -551,6 +705,7 @@ class APIHandler(BaseAsyncHandler[PlannedCommand, FinalizedCommand, APIError]):
                 (
                     raw_response,
                     retried_without_cache,
+                    api_time_s,
                 ) = await self._generate_with_resilience(
                     adapter,
                     primary.model_name,
@@ -559,6 +714,7 @@ class APIHandler(BaseAsyncHandler[PlannedCommand, FinalizedCommand, APIError]):
                     cache_name,
                     planned_command=command,
                 )
+                total_api_time_s += float(api_time_s or 0.0)
             except Exception as primary_error:
                 if command.execution_plan.fallback_call is None:
                     raise APIError(
@@ -575,21 +731,29 @@ class APIHandler(BaseAsyncHandler[PlannedCommand, FinalizedCommand, APIError]):
                             raw_response = self._build_mock_response(
                                 self._rebuild_for_fallback(command)
                             )
+                            api_time = 0.0
                         else:
-                            # Apply explicit no-cache hint for fallback path for uniformity
-                            self._apply_adapter_hints(adapter, None)
-                            raw_response = await adapter.generate(
-                                model_name=fb.model_name,
-                                api_parts=tuple(fb.api_parts),
-                                api_config=dict(fb.api_config),
+                            # Reuse centralized no-cache generation helper for timing and hints
+                            raw_response, api_time = await self._retry_without_cache(
+                                adapter,
+                                fb.model_name,
+                                tuple(fb.api_parts),
+                                dict(fb.api_config),
                             )
+                        total_api_time_s += api_time
                     # Fallback path does not imply primary no-cache retry
                     retried_without_cache = False
                 except Exception as fallback_error:
                     raise APIError(
                         f"Fallback failed after primary error: {primary_error}; fallback error: {fallback_error}"
                     ) from fallback_error
-        return raw_response, used_fallback, retried_without_cache, primary_error_repr
+        return (
+            raw_response,
+            used_fallback,
+            retried_without_cache,
+            primary_error_repr,
+            total_api_time_s,
+        )
 
     def _build_mock_response(self, command: PlannedCommand) -> dict[str, Any]:
         call0 = command.execution_plan.calls[0]
@@ -725,14 +889,16 @@ class APIHandler(BaseAsyncHandler[PlannedCommand, FinalizedCommand, APIError]):
         parts: tuple[APIPart, ...],
         api_config: dict[str, object],
         cache_name: str | None,
-    ) -> dict[str, Any]:
+    ) -> tuple[dict[str, Any], float]:
         """Single generation attempt with optional cache application."""
         self._apply_adapter_hints(adapter, cache_name)
-        return await adapter.generate(
+        _t0 = perf_counter()
+        raw = await adapter.generate(
             model_name=model_name,
             api_parts=parts,
             api_config=self._with_cache(api_config, cache_name),
         )
+        return raw, max(perf_counter() - _t0, 0.0)
 
     async def _retry_without_cache(
         self,
@@ -740,14 +906,16 @@ class APIHandler(BaseAsyncHandler[PlannedCommand, FinalizedCommand, APIError]):
         model_name: str,
         parts: tuple[APIPart, ...],
         api_config: dict[str, object],
-    ) -> dict[str, Any]:
+    ) -> tuple[dict[str, Any], float]:
         """One retry without cache, marking telemetry flag for caller."""
         self._apply_adapter_hints(adapter, None)
-        return await adapter.generate(
+        _t0 = perf_counter()
+        raw = await adapter.generate(
             model_name=model_name,
             api_parts=parts,
             api_config=dict(api_config),
         )
+        return raw, max(perf_counter() - _t0, 0.0)
 
     async def _backoff_generate(
         self,
@@ -759,7 +927,7 @@ class APIHandler(BaseAsyncHandler[PlannedCommand, FinalizedCommand, APIError]):
         attempts: int = 2,
         base_delay: float = 0.5,
         initial_error: Exception,
-    ) -> dict[str, Any]:
+    ) -> tuple[dict[str, Any], float]:
         """Small backoff loop for transient errors; raises last error if exhausted."""
         # If the initial error is not transient, don't retry pointlessly
         if not self._is_transient_error(initial_error):
@@ -775,16 +943,20 @@ class APIHandler(BaseAsyncHandler[PlannedCommand, FinalizedCommand, APIError]):
                 with self._telemetry(
                     T_API_GENERATE_RETRY, model=model_name, attempt=i + 1
                 ):
-                    return await adapter.generate(
+                    _t0 = perf_counter()
+                    raw = await adapter.generate(
                         model_name=model_name,
                         api_parts=parts,
                         api_config=dict(api_config),
                     )
+                    return raw, max(perf_counter() - _t0, 0.0)
             except Exception as e:  # keep last error
                 # If the new error is not transient, raise immediately
                 if not self._is_transient_error(e):
                     raise e
                 last_error = e
+                # Note: we only count API time on successful attempt; failed attempts are
+                # not observable via envelope metrics and would bias totals across failures.
         # Exhausted retries; raise the last transient error
         raise last_error
 
@@ -796,7 +968,7 @@ class APIHandler(BaseAsyncHandler[PlannedCommand, FinalizedCommand, APIError]):
         api_config: dict[str, object],
         cache_name: str | None,
         planned_command: PlannedCommand,
-    ) -> tuple[dict[str, Any], bool]:
+    ) -> tuple[dict[str, Any], bool, float]:
         """Generate with cache hinting and minimal retry logic.
 
         Behavior:
@@ -808,13 +980,16 @@ class APIHandler(BaseAsyncHandler[PlannedCommand, FinalizedCommand, APIError]):
         - For recognized transient errors, perform a small backoff loop (2 tries).
         """
         retried_without_cache = False
+        api_time_accum = 0.0
 
         # Mock path remains deterministic and never retries
         if isinstance(adapter, _MockAdapter):
             with self._telemetry(T_API_GENERATE, model=model_name):
-                return self._build_mock_response_from_parts(
-                    parts, planned_command
-                ), retried_without_cache
+                return (
+                    self._build_mock_response_from_parts(parts, planned_command),
+                    retried_without_cache,
+                    0.0,
+                )
 
         # Derive intent from plan (includes override vs plan origin when available)
         intent = self._derive_cache_intent(
@@ -845,20 +1020,22 @@ class APIHandler(BaseAsyncHandler[PlannedCommand, FinalizedCommand, APIError]):
                         intent.name,
                         applied_via=intent.applied_via,
                     )
-                raw = await self._attempt_generate(
+                raw, api_t = await self._attempt_generate(
                     adapter, model_name, parts, api_config, cache_name
                 )
-                return raw, retried_without_cache
+                api_time_accum += api_t
+                return raw, retried_without_cache, api_time_accum
         except Exception as first_error:
             # Retry without cache only if caching was truly intended and applied
             if intent.applied and intent.applied_via in {"plan", "override"}:
                 with self._telemetry(T_API_RETRY_NO_CACHE, model=model_name):
                     try:
-                        raw = await self._retry_without_cache(
+                        raw, api_t = await self._retry_without_cache(
                             adapter, model_name, parts, api_config
                         )
                         retried_without_cache = True
-                        return raw, retried_without_cache
+                        api_time_accum += api_t
+                        return raw, retried_without_cache, api_time_accum
                     except Exception:
                         # fall through to backoff retries on transient errors
                         last_error = first_error
@@ -873,7 +1050,7 @@ class APIHandler(BaseAsyncHandler[PlannedCommand, FinalizedCommand, APIError]):
                 if last_error is not None
                 else Exception("initial error missing")
             )
-            raw = await self._backoff_generate(
+            raw, api_t = await self._backoff_generate(
                 adapter,
                 model_name,
                 parts,
@@ -882,7 +1059,8 @@ class APIHandler(BaseAsyncHandler[PlannedCommand, FinalizedCommand, APIError]):
                 base_delay=0.5,
                 initial_error=initial_err,
             )
-            return raw, retried_without_cache
+            api_time_accum += api_t
+            return raw, retried_without_cache, api_time_accum
 
     def _is_transient_error(self, err: Exception) -> bool:
         text = str(err).lower()

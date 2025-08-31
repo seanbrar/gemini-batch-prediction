@@ -36,6 +36,8 @@ def _base_envelope() -> dict[str, Any]:
     return {
         "status": "ok",
         "answers": [],
+        "extraction_method": "stub",
+        "confidence": 1.0,
         "usage": {},
         "metrics": {"token_validation": {}},
     }

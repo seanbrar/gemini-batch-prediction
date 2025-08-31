@@ -55,7 +55,7 @@ from gemini_batch.config import resolve_config, check_environment, doctor
 
 # Check current environment variables
 env_vars = check_environment()
-print("GEMINI_ environment variables:", env_vars)
+print("GEMINI_BATCH_ environment variables:", env_vars)
 
 # Get diagnostic information
 diagnostics = doctor()
@@ -94,15 +94,16 @@ print(f"Model 'custom-llm' resolves to: {resolve_provider('custom-llm')}")
 
 Enhanced environment variable support with automatic type coercion:
 
-- `GEMINI_API_KEY` - Your API key (redacted in all outputs)
-- `GEMINI_MODEL` - Model name (default: gemini-2.0-flash)
-- `GEMINI_TIER` - API tier (free, tier_1, tier_2, tier_3)
-- `GEMINI_USE_REAL_API` - Use real API (true/false, default: false)
-- `GEMINI_ENABLE_CACHING` - Enable caching (true/false, default: false)
-- `GEMINI_TTL_SECONDS` - Cache TTL in seconds (default: 3600)
-- `GEMINI_TELEMETRY_ENABLED` - Enable telemetry (true/false, default: false)
-- `GEMINI_PROFILE` - Select configuration profile
-- `GEMINI_DEBUG_CONFIG` - Enable debug audit emission (development only)
+- `GEMINI_API_KEY` — Your API key (redacted in all outputs)
+- `GEMINI_BATCH_MODEL` — Model name (default: gemini-2.0-flash)
+- `GEMINI_BATCH_TIER` — API tier (`free`, `tier_1`, `tier_2`, `tier_3`)
+- `GEMINI_BATCH_USE_REAL_API` — Use real API (`true`/`false`, default: false)
+- `GEMINI_BATCH_ENABLE_CACHING` — Enable caching (`true`/`false`, default: false)
+- `GEMINI_BATCH_TTL_SECONDS` — Cache TTL in seconds (default: 3600)
+- `GEMINI_BATCH_TELEMETRY_ENABLED` — Enable telemetry (`true`/`false`, default: false)
+- `GEMINI_BATCH_REQUEST_CONCURRENCY` — Client-side fan-out bound (int, default: 6)
+- `GEMINI_BATCH_PROFILE` — Select configuration profile
+- `GEMINI_BATCH_DEBUG_CONFIG` — Enable redacted debug audit emission (development only)
 
 ## File-Based Configuration
 

@@ -79,6 +79,7 @@ print(result.value["diagnostics"])  # attempted_transforms, successful_transform
 ## Notes and guidance
 
 - Transforms must be pure (no IO, no global state); identical input yields identical output.
+- Extractors must return `answers` as a `list[str]` (tuples or scalars are not accepted).
 - Prefer higher priority for more specific transforms; general transforms should use lower priority.
 - For configuration, prefer a transform-factory pattern (as shown above). `ExtractionContext.config` exists but is not currently injected by `ResultBuilder`.
 

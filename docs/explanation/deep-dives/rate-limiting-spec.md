@@ -442,7 +442,7 @@ class TestPipelineWithRateLimiting:
         )
 
         result = await executor.execute(command)
-        assert result.success
+        assert result.status == "ok"
 
         # Verify constraint was applied
         telemetry = result.telemetry_data

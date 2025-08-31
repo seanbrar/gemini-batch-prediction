@@ -2,8 +2,9 @@
 
 from __future__ import annotations
 
+import math
 import typing
-from typing import TypeGuard
+from typing import Literal, TypeGuard
 
 
 class ResultEnvelope(typing.TypedDict, total=False):
@@ -16,7 +17,7 @@ class ResultEnvelope(typing.TypedDict, total=False):
     """
 
     # Core fields (always present)
-    success: bool  # Always True (extraction never fails)
+    status: Literal["ok", "partial", "error"]  # End-to-end status
     answers: list[str]  # Always present, padded if needed
     extraction_method: str  # Which transform/fallback succeeded
     confidence: float  # 0.0-1.0 extraction confidence
@@ -37,9 +38,9 @@ def _validate_result_envelope_reason(obj: object) -> str | None:
     """
     if not isinstance(obj, dict):
         return f"ResultEnvelope must be dict, got {type(obj).__name__}"
-    success = obj.get("success")
-    if success is not True:
-        return "'success' must be present and True"
+    status = obj.get("status")
+    if status not in ("ok", "partial", "error"):
+        return "'status' must be one of {'ok','partial','error'}"
     answers = obj.get("answers")
     if not isinstance(answers, list):
         if isinstance(answers, str):
@@ -51,8 +52,17 @@ def _validate_result_envelope_reason(obj: object) -> str | None:
     method = obj.get("extraction_method")
     if not (isinstance(method, str) and method.strip() != ""):
         return "'extraction_method' must be a non-empty str"
-    if "confidence" in obj and not isinstance(obj.get("confidence"), int | float):
-        return "'confidence' must be int|float when present"
+    if "confidence" not in obj:
+        return "'confidence' must be present"
+    conf = obj.get("confidence")
+    if not isinstance(conf, int | float):
+        return "'confidence' must be int|float"
+    try:
+        cf = float(conf)
+    except Exception:
+        return "'confidence' must be convertible to float"
+    if math.isnan(cf) or not (0.0 <= cf <= 1.0):
+        return "'confidence' must be in [0.0, 1.0]"
     if "metrics" in obj and not isinstance(obj.get("metrics"), dict):
         return "'metrics' must be dict when present"
     if "usage" in obj and not isinstance(obj.get("usage"), dict):

@@ -66,9 +66,9 @@ async def test_history_part_reaches_adapter_intact() -> None:
             # Minimal single turn to ensure the part is preserved
             # (empty histories are intentionally omitted by the handler)
             # Using placeholder values avoids tight coupling to provider formatting
-            __import__(
-                "gemini_batch.core.types", fromlist=["ConversationTurn"]
-            ).ConversationTurn(question="q", answer="a"),
+            __import__("gemini_batch.core.types", fromlist=["Turn"]).Turn(
+                question="q", answer="a"
+            ),
         )
     )
     calls = (

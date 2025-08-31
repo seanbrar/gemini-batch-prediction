@@ -302,7 +302,7 @@ class ResultBuilder(BaseAsyncHandler[FinalizedCommand, ResultEnvelope, Never]):
 
         # Build base envelope
         envelope: ResultEnvelope = {
-            "success": True,
+            "status": "ok",
             "answers": answers,
             "extraction_method": extraction_result.method,
             "confidence": extraction_result.confidence,
@@ -342,6 +342,9 @@ class ResultBuilder(BaseAsyncHandler[FinalizedCommand, ResultEnvelope, Never]):
         # Include token usage details when provided by telemetry (optional)
         if isinstance(usage_obj, dict) and usage_obj:
             envelope["usage"] = dict(usage_obj)
+
+        # Note: raw preview is now attached upstream (APIHandler) under
+        # telemetry_data["metrics"]["raw_preview"] for pass-through.
 
         return envelope
 

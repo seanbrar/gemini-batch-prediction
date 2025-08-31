@@ -16,10 +16,10 @@ if TYPE_CHECKING:
 
 
 def history_to_text(turns: tuple[Any, ...]) -> str:
-    """Convert conversation turns to text format for cache identity.
+    """Convert turns to text format for cache identity.
 
     Args:
-        turns: Tuple of conversation turns with question/answer attributes.
+        turns: Tuple of turns with question/answer attributes.
 
     Returns:
         Formatted conversation history as newline-separated text.

@@ -22,9 +22,6 @@ from .api_parts import (
 # Plan & commands
 from .api_plan import APICall, ExecutionPlan, UploadTask
 from .commands import FinalizedCommand, InitialCommand, PlannedCommand, ResolvedCommand
-
-# Conversation & prompts
-from .conversation import ConversationTurn
 from .prompts_bundle import PromptBundle
 from .rate_limits import RateConstraint
 from .result_envelope import (
@@ -42,6 +39,9 @@ from .sources import Source
 # Tokens & rate limits
 from .tokens import TokenEstimate
 
+# Conversation & prompts
+from .turn import Turn
+
 # Ensure external dependency visibility for tests without runtime import
 if typing.TYPE_CHECKING:  # pragma: no cover - import for dependency visibility only
     from google.genai import types as genai_types  # noqa: F401
@@ -49,7 +49,6 @@ if typing.TYPE_CHECKING:  # pragma: no cover - import for dependency visibility 
 __all__ = [
     "APICall",
     "APIPart",
-    "ConversationTurn",
     "ExecutionPlan",
     "Failure",
     "FileInlinePart",
@@ -69,7 +68,14 @@ __all__ = [
     "Success",
     "TextPart",
     "TokenEstimate",
+    "Turn",
     "UploadTask",
     "explain_invalid_result_envelope",
     "is_result_envelope",
 ]
+
+# Hide the __future__ feature binding from the public surface if present
+try:  # pragma: no cover - environment specific  # noqa: SIM105
+    del annotations
+except NameError:  # pragma: no cover - defensive
+    pass
