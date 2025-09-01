@@ -65,6 +65,7 @@ nav:
                             - API:
                                       - Executor: reference/api/executor.md
                                       - Frontdoor: reference/api/frontdoor.md
+                                      - Research: reference/api/research.md
                                       - Types: reference/api/types.md
                                       - Config: reference/api/config.md
                                       - Telemetry: reference/api/telemetry.md

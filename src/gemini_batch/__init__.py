@@ -18,6 +18,7 @@ from gemini_batch.frontdoor import (
 
 # Curated public namespaces for clarity
 from . import exceptions as exceptions  # Re-exported public exceptions
+from . import research as research  # Progressive disclosure: research helpers
 from . import types as types  # Re-exported public types
 
 # Version handling
@@ -43,4 +44,5 @@ __all__ = [  # noqa: RUF022
     "GeminiBatchError",
     "types",
     "exceptions",
+    "research",
 ]
