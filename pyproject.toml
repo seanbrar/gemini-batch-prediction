@@ -50,6 +50,7 @@ dev = [
     "mkdocs>=1.6.0",
     "mkdocs-material>=9.6.0",
     "mkdocstrings[python]>=0.25.0",
+    "mkdocstrings-python>=1.10.0",
     "types-PyYAML>=6.0.12",
 ]
 viz = ["matplotlib~=3.10", "pandas~=2.3", "seaborn~=0.13"]
@@ -67,6 +68,7 @@ source = ["src/gemini_batch"]
 omit = [
     "setup.py",
     "src/gemini_batch/__init__.py",
+    "src/gemini_batch/extensions/visualization.py",
     "tests/*",
 ]
 
@@ -191,8 +193,8 @@ dummy-variable-rgx = "^(_+|(_+[a-zA-Z0-9_]*[a-zA-Z0-9]+?))$"
 
 [tool.ruff.lint.per-file-ignores]
 "__init__.py" = ["F401"]
-"examples/*" = ["S105", "S106", "T20"]
-"notebooks/*" = ["T201"]
+"cookbook/*" = ["S105", "S106", "T20", "D103", "D", "S"]
+"notebooks/*" = ["T201", "RET504", "S110", "RUF001", "N814", "UP038", "E402"]
 "tests/*" = ["D", "N806", "S101", "S105", "S106", "S108"]
 
 [tool.ruff.lint.isort]

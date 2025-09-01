@@ -1,5 +1,8 @@
 site_name: Gemini Batch Documentation
 repo_url: https://github.com/seanbrar/gemini-batch-prediction
+repo_name: seanbrar/gemini-batch-prediction
+site_url: https://seanbrar.github.io/gemini-batch-prediction/
+edit_uri: edit/main/docs/
 theme:
         name: material
         features:
@@ -8,6 +11,7 @@ theme:
                 - content.code.copy
                 - toc.integrate
 plugins:
+        - search
         - mkdocstrings:
                   handlers:
                           python:
@@ -76,10 +80,9 @@ nav:
                                       - Adapters: reference/internals/adapters.md
                                       - Results: reference/internals/results.md
                             - Configuration: reference/configuration.md
-                            - Conversation Guide: CONVERSATION.md
-                            - Caching: CACHING.md
+                            - Conversation Guide: how-to/conversation-advanced.md
+                            - Caching: how-to/caching.md
                             - Telemetry: TELEMETRY.md
-                            - Logging: LOGGING.md
-                            - Source Handling: SOURCE_HANDLING.md
+                            - Source Handling: source-handling.md
         - Contributing:
                   - Docstring Style Guide: contributing/docstring_style.md

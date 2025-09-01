@@ -624,6 +624,15 @@ class APIHandler(BaseAsyncHandler[PlannedCommand, FinalizedCommand, APIError]):
         # Token validation compares estimated aggregate to actual aggregate
         self._attach_token_validation(finalized)
 
+        # Attach auto model selection diagnostics (best-effort, advisory)
+        try:
+            self._attach_model_selection_diag(finalized)
+        except Exception as _diag_err:
+            log.debug(
+                "Model selection diagnostics attach failed; continuing.",
+                exc_info=_diag_err,
+            )
+
         # Optionally attach compact raw previews for researcher debugging
         try:
             enabled = (
@@ -683,6 +692,60 @@ class APIHandler(BaseAsyncHandler[PlannedCommand, FinalizedCommand, APIError]):
             except Exception:
                 total += 0
         return total
+
+    def _attach_model_selection_diag(self, finalized: FinalizedCommand) -> None:
+        """Compute and attach model selection decision for diagnostics.
+
+        This is advisory only; it never changes the planned model.
+        """
+        try:
+            from gemini_batch.extensions.model_selector import SelectionInputs, decide
+        except Exception:
+            return
+
+        planned = finalized.planned
+        cfg = planned.resolved.initial.config
+        model = cfg.model
+        default_model = cfg.model  # fallback default (no separate default in cfg)
+
+        # Prefer aggregate estimate when available; else sum per-call
+        total_est = 0
+        if planned.token_estimate is not None:
+            total_est = int(getattr(planned.token_estimate, "expected_tokens", 0) or 0)
+        elif planned.per_call_estimates:
+            total_est = sum(
+                int(getattr(e, "expected_tokens", 0) or 0)
+                for e in planned.per_call_estimates
+            )
+
+        prompt_count = max(1, len(planned.execution_plan.calls))
+        caching_enabled = bool(cfg.enable_caching)
+
+        # Heavy multimodal heuristic: any non-text source or media mime-types
+        heavy_mm = False
+        for s in planned.resolved.resolved_sources:
+            try:
+                mt = (s.mime_type or "").lower()
+            except Exception:
+                mt = ""
+            if s.source_type != "text" or mt.startswith(("video/", "audio/", "image/")):
+                heavy_mm = True
+                break
+
+        inputs = SelectionInputs(
+            total_est_tokens=total_est,
+            prompt_count=prompt_count,
+            caching_enabled=caching_enabled,
+            heavy_multimodal=heavy_mm,
+            configured_default=default_model,
+            configured_model=model,
+            # With no provenance inside FinalizedCommand, conservatively assume explicit
+            explicit_model=True,
+        )
+        decision = decide(inputs)
+        diag = finalized.telemetry_data.setdefault("diagnostics", {})
+        if isinstance(diag, dict):
+            diag["model_selected"] = decision
 
     # Cache resolution is handled by CacheStage; no planning-time cache logic here
 
