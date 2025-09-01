@@ -155,7 +155,10 @@ class GeminiExecutor:
                 },
                 adapter_factory=adapter_factory,
             ),
-            ResultBuilder(validate=self._validate_pipeline),
+            ResultBuilder(
+                validate=self._validate_pipeline,
+                allow_upstream_diagnostics=True,
+            ),
         ]
         return handlers
 
