@@ -147,7 +147,7 @@ async def test_resolves_arxiv_pdf_url():
 
 @pytest.mark.unit
 @pytest.mark.asyncio
-async def test_error_on_nonexistent_path(tmp_path: Path):
+async def test_error_on_nonexistent_path(tmp_path: Path) -> None:
     # Create a path that definitely doesn't exist (cross-platform)
     missing = tmp_path / "definitely_does_not_exist_12345.xyz"
 

@@ -25,6 +25,7 @@ class TestExceptionHierarchyCompliance:
     """Tests that verify the exception hierarchy maintains proper inheritance."""
 
     @pytest.mark.unit
+    @pytest.mark.smoke
     def test_all_exceptions_inherit_from_base(self):
         """All custom exceptions should inherit from GeminiBatchError."""
         custom_exceptions = [

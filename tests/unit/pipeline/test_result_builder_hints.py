@@ -57,6 +57,7 @@ class TestResultBuilderHints:
         return ResultBuilder(transforms=tuple(transforms), enable_diagnostics=True)
 
     @pytest.mark.asyncio
+    @pytest.mark.smoke
     async def test_no_hints_uses_default_transform_order(
         self, builder_with_json_transforms, basic_finalized_command
     ):

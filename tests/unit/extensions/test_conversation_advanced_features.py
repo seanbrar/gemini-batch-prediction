@@ -2,14 +2,12 @@
 
 import pytest
 
-from gemini_batch.config import resolve_config
-from gemini_batch.executor import create_executor
 from gemini_batch.extensions.conversation import Conversation
 from gemini_batch.extensions.conversation_types import (
     ConversationAnalytics,
     ConversationPolicy,
-    ConversationState,
 )
+from tests.unit.extensions._builders import make_state
 
 # Mark all tests in this module as unit tests
 pytestmark = pytest.mark.unit
@@ -18,11 +16,7 @@ pytestmark = pytest.mark.unit
 class TestBasicConversation:
     """Test basic conversation functionality."""
 
-    @pytest.fixture
-    def executor(self):
-        """Create executor for testing."""
-        config = resolve_config()
-        return create_executor(config)
+    # executor fixture provided by tests/unit/extensions/conftest.py
 
     @pytest.mark.asyncio
     async def test_basic_conversation_flow(self, executor):
@@ -46,11 +40,7 @@ class TestBasicConversation:
 class TestConversationAnalytics:
     """Test conversation analytics and observability."""
 
-    @pytest.fixture
-    def executor(self):
-        """Create executor for testing."""
-        config = resolve_config()
-        return create_executor(config)
+    # executor fixture provided by tests/unit/extensions/conftest.py
 
     def test_analytics_empty_conversation(self, executor):
         """Test analytics for empty conversation."""
@@ -82,15 +72,11 @@ class TestConversationAnalytics:
 class TestConversationState:
     """Test conversation state management."""
 
-    @pytest.fixture
-    def executor(self):
-        """Create executor for testing."""
-        config = resolve_config()
-        return create_executor(config)
+    # executor fixture not required in this class; using direct state constructs
 
     def test_conversation_state_immutability(self):
         """Test that ConversationState is immutable."""
-        state = ConversationState(sources=("doc.pdf",), turns=())
+        state = make_state(sources=("doc.pdf",), turns=())
 
         # Should not be able to modify state
         with pytest.raises(AttributeError):

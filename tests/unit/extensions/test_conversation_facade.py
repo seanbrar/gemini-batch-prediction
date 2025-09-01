@@ -1,6 +1,6 @@
 """Tests for the refactored conversation facade following contract-first pattern."""
 
-from unittest.mock import AsyncMock, MagicMock
+from unittest.mock import AsyncMock
 
 import pytest
 
@@ -10,35 +10,9 @@ from gemini_batch.extensions.conversation_types import (
     ConversationState,
     PromptSet,
 )
+from tests.unit.extensions._builders import make_exchange
 
 pytestmark = pytest.mark.unit
-
-
-@pytest.fixture
-def mock_executor():
-    """Mock GeminiExecutor for testing."""
-    executor = MagicMock()
-    executor.config = MagicMock()
-    executor.config.to_frozen.return_value = MagicMock()
-    return executor
-
-
-@pytest.fixture
-def mock_result():
-    """Mock execution result."""
-    return {
-        "status": "ok",
-        "answers": ["This is a test response."],
-        "metrics": {
-            "token_validation": {
-                "estimated_min": 10,
-                "estimated_max": 50,
-                "actual": 25,
-                "in_range": True,
-            }
-        },
-        "usage": {"total_tokens": 25},
-    }
 
 
 class TestConversationFacade:
@@ -98,20 +72,8 @@ class TestConversationFacade:
     def test_analytics(self, mock_executor):
         """Test analytics computation."""
         turns = [
-            MagicMock(
-                user="Q1",
-                assistant="A1",
-                error=False,
-                estimate_max=100,
-                actual_tokens=90,
-            ),
-            MagicMock(
-                user="Q2",
-                assistant="A2",
-                error=True,
-                estimate_max=150,
-                actual_tokens=None,
-            ),
+            make_exchange("Q1", "A1", error=False, estimate_max=100, actual_tokens=90),
+            make_exchange("Q2", "A2", error=True, estimate_max=150, actual_tokens=None),
         ]
         state = ConversationState(sources=(), turns=tuple(turns), cache_key=None)
         conv = Conversation(state, mock_executor)

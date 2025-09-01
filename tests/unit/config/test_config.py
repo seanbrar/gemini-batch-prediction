@@ -36,6 +36,7 @@ pytestmark = pytest.mark.unit
 class TestSettings:
     """Test the Pydantic Settings schema validation."""
 
+    @pytest.mark.smoke
     def test_settings_defaults(self):
         """Settings should provide sensible defaults."""
         settings = Settings()
@@ -91,6 +92,7 @@ class TestSettings:
 class TestConfigResolution:
     """Test the configuration resolution and precedence logic."""
 
+    @pytest.mark.smoke
     def test_resolve_config_defaults_only(self):
         """Should return defaults when no other sources provide values."""
         # Mock all loaders to return empty dicts - pure defaults test
@@ -165,6 +167,7 @@ class TestConfigResolution:
 class TestProviderInference:
     """Test the data-driven provider inference logic."""
 
+    @pytest.mark.smoke
     def test_provider_inference_gemini_models(self):
         """Should identify Google as provider for gemini- prefixed models."""
         assert resolve_provider("gemini-1.5-flash") == "google"

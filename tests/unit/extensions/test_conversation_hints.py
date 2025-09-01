@@ -2,22 +2,16 @@
 
 import pytest
 
-from gemini_batch.config import resolve_config
-from gemini_batch.executor import create_executor
-from gemini_batch.extensions.conversation import (
-    Conversation,
-)
-from gemini_batch.extensions.conversation_types import ConversationState
+from gemini_batch.extensions.conversation import Conversation
+from tests.unit.extensions._builders import make_state
+
+pytestmark = pytest.mark.unit
 
 
 class TestConversationCache:
     """Test conversation extension cache functionality."""
 
-    @pytest.fixture
-    def executor(self):
-        """Create executor for conversation testing."""
-        config = resolve_config()
-        return create_executor(config)
+    # executor fixture provided by tests/unit/extensions/conftest.py
 
     @pytest.mark.asyncio
     async def test_conversation_with_cache_key(self, executor):
@@ -25,11 +19,11 @@ class TestConversationCache:
         # Create conversation state with cache key
         from gemini_batch.core.types import Source
 
-        state = ConversationState(
+        state = make_state(
             sources=(Source.from_text("doc"),),
             turns=(),
             cache_key="test-cache-key",
-            cache_artifacts=("artifact1",),
+            artifacts=("artifact1",),
         )
         conv = Conversation(state, executor)
 
