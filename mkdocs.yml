@@ -41,6 +41,7 @@ nav:
         - Explanation:
                   - Architecture at a Glance: explanation/architecture.md
                   - Error Handling: explanation/error-handling.md
+                  - Testing Strategy: testing-strategy.md
                   - Concepts:
                             - Command Pipeline: explanation/concepts/command-pipeline.md
                             - Conversation (Extension): explanation/concepts/conversation.md
@@ -59,6 +60,7 @@ nav:
                   - Architecture Rubric: explanation/architecture-rubric.md
                   - Glossary: explanation/glossary.md
                   - Reference:
+                            - Test Suite Reference: tests.md
                             - API Reference (Overview): reference/api-reference.md
                             - API:
                                       - Executor: reference/api/executor.md
