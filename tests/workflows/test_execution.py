@@ -9,6 +9,8 @@ import pytest
 
 from tests.helpers import ActTestHelper
 
+pytestmark = pytest.mark.workflows
+
 
 @pytest.mark.integration
 @pytest.mark.slow

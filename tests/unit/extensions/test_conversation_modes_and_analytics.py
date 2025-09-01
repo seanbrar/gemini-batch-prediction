@@ -1,5 +1,7 @@
 from __future__ import annotations
 
+from typing import TYPE_CHECKING
+
 import pytest
 
 from gemini_batch.extensions.conversation import Conversation
@@ -14,6 +16,9 @@ from gemini_batch.extensions.conversation_types import (
     Exchange,
     PromptSet,
 )
+
+if TYPE_CHECKING:
+    from unittest.mock import MagicMock
 
 pytestmark = pytest.mark.unit
 
@@ -69,7 +74,9 @@ def test_prompt_set_constructors() -> None:
 
 
 @pytest.mark.asyncio
-async def test_conversation_sequential_appends_per_prompt_turns(mock_executor) -> None:
+async def test_conversation_sequential_appends_per_prompt_turns(
+    mock_executor: MagicMock,
+) -> None:
     # Configure shared mock executor to echo prompts in answers with basic metrics
     async def _exec(cmd):
         prompts = tuple(getattr(cmd, "prompts", ()) or ())

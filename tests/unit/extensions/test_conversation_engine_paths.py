@@ -14,7 +14,9 @@ pytestmark = pytest.mark.unit
 
 
 @pytest.mark.asyncio
-async def test_engine_appends_with_expected_version(mock_executor, mock_result) -> None:
+async def test_engine_appends_with_expected_version(
+    mock_executor: MagicMock, mock_result: dict[str, object]
+) -> None:
     # Arrange a store that records expected_version used during append
     store = MagicMock()
     init_state = make_state(version=3)
@@ -39,11 +41,12 @@ async def test_engine_appends_with_expected_version(mock_executor, mock_result) 
     # Assert new exchange and OCC version used
     assert isinstance(ex, Exchange)
     store.append.assert_awaited_once()
-    assert store.append.await_args.kwargs["expected_version"] == init_state.version
+    assert store.append.await_args is not None
+    assert store.append.await_args.kwargs.get("expected_version") == init_state.version
 
 
 @pytest.mark.asyncio
-async def test_engine_bubbles_invalid_envelope_error(mock_executor) -> None:
+async def test_engine_bubbles_invalid_envelope_error(mock_executor: MagicMock) -> None:
     # Store returns an empty state
     store = MagicMock()
     store.load = AsyncMock(return_value=make_state())

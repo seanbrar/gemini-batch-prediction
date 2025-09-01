@@ -11,4 +11,5 @@ pytest_plugins = [
     "tests.fixtures.pipeline",
     "tests.fixtures.templates",
     "tests.fixtures.workflows",
+    "tests.fixtures.extensions",
 ]

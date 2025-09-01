@@ -8,6 +8,7 @@ pytestmark = pytest.mark.unit
 
 
 @pytest.mark.asyncio
+@pytest.mark.smoke
 async def test_planner_uses_model_thresholds_from_core_models():
     # Model exists in core.models with explicit_minimum_tokens=4096
     model_name = "gemini-2.0-flash"
