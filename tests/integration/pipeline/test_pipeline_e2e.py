@@ -5,6 +5,8 @@ from gemini_batch.core.sources import Source
 from gemini_batch.core.types import InitialCommand
 from gemini_batch.executor import create_executor
 
+pytestmark = pytest.mark.integration
+
 
 @pytest.mark.asyncio
 async def test_minimal_pipeline_happy_path():

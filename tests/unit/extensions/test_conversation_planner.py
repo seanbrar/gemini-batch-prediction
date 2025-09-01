@@ -2,28 +2,25 @@
 
 import pytest
 
-from gemini_batch.extensions.conversation_modes import (
-    SequentialMode,
-    SingleMode,
-    VectorizedMode,
-)
 from gemini_batch.extensions.conversation_planner import (
     ConversationPlan,
     compile_conversation,
 )
 from gemini_batch.extensions.conversation_types import (
     ConversationPolicy,
-    ConversationState,
     Exchange,
     PromptSet,
 )
+from tests.unit.extensions._builders import make_prompt_set, make_state
+
+pytestmark = pytest.mark.unit
 
 
 def test_compile_conversation_basic():
     """Test basic conversation compilation."""
-    state = ConversationState(sources=("doc.pdf",), turns=())
+    state = make_state(sources=("doc.pdf",), turns=())
     policy = ConversationPolicy()
-    prompt_set = PromptSet(("Hello world",), SingleMode())
+    prompt_set = make_prompt_set("single", "Hello world")
 
     plan = compile_conversation(state, prompt_set, policy)
 
@@ -42,7 +39,7 @@ def test_compile_conversation_with_history_window():
         Exchange("q2", "a2", error=False),
         Exchange("q3", "a3", error=False),
     )
-    state = ConversationState(sources=("doc.pdf",), turns=turns)
+    state = make_state(sources=("doc.pdf",), turns=turns)
     policy = ConversationPolicy(keep_last_n=2)
     prompt_set = PromptSet.single("New question")
 
@@ -55,14 +52,14 @@ def test_compile_conversation_with_history_window():
 
 def test_compile_conversation_with_cache_key():
     """Test that cache key creates appropriate hints."""
-    state = ConversationState(
+    state = make_state(
         sources=("doc.pdf",),
         turns=(),
         cache_key="test_key",
-        cache_artifacts=("artifact1",),
+        artifacts=("artifact1",),
     )
     policy = ConversationPolicy()
-    prompt_set = PromptSet(("Question",), SingleMode())
+    prompt_set = make_prompt_set("single", "Question")
 
     plan = compile_conversation(state, prompt_set, policy)
 
@@ -78,14 +75,14 @@ def test_compile_conversation_with_cache_key():
 
 def test_compile_conversation_with_policy_hints():
     """Test that policy settings create appropriate hints."""
-    state = ConversationState(sources=("doc.pdf",), turns=())
+    state = make_state(sources=("doc.pdf",), turns=())
     policy = ConversationPolicy(
         widen_max_factor=1.2,
         clamp_max_tokens=16000,
         prefer_json_array=True,
         execution_cache_name="test_cache",
     )
-    prompt_set = PromptSet(("Question",), SingleMode())
+    prompt_set = make_prompt_set("single", "Question")
 
     plan = compile_conversation(state, prompt_set, policy)
 
@@ -105,9 +102,9 @@ def test_compile_conversation_with_policy_hints():
 
 def test_compile_conversation_vectorized_mode():
     """Test that vectorized mode is preserved in plan."""
-    state = ConversationState(sources=("doc.pdf",), turns=())
+    state = make_state(sources=("doc.pdf",), turns=())
     policy = ConversationPolicy()
-    prompt_set = PromptSet(("Q1", "Q2", "Q3"), VectorizedMode())
+    prompt_set = make_prompt_set("vectorized", "Q1", "Q2", "Q3")
 
     plan = compile_conversation(state, prompt_set, policy)
 
@@ -118,9 +115,9 @@ def test_compile_conversation_vectorized_mode():
 
 def test_compile_conversation_sequential_mode():
     """Test that sequential mode is preserved in plan."""
-    state = ConversationState(sources=("doc.pdf",), turns=())
+    state = make_state(sources=("doc.pdf",), turns=())
     policy = ConversationPolicy()
-    prompt_set = PromptSet(("Q1", "Q2", "Q3"), SequentialMode())
+    prompt_set = make_prompt_set("sequential", "Q1", "Q2", "Q3")
 
     plan = compile_conversation(state, prompt_set, policy)
 
@@ -130,9 +127,9 @@ def test_compile_conversation_sequential_mode():
 
 def test_compile_conversation_empty_prompts():
     """Test compilation with empty prompts."""
-    state = ConversationState(sources=("doc.pdf",), turns=())
+    state = make_state(sources=("doc.pdf",), turns=())
     policy = ConversationPolicy()
-    prompt_set = PromptSet((), SingleMode())
+    prompt_set = make_prompt_set("sequential")
 
     plan = compile_conversation(state, prompt_set, policy)
 
@@ -142,9 +139,9 @@ def test_compile_conversation_empty_prompts():
 
 def test_compile_conversation_single_prompt_optimization():
     """Test that single prompt always uses sequential strategy."""
-    state = ConversationState(sources=("doc.pdf",), turns=())
+    state = make_state(sources=("doc.pdf",), turns=())
     policy = ConversationPolicy()
-    prompt_set = PromptSet(("Single prompt",), SingleMode())
+    prompt_set = make_prompt_set("single", "Single prompt")
 
     plan = compile_conversation(state, prompt_set, policy)
 
@@ -153,14 +150,14 @@ def test_compile_conversation_single_prompt_optimization():
 
 def test_compile_conversation_reuse_cache_only():
     """Test that reuse_cache_only policy affects cache hints."""
-    state = ConversationState(
+    state = make_state(
         sources=("doc.pdf",),
         turns=(),
         cache_key="test_key",
-        cache_artifacts=("artifact1",),
+        artifacts=("artifact1",),
     )
     policy = ConversationPolicy(reuse_cache_only=True)
-    prompt_set = PromptSet(("Question",), SingleMode())
+    prompt_set = make_prompt_set("single", "Question")
 
     plan = compile_conversation(state, prompt_set, policy)
 
@@ -176,9 +173,9 @@ def test_compile_conversation_reuse_cache_only():
 
 def test_compile_conversation_plan_immutability():
     """Test that compiled plans are immutable."""
-    state = ConversationState(sources=("doc.pdf",), turns=())
+    state = make_state(sources=("doc.pdf",), turns=())
     policy = ConversationPolicy()
-    prompt_set = PromptSet(("Question",), SingleMode())
+    prompt_set = make_prompt_set("single", "Question")
 
     plan = compile_conversation(state, prompt_set, policy)
 
@@ -192,9 +189,9 @@ def test_compile_conversation_plan_immutability():
 
 def test_compile_conversation_deterministic():
     """Test that compilation is deterministic for same inputs."""
-    state = ConversationState(sources=("doc.pdf",), turns=())
+    state = make_state(sources=("doc.pdf",), turns=())
     policy = ConversationPolicy(keep_last_n=3, widen_max_factor=1.1)
-    prompt_set = PromptSet(("Q1", "Q2"), SequentialMode())
+    prompt_set = make_prompt_set("sequential", "Q1", "Q2")
 
     plan1 = compile_conversation(state, prompt_set, policy)
     plan2 = compile_conversation(state, prompt_set, policy)
@@ -207,9 +204,9 @@ def test_compile_conversation_deterministic():
 
 def test_plan_inspectability():
     """Test that plans are inspectable via attributes."""
-    state = ConversationState(sources=("doc.pdf",), turns=())
+    state = make_state(sources=("doc.pdf",), turns=())
     policy = ConversationPolicy()
-    prompt_set = PromptSet(("Q1", "Q2"), VectorizedMode())
+    prompt_set = make_prompt_set("vectorized", "Q1", "Q2")
 
     plan = compile_conversation(state, prompt_set, policy)
 

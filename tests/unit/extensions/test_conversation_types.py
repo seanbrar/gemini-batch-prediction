@@ -16,6 +16,8 @@ from gemini_batch.extensions.conversation_types import (
     PromptSet,
 )
 
+pytestmark = pytest.mark.unit
+
 
 def test_conversation_policy_immutability():
     """Test that ConversationPolicy is immutable."""
