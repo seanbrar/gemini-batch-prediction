@@ -21,3 +21,18 @@ repos:
     rev: v1.7.7
     hooks:
       - id: actionlint
+
+  - repo: local
+    hooks:
+      - id: mypy-src
+        name: mypy (src)
+        entry: mypy
+        language: system
+        pass_filenames: false
+        args: [--strict, src]
+      - id: mypy-tests
+        name: mypy (tests)
+        entry: mypy
+        language: system
+        pass_filenames: false
+        args: [--strict, tests]
