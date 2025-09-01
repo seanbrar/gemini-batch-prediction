@@ -11,6 +11,9 @@ import contextlib
 import dataclasses
 import importlib.metadata as importlib_metadata
 import math
+import os
+import platform
+import sys
 import time
 from typing import TYPE_CHECKING, Any, Literal
 
@@ -18,7 +21,7 @@ from gemini_batch.config import resolve_config
 from gemini_batch.frontdoor import run_batch
 
 if TYPE_CHECKING:  # pragma: no cover - typing only
-    from collections.abc import Iterable
+    from collections.abc import Callable, Iterable
 
     from gemini_batch.config import FrozenConfig
     from gemini_batch.core.execution_options import ExecutionOptions
@@ -65,11 +68,12 @@ class EfficiencyReport:
     naive_call_duration_p95_s: float | None = None
     # Optional label to tag this comparison run
     label: str | None = None
-    # Convenience savings and alias fields
+    # Convenience savings fields
     tokens_saved: int = 0
     time_saved_s: float = 0.0
     calls_saved: int = 0
-    speedup: float = float("nan")
+    # Effective vectorized execution shape (for observability)
+    vec_mode: Literal["batch", "aggregate"] | None = None
     # Optional trial statistics (present when trials > 1)
     vec_time_mean_s: float | None = None
     vec_time_p95_s: float | None = None
@@ -124,7 +128,10 @@ class EfficiencyReport:
                 if tr_p95 is not None and math.isfinite(tr_p95)
                 else ""
             )
-            return base + f" [trials{tr_mean_s}{tr_p95_s}]"
+            base = base + f" [trials{tr_mean_s}{tr_p95_s}]"
+        # Append effective mode when available for quick scans
+        if self.vec_mode:
+            return base + f" [mode={self.vec_mode}]"
         return base
 
     def to_dict(self, *, include_envelopes: bool = False) -> dict[str, Any]:
@@ -149,6 +156,7 @@ class EfficiencyReport:
             "schema_version": int(self.schema_version),
             "label": self.label,
             "status": self.status,
+            "vec_mode": self.vec_mode,
             "prompt_count": self.prompt_count,
             "source_count": self.source_count,
             "env": dict(self.env),
@@ -179,7 +187,6 @@ class EfficiencyReport:
                 "time_mean": _safe(getattr(self, "time_ratio_mean", None)),
                 "time_p95": _safe(getattr(self, "time_ratio_p95", None)),
                 "calls": _safe(self.call_ratio),
-                "speedup": _safe(self.speedup),
             },
             "savings": {
                 "tokens": int(self.tokens_saved),
@@ -199,7 +206,7 @@ async def compare_efficiency(
     *,
     cfg: FrozenConfig | None = None,
     options: ExecutionOptions | None = None,
-    prefer_json: bool = False,
+    prefer_json: bool | None = None,
     concurrency: int | None = None,
     naive_concurrency: int | None = None,
     include_pipeline_durations: bool = False,
@@ -207,6 +214,8 @@ async def compare_efficiency(
     trials: int = 1,
     warmup: int = 0,
     ensure_uncached: bool = False,
+    mode: Literal["batch", "aggregate", "auto"] = "auto",
+    aggregate_prompt_builder: Callable[[list[str]], str] | None = None,
 ) -> EfficiencyReport:
     """Compare vectorized execution vs naive one-call-per-prompt.
 
@@ -218,6 +227,22 @@ async def compare_efficiency(
     improvement ratios (baseline/total). Ratios > 1 indicate the vectorized
     path used fewer tokens or less time than the naive baseline. Request counts
     are derived from `metrics.vectorized_n_calls` when present.
+
+    Vectorized `mode`:
+      - "auto" (default): choose "aggregate" when there is more than one prompt;
+        otherwise use "batch".
+      - "batch": pass all prompts to `run_batch` as-is. The pipeline
+        may still perform multiple provider requests internally (e.g., chunking),
+        but the prompts remain independent.
+      - "aggregate": join multiple prompts into a single instruction asking the
+        model to answer each prompt and return a JSON array of answers. This
+        emphasizes token-economics when large shared context dominates and a
+        single provider call can process that context once.
+
+    Notes for "aggregate": Prefer structured outputs (`prefer_json=True`) for
+    most reliable parsing of multi-answer responses. When the effective mode is
+    aggregate and `prefer_json` is not provided, this helper implicitly sets
+    it to True for robustness and records it in the environment.
 
     Warm-up note:
       - If measurements vary widely on first run, consider a short warm-up
@@ -276,19 +301,58 @@ async def compare_efficiency(
         except Exception:
             eff_cfg = cfg
 
+    # Helper to construct strict aggregate instruction
+    def _build_aggregate_prompt(items: list[str]) -> str:
+        n = len(items)
+        header = (
+            "Answer each question separately. Return only a compact JSON array of "
+            f"exactly {n} items in the same order, with no additional text or explanation.\n\n"
+        )
+        body = "\n".join(f"{i + 1}. {p}" for i, p in enumerate(items))
+        return header + body
+
     # One trial runner
     async def _run_once() -> tuple[ResultEnvelope, list[ResultEnvelope], float, float]:
         # Vectorized run
         t0 = time.perf_counter()
         try:
-            vec_local = await run_batch(
-                tuple(prompt_list),
-                tuple(source_list),
-                cfg=eff_cfg,
-                options=options,
-                prefer_json=prefer_json,
-                concurrency=concurrency,
-            )
+            # Decide vectorized execution shape
+            def _vec_mode() -> Literal["batch", "aggregate"]:
+                if mode == "auto":
+                    return "aggregate" if len(prompt_list) > 1 else "batch"
+                return mode
+
+            # Effective prefer_json: default to True when aggregating and not explicitly set
+            def _effective_prefer_json() -> bool:
+                if prefer_json is not None:
+                    return bool(prefer_json)
+                return _vec_mode() == "aggregate" and len(prompt_list) > 1
+
+            if _vec_mode() == "aggregate" and len(prompt_list) > 1:
+                # Architect single-call shape: join questions into one prompt while
+                # preserving shared context in `shared_parts`. This yields a single
+                # provider call processing the large context once.
+                if aggregate_prompt_builder is not None:
+                    joined = str(aggregate_prompt_builder(prompt_list))
+                else:
+                    joined = _build_aggregate_prompt(prompt_list)
+                vec_local = await run_batch(
+                    (joined,),
+                    tuple(source_list),
+                    cfg=eff_cfg,
+                    options=options,
+                    prefer_json=_effective_prefer_json(),
+                    concurrency=concurrency,
+                )
+            else:
+                vec_local = await run_batch(
+                    tuple(prompt_list),
+                    tuple(source_list),
+                    cfg=eff_cfg,
+                    options=options,
+                    prefer_json=_effective_prefer_json(),
+                    concurrency=concurrency,
+                )
         except Exception as e:  # pragma: no cover - best-effort research helper
             vec_local = _make_error_envelope(str(e), where="vectorized")
         t1 = time.perf_counter()
@@ -311,7 +375,9 @@ async def compare_efficiency(
                         tuple(source_list),
                         cfg=eff_cfg,
                         options=options,
-                        prefer_json=prefer_json,
+                        prefer_json=bool(prefer_json)
+                        if prefer_json is not None
+                        else False,
                         concurrency=concurrency,
                     )
                 except Exception as e:  # pragma: no cover
@@ -328,7 +394,9 @@ async def compare_efficiency(
                             tuple(source_list),
                             cfg=eff_cfg,
                             options=options,
-                            prefer_json=prefer_json,
+                            prefer_json=bool(prefer_json)
+                            if prefer_json is not None
+                            else False,
                             concurrency=concurrency,
                         )
                     except Exception as e:  # pragma: no cover
@@ -503,14 +571,41 @@ async def compare_efficiency(
     except importlib_metadata.PackageNotFoundError:  # pragma: no cover - dev
         version = "development"
 
+    # Resolve effective vec mode for observability
+    effective_vec_mode: Literal["batch", "aggregate"] = (
+        "aggregate"
+        if (mode == "aggregate" or (mode == "auto" and len(prompt_list) > 1))
+        else "batch"
+    )
+
+    # Compute effective prefer_json based on effective mode for env reporting
+    prefer_json_effective = (
+        bool(prefer_json)
+        if prefer_json is not None
+        else (effective_vec_mode == "aggregate" and len(prompt_list) > 1)
+    )
+
     env_data: dict[str, Any] = {
         "version": version,
-        "prefer_json": bool(prefer_json),
+        "prefer_json": bool(prefer_json) if prefer_json is not None else None,
+        "prefer_json_effective": prefer_json_effective,
         "trials": trials,
         "warmup": warmup,
+        "mode": mode,
+        "vec_mode_effective": effective_vec_mode,
         "vec_concurrency_effective": _eff_vec_conc(),
         "naive_concurrency_effective": effective_naive_conc,
         "ensure_uncached": bool(ensure_uncached),
+        # Runtime context (best-effort, no shellouts)
+        "python_version": sys.version.split(" ")[0],
+        "python_impl": platform.python_implementation(),
+        "platform": platform.platform(aliased=False, terse=True),
+        "os_name": os.name,
+        "cpu_count": os.cpu_count(),
+        "pid": os.getpid(),
+        # CI/git hints via env if provided by the host environment
+        "git_sha": os.getenv("GIT_SHA") or os.getenv("GITHUB_SHA"),
+        "git_dirty": os.getenv("GIT_DIRTY"),
     }
     if effective_cfg is not None:
         env_data.update(
@@ -528,6 +623,20 @@ async def compare_efficiency(
             }
         )
 
+    # Optional aggregate count sanity check (best-effort)
+    aggregate_expected_answer_count: int | None = None
+    aggregate_observed_answer_count: int | None = None
+    with contextlib.suppress(Exception):
+        if effective_vec_mode == "aggregate":
+            aggregate_expected_answer_count = len(prompt_list)
+            ans = vec.get("answers")
+            if isinstance(ans, list | tuple):
+                aggregate_observed_answer_count = len(ans)
+    if aggregate_expected_answer_count is not None:
+        env_data["aggregate_expected_answer_count"] = aggregate_expected_answer_count
+    if aggregate_observed_answer_count is not None:
+        env_data["aggregate_observed_answer_count"] = aggregate_observed_answer_count
+
     return EfficiencyReport(
         status=status,
         vectorized=vec,
@@ -544,7 +653,6 @@ async def compare_efficiency(
         tokens_saved=int(naive_tokens - vec_tokens),
         time_saved_s=float(naive_time - vec_time),
         calls_saved=int(naive_requests - vec_requests),
-        speedup=_safe_ratio(naive_time, vec_time),
         prompt_count=len(prompt_list),
         source_count=len(source_list),
         vec_time_mean_s=float(vec_time_mean_s) if trials > 1 else None,
@@ -574,4 +682,5 @@ async def compare_efficiency(
         naive_call_duration_p95_s=_p95(naive_call_durs),
         label=label,
         env=env_data,
+        vec_mode=effective_vec_mode,
     )

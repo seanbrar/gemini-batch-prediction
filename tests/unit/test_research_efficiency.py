@@ -103,7 +103,6 @@ def test_efficiency_report_to_dict_safe_and_include_envelopes():
         call_ratio=1.0,
         prompt_count=1,
         source_count=0,
-        speedup=-math.inf,
         time_saved_s=math.inf,
         # Include p95/means to touch _safe for nested fields
         vec_time_mean_s=1.0,
@@ -123,7 +122,6 @@ def test_efficiency_report_to_dict_safe_and_include_envelopes():
     assert d["schema_version"] == 1
     assert d["ratios"]["tokens"] == "Infinity"
     assert d["ratios"]["time"] is None
-    assert d["ratios"]["speedup"] == "-Infinity"
     assert d["savings"]["time_s"] == "Infinity"
     # Nested fields are sanitized
     assert d["vec"]["time_p95_s"] == "Infinity"
@@ -189,6 +187,7 @@ async def test_compare_efficiency_sequential_with_pipeline_metrics(monkeypatch):
         naive_concurrency=None,  # defaults to sequential (1)
         include_pipeline_durations=True,
         label="unit-seq",
+        mode="batch",
     )
 
     # Aggregates
@@ -233,6 +232,7 @@ async def test_compare_efficiency_concurrent_trials_and_status(monkeypatch):
         trials=3,
         warmup=1,
         include_pipeline_durations=False,
+        mode="batch",
     )
 
     # Status should be partial (vectorized ok, at least one naive error)
@@ -252,8 +252,73 @@ async def test_compare_efficiency_concurrent_trials_and_status(monkeypatch):
     monkeypatch.setattr(
         "gemini_batch.research.efficiency.run_batch", fake_run_batch_vec_error
     )
-    rep2 = await compare_efficiency(["a", "b"])  # defaults ok
+    rep2 = await compare_efficiency(["a", "b"], mode="batch")  # explicit
     assert rep2.status == "error"
+
+
+@pytest.mark.unit
+@pytest.mark.asyncio
+async def test_mode_aggregate_joins_and_propagates_prefer_json(monkeypatch):
+    captured: dict[str, Any] = {"first_prompts": None, "first_prefer_json": None}
+
+    async def fake_run_batch(prompts, _sources, **kwargs):
+        if captured["first_prompts"] is None:
+            captured["first_prompts"] = tuple(prompts)
+            captured["first_prefer_json"] = kwargs.get("prefer_json")
+        return _env(status="ok", tokens=9, n_calls=1)
+
+    monkeypatch.setattr("gemini_batch.research.efficiency.run_batch", fake_run_batch)
+
+    prompts = ["Q1?", "Q2?", "Q3?"]
+    rep = await compare_efficiency(
+        prompts,
+        sources=(),
+        prefer_json=True,
+        mode="aggregate",
+    )
+
+    assert isinstance(captured["first_prompts"], tuple)
+    assert len(captured["first_prompts"]) == 1
+    joined: str = captured["first_prompts"][0]
+    assert "compact JSON array of exactly 3 items" in joined
+    assert "1. Q1?" in joined and "2. Q2?" in joined and "3. Q3?" in joined
+    assert captured["first_prefer_json"] is True
+    data = rep.to_dict()
+    assert data["env"]["mode"] == "aggregate"
+    assert data["env"]["vec_mode_effective"] == "aggregate"
+    assert "[mode=aggregate]" in rep.summary(ascii_only=True)
+
+
+@pytest.mark.unit
+@pytest.mark.asyncio
+async def test_mode_auto_switches_based_on_prompt_count(monkeypatch):
+    calls: list[tuple[tuple[str, ...], dict[str, Any]]] = []
+
+    async def fake_run_batch(prompts, _sources, **kwargs):
+        calls.append((tuple(prompts), kwargs))
+        return _env(status="ok", tokens=len(prompts), n_calls=1)
+
+    monkeypatch.setattr("gemini_batch.research.efficiency.run_batch", fake_run_batch)
+
+    # Multi-prompt -> aggregate
+    rep_multi = await compare_efficiency(["A", "B"], mode="auto", prefer_json=False)
+    prompts_vec_multi = calls[0][0]
+    assert len(prompts_vec_multi) == 1  # aggregated
+    d_multi = rep_multi.to_dict()
+    assert d_multi["env"]["mode"] == "auto"
+    assert d_multi["env"]["vec_mode_effective"] == "aggregate"
+    assert rep_multi.vec_mode == "aggregate"
+    assert "[mode=aggregate]" in rep_multi.summary()
+
+    # Single prompt -> batch
+    calls.clear()
+    rep_single = await compare_efficiency(["Only"], mode="auto")
+    prompts_vec_single = calls[0][0]
+    assert len(prompts_vec_single) == 1 and prompts_vec_single[0] == "Only"
+    d_single = rep_single.to_dict()
+    assert d_single["env"]["vec_mode_effective"] == "batch"
+    assert rep_single.vec_mode == "batch"
+    assert "[mode=batch]" in rep_single.summary()
 
 
 @pytest.mark.unit
@@ -290,7 +355,9 @@ async def test_compare_efficiency_vectorized_exception_triggers_error_envelope(
         return _env(status="ok", tokens=3, n_calls=1)
 
     monkeypatch.setattr("gemini_batch.research.efficiency.run_batch", fake_run_batch)
-    rep = await compare_efficiency(["a", "b"], include_pipeline_durations=False)
+    rep = await compare_efficiency(
+        ["a", "b"], include_pipeline_durations=False, mode="batch"
+    )
     assert rep.status == "error"
     assert rep.vectorized["status"] == "error"
     assert rep.vectorized.get("extraction_method") == "compare_efficiency:vectorized"
@@ -369,6 +436,7 @@ async def test_parallel_naive_branch_and_robust_metric_parsing(monkeypatch):
         ["a", "b", "c"],
         naive_concurrency=3,  # triggers parallel path (Semaphore + gather)
         include_pipeline_durations=True,
+        mode="batch",
     )
 
     # Check that fallbacks engaged as expected
