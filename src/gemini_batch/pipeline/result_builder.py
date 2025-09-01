@@ -43,6 +43,9 @@ class ResultBuilder(BaseAsyncHandler[FinalizedCommand, ResultEnvelope, Never]):
     Attributes:
         transforms: Tuple of `TransformSpec` used by Tier 1 extraction.
         enable_diagnostics: Whether to collect `ExtractionDiagnostics`.
+        allow_upstream_diagnostics: When diagnostics collection is disabled, allow
+            best-effort pass-through of upstream diagnostics (e.g., model selection)
+            from telemetry or locally computed advisories.
         max_text_size: Maximum response text size processed.
     """
 
@@ -51,6 +54,7 @@ class ResultBuilder(BaseAsyncHandler[FinalizedCommand, ResultEnvelope, Never]):
         transforms: tuple[TransformSpec, ...] | None = None,
         *,
         enable_diagnostics: bool = False,
+        allow_upstream_diagnostics: bool = False,
         max_text_size: int = 1_000_000,  # 1MB limit
         validate: bool | None = None,
     ) -> None:
@@ -59,6 +63,9 @@ class ResultBuilder(BaseAsyncHandler[FinalizedCommand, ResultEnvelope, Never]):
         Args:
             transforms: Optional sequence of `TransformSpec`. Defaults to built-ins.
             enable_diagnostics: If True, attach `ExtractionDiagnostics` to results.
+            allow_upstream_diagnostics: If True and `enable_diagnostics` is False,
+                pass through advisory diagnostics present in telemetry (and locally
+                computed advisories) into the result envelope.
             max_text_size: Max text length to process; oversized inputs are truncated.
             validate: Enable dev-time shape validation (overrides GEMINI_BATCH_PIPELINE_VALIDATE).
         """
@@ -66,6 +73,7 @@ class ResultBuilder(BaseAsyncHandler[FinalizedCommand, ResultEnvelope, Never]):
             transforms if transforms is not None else tuple(default_transforms())
         )
         self.enable_diagnostics = enable_diagnostics
+        self._allow_upstream_diagnostics = allow_upstream_diagnostics
         self.max_text_size = max_text_size
         self._minimal_projection = MinimalProjection()
         # Pre-compute deterministic transform order (higher priority first, name tiebreaker)
@@ -254,8 +262,9 @@ class ResultBuilder(BaseAsyncHandler[FinalizedCommand, ResultEnvelope, Never]):
             )
 
         # Best-effort pass-through when diagnostics collection is disabled:
-        # surface upstream diagnostics if present in telemetry (e.g., model selection).
-        if not diagnostics:
+        # surface upstream diagnostics if explicitly allowed (e.g., executor wants
+        # advisory diagnostics by default without full extraction diagnostics).
+        if not diagnostics and self._allow_upstream_diagnostics:
             try:
                 upstream_diag = (
                     command.telemetry_data.get("diagnostics")

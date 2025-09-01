@@ -7,7 +7,7 @@ if TYPE_CHECKING:
     from collections.abc import Iterable
 
 PUBLIC_DIR = Path("cookbook/data/public")
-EXAMPLES_DIR = Path("examples/test_data")
+EXAMPLES_DIR = Path("cookbook/data/research_papers")
 
 
 def resolve_data_dir(preferred: Path | None = None) -> Path:
