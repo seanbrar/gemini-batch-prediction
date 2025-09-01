@@ -142,6 +142,7 @@ exclude = [
     "build",
     "dist",
     "venv",
+    "src/gemini_batch/_legacy",
 ]
 
 [tool.ruff.format]
