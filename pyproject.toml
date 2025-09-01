@@ -115,6 +115,7 @@ markers = [
     "unit: Unit tests (fast)",
     "integration: Cross-component integration tests (may be slow)",
     "characterization: Golden file/snapshot tests (fast)",
+    "golden_test: Golden file tests (alias; legacy marker)",
     "workflows: CI/CD workflow tests (fast)",
     "slow: Tests that take > 1s (subset of integration)",
     "api: Tests requiring external API (slow)",
@@ -122,6 +123,7 @@ markers = [
     "allow_dotenv: Opt-in to load .env in a specific test",
     "allow_real_home_config: Opt-in to use the real home config path",
     "allow_env_pollution: Opt-in to keep current env (no cleanup)",
+    "legacy: Legacy tests kept for reference/quarantine",
 ]
 
 # --- Ruff ---
