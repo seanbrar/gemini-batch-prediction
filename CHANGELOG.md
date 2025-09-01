@@ -35,5 +35,6 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 - Add performance monitoring and architectural modernization ([`498e846`](https://github.com/seanbrar/gemini-batch-prediction/commit/498e846356892f230d8ba210e2c3d249129abdac))
 
 <!-- PSR-LINKS-START -->
+[0.9.0]: https://github.com/seanbrar/gemini-batch-prediction/compare/v0.8.0...v0.9.0
 [0.8.0]: https://github.com/seanbrar/gemini-batch-prediction/compare/v0.7.0...v0.8.0
 [0.7.0]: https://github.com/seanbrar/gemini-batch-prediction/releases/tag/v0.7.0
