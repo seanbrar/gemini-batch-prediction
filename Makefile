@@ -5,7 +5,7 @@
 # ------------------------------------------------------------------------------
 PYTEST = pytest
 PYTEST_ARGS = -v
-COVERAGE_FAIL_UNDER ?= 40
+COVERAGE_FAIL_UNDER ?= 80
 COVERAGE_ARGS = --cov=gemini_batch --cov-report=term-missing --cov-report=html:coverage_html_report --cov-fail-under=$(COVERAGE_FAIL_UNDER)
 
 # Default log level for pytest's console output. Can be overridden.
@@ -14,7 +14,7 @@ TEST_LOG_LEVEL ?= WARNING
 # ------------------------------------------------------------------------------
 # Main Commands
 # ------------------------------------------------------------------------------
-.PHONY: help test test-all test-coverage install-dev clean docs-build docs-serve
+.PHONY: help test test-all test-coverage install-dev clean docs-build docs-serve fetch-cookbook-data
 
 help: ## ✨ Show this help message
 	@grep -E '^[a-zA-Z_-]+:.*?## .*$$' $(MAKEFILE_LIST) | \
@@ -42,9 +42,14 @@ docs-serve: ## 🚀 Serve docs locally at http://127.0.0.1:8000
 	fi
 	mkdocs serve -a 127.0.0.1:8000
 
-test: ## 🎯 Run the default test suite (unit + golden file regression) without coverage
-	@echo "🎯 Running default test suite (unit + golden file regression)..."
-	$(PYTEST) $(PYTEST_ARGS) --log-cli-level=$(TEST_LOG_LEVEL) -m "unit or golden_test"
+fetch-cookbook-data: ## 📥 Download small public sample files into cookbook/data/public/
+	@echo "📥 Fetching cookbook sample data..."
+	python scripts/fetch_cookbook_data.py
+	@echo "✅ Samples ready under cookbook/data/public/"
+
+test: ## 🎯 Run unit (+characterization when present) without coverage
+	@echo "🎯 Running default test suite (unit + characterization when present)..."
+	$(PYTEST) $(PYTEST_ARGS) --log-cli-level=$(TEST_LOG_LEVEL) -m "unit or characterization"
 
 test-coverage: ## 📊 Run all tests and generate a coverage report
 	@echo "📊 Running all tests with coverage report..."
@@ -56,8 +61,8 @@ test-all: test test-integration test-workflows ## 🏁 Run all non-API tests
 
 lint: ## ✒️ Check formatting and lint code
 	@echo "✒️ Checking formatting and linting with ruff..."
-	ruff format --check .
-	ruff check .
+	ruff format --check src
+	ruff check src
 
 clean: ## 🧹 Clean up all test and build artifacts
 	@echo "🧹 Cleaning up..."
@@ -68,12 +73,22 @@ clean: ## 🧹 Clean up all test and build artifacts
 # ------------------------------------------------------------------------------
 # Optimized CI Test Targets
 # ------------------------------------------------------------------------------
-.PHONY: test-fast test-progressive test-pr test-main test-fast-timed
+.PHONY: test-fast test-core test-dev test-progressive test-pr test-main test-fast-timed test-smoke
 
-test-fast: ## ⚡ Fast tests only (~30s): contracts + unit + characterization
-	@echo "⚡ Running fast test suite..."
+test-core: ## ⚡ Ultra-fast core tests (~15s): contracts + unit only
+	@echo "⚡ Running core test suite..."
+	$(PYTEST) $(PYTEST_ARGS) --log-cli-level=$(TEST_LOG_LEVEL) -m "contract or unit"
+
+test-fast: ## 🔧 Development suite (~30s): most tests except slow/characterization
+	@echo "🔧 Running development test suite..."
 	$(PYTEST) $(PYTEST_ARGS) --log-cli-level=$(TEST_LOG_LEVEL) \
-		-m "(contract or unit or characterization) and not slow and not api"
+		-m "(contract or unit or integration or workflows or security) and not slow and not api and not characterization"
+
+test-dev: test-fast ## 🔧 Alias for test-fast (common development command)
+
+test-smoke: ## 🚑 Ultra-fast critical checks (< 1m): a curated smoke subset
+	@echo "🚑 Running smoke tests..."
+	$(PYTEST) $(PYTEST_ARGS) --log-cli-level=$(TEST_LOG_LEVEL) -m "smoke"
 
 test-progressive: ## 📈 Progressive tests with fail-fast (contracts → unit → characterization)
 	@echo "📈 Running progressive test suite with fail-fast..."
@@ -91,28 +106,32 @@ test-pr: test-progressive test-integration test-workflows ## 🔍 Pull Request s
 test-main: test-all test-coverage ## 🎯 Main branch suite (everything + coverage)
 	@echo "✅ Main branch test suite complete"
 
-test-fast-timed: ## ⏱️ Fast tests with timing information
-	@echo "⏱️ Running fast tests with timing..."
+test-fast-timed: ## ⏱️ Development tests with timing information
+	@echo "⏱️ Running development tests with timing..."
 	@time $(PYTEST) $(PYTEST_ARGS) --log-cli-level=$(TEST_LOG_LEVEL) \
 		--durations=10 \
-		-m "(contract or unit or characterization) and not slow and not api"
+		-m "(contract or unit or integration or workflows or security) and not slow and not api and not characterization"
 
 # ------------------------------------------------------------------------------
 # Granular Test Targets
 # ------------------------------------------------------------------------------
-.PHONY: test-unit test-golden-files test-integration test-api test-workflows
+.PHONY: test-unit test-golden-files test-integration test-integration-light test-api test-workflows
 
 test-unit: ## 🧪 Run all unit tests
 	@echo "🧪 Running unit tests..."
 	$(PYTEST) $(PYTEST_ARGS) --log-cli-level=$(TEST_LOG_LEVEL) -m "unit"
 
-test-golden-files: ## 📸 Run golden file regression tests
-	@echo "📸 Running golden file regression tests..."
-	$(PYTEST) $(PYTEST_ARGS) --log-cli-level=$(TEST_LOG_LEVEL) -m "golden_test"
+test-golden-files: ## 📸 Run characterization/golden file tests
+	@echo "📸 Running characterization and golden file tests..."
+	$(PYTEST) $(PYTEST_ARGS) --log-cli-level=$(TEST_LOG_LEVEL) -m "characterization or golden_test"
 
-test-integration: .check-semantic-release ## 🔗 Run integration tests
+test-integration: .check-semantic-release ## 🔗 Run integration tests (may be slow due to workflows)
 	@echo "🔗 Running integration tests..."
 	$(PYTEST) $(PYTEST_ARGS) --log-cli-level=$(TEST_LOG_LEVEL) -m "integration"
+
+test-integration-light: ## 🔗 Integration tests without slow workflows
+	@echo "🔗 Running lightweight integration tests..."
+	$(PYTEST) $(PYTEST_ARGS) --log-cli-level=$(TEST_LOG_LEVEL) -m "integration and not slow"
 
 test-api: .check-api-key ## 🔑 Run API tests (requires GEMINI_API_KEY)
 	@echo "🔑 Running API integration tests..."

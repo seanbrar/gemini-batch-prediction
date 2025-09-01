@@ -50,6 +50,7 @@ dev = [
     "mkdocs>=1.6.0",
     "mkdocs-material>=9.6.0",
     "mkdocstrings[python]>=0.25.0",
+    "mkdocstrings-python>=1.10.0",
     "types-PyYAML>=6.0.12",
 ]
 viz = ["matplotlib~=3.10", "pandas~=2.3", "seaborn~=0.13"]
@@ -67,6 +68,7 @@ source = ["src/gemini_batch"]
 omit = [
     "setup.py",
     "src/gemini_batch/__init__.py",
+    "src/gemini_batch/extensions/visualization.py",
     "tests/*",
 ]
 

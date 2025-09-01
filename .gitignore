@@ -1,14 +1,25 @@
 # Environment variables
 .env
+.secrets
+
+# Common local env variants
+.env.local
+.env.*.local
+.envrc
+!.env.example
 
 # Virtual environments
 /venv/
+.venv/
 
 # Python packaging
 *.egg-info/
+build/
+dist/
 
 # Python bytecode
 __pycache__/
+*.py[cod]
 
 # macOS
 .DS_Store
@@ -18,6 +29,41 @@ __pycache__/
 
 # Test coverage
 .coverage
+.coverage.*
+coverage.xml
+htmlcov/
+coverage_html_report/
 
 # Docs
 site/
+
+# Tool caches
+.mypy_cache/
+.pytest_cache/
+.ruff_cache/
+.benchmarks/
+
+# Jupyter
+.ipynb_checkpoints/
+
+# Editors/IDEs
+.idea/
+
+# OS files (cross-platform)
+Thumbs.db
+
+# Project root scratch files
+/*.txt
+/*.log
+
+# Root-level media
+/*.mp4
+/*.mov
+/*.mkv
+/*.webm
+/*.avi
+/*.m4v
+/*.mp3
+/*.flac
+/*.wav
+/*.m4a
