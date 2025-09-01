@@ -4,7 +4,7 @@ This directory contains development-focused documentation that explains the "why
 
 ## Structure
 
-- **Implementation Guides** (`logging.md`, `telemetry_internals.md`): How existing systems work
+- **Implementation Guides** (`logging.md`): How existing systems work. Telemetry docs have moved into the Diátaxis site under Explanation → Concepts/Deep Dives/Decisions.
 - **Design Proposals** (`design/`): Architectural proposals and explorations
 
 **What you'll find here:**

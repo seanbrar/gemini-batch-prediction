@@ -24,7 +24,7 @@ This change aims for radical simplicity, making the control flow flatter, more r
 
 The core principle of the Planner-Executor pattern is a strict separation of decision-making from action-taking, enhanced by the **Direct Action** principle.
 
-* **The Planner (`CacheManager`):** Its sole responsibility is to make decisions. It inspects the content and context of a request and produces a recommendation. It answers the question, *"What should be done?"* It does not execute generation calls, handle retries, or process responses. Its only side effects are interactions with the Gemini Caches API (`client.caches.create`, `client.caches.get`). 
+* **The Planner (`CacheManager`):** Its sole responsibility is to make decisions. It inspects the content and context of a request and produces a recommendation. It answers the question, *"What should be done?"* It does not execute generation calls, handle retries, or process responses. Its only side effects are interactions with the Gemini Caches API (`client.caches.create`, `client.caches.get`).
 
 * **Direct Action Principle:** When the Planner has sufficient information to perform its allowed side effects (cache creation), it should act directly rather than delegating to methods that repeat analysis. This eliminates unnecessary abstraction layers while maintaining the core separation of concerns.
 
@@ -126,7 +126,7 @@ class GeminiClient:
         raw_response = None
         if action.strategy == CacheStrategy.GENERATE_RAW:
             raw_response = self._generate_with_parts(action.payload.parts, ...)
-        
+
         elif action.strategy == CacheStrategy.GENERATE_WITH_OPTIMIZED_PARTS:
             raw_response = self._generate_with_parts(action.payload.parts, ...)
 
@@ -136,7 +136,7 @@ class GeminiClient:
                 prompt_parts=action.payload.parts,
                 ...
             )
-        
+
         # 3. Process the response (responsibility remains with the client)
         return self._process_response(raw_response, ...)
 ```
