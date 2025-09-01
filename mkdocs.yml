@@ -82,7 +82,7 @@ nav:
                             - Configuration: reference/configuration.md
                             - Conversation Guide: how-to/conversation-advanced.md
                             - Caching: how-to/caching.md
-                            - Telemetry: telemetry.md
+                            - Telemetry: TELEMETRY.md
                             - Source Handling: source-handling.md
         - Contributing:
                   - Docstring Style Guide: contributing/docstring_style.md
