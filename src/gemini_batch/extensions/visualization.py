@@ -1,10 +1,8 @@
-"""Visualization utilities for batch processing analysis"""  # noqa: D415
+"""Visualization utilities for batch processing analysis."""
 
-from collections.abc import Callable, Iterable
-from typing import Any, Protocol, TypedDict
+from __future__ import annotations
 
-import matplotlib.pyplot as plt
-import pandas as pd
+from typing import TYPE_CHECKING, Any, NotRequired, Protocol, TypedDict
 
 from gemini_batch.constants import (
     TARGET_EFFICIENCY_RATIO,
@@ -15,8 +13,70 @@ from gemini_batch.constants import (
     VIZ_SCALING_FIGURE_SIZE,
 )
 
+if TYPE_CHECKING:
+    from collections.abc import Callable, Iterable
+
+    import pandas as pd
+
 # Constants for consistent styling
 COLORS = VIZ_COLORS
+
+
+# -----------------------------
+# Public result data structures
+# -----------------------------
+
+
+class MetricSet(TypedDict):
+    """Basic metric set for individual or batch runs."""
+
+    calls: int
+    tokens: int
+    time: float
+
+
+class Metrics(TypedDict):
+    """Container of metric sets."""
+
+    individual: MetricSet
+    batch: MetricSet
+
+
+class Efficiency(TypedDict):
+    """Efficiency stats derived from metrics."""
+
+    token_efficiency_ratio: float
+    time_efficiency: float
+    meets_target: bool
+
+
+class EfficiencyResults(TypedDict):
+    """Shape expected by visualization helpers."""
+
+    metrics: Metrics
+    efficiency: Efficiency
+
+
+class ScalingDataItem(TypedDict):
+    """One row of scaling analysis input."""
+
+    questions: int
+    efficiency: float
+    individual_tokens: int
+    batch_tokens: int
+    meets_target: NotRequired[bool]
+
+
+# Explicit public API
+__all__ = [
+    "EfficiencyResults",
+    "PlotConfig",
+    "ScalingDataItem",
+    "create_efficiency_visualizations",
+    "create_focused_efficiency_visualization",
+    "run_efficiency_experiment",
+    "visualize_scaling_results",
+]
 
 
 class PlotConfig(TypedDict):
@@ -45,22 +105,22 @@ Numeric = float | int
 
 
 def _format_integer(x: Numeric) -> str:
-    """Format value as integer"""  # noqa: D415
+    """Format a value as an integer."""
     return f"{int(x)}"
 
 
 def _format_integer_with_commas(x: Numeric) -> str:
-    """Format value as integer with comma separators"""  # noqa: D415
+    """Format an integer with comma separators."""
     return f"{int(x):,}"
 
 
 def _format_time_seconds(x: Numeric) -> str:
-    """Format value as time in seconds with 2 decimal places"""  # noqa: D415
+    """Format a value as seconds with two decimals."""
     return f"{x:.2f}s"
 
 
 def _format_efficiency_multiplier(x: Numeric) -> str:
-    """Format value as efficiency multiplier with 1 decimal place"""  # noqa: D415
+    """Format an efficiency multiplier with one decimal place."""
     return f"{x:.1f}×"  # noqa: RUF001
 
 
@@ -70,7 +130,7 @@ def _add_bar_annotations(
     values: list[Numeric],
     format_func: Callable[[Numeric], str] | None = None,
 ) -> None:
-    """Add value annotations to bar charts"""  # noqa: D415
+    """Add value annotations to bar charts."""
     if format_func is None:
         format_func = _format_integer
 
@@ -97,7 +157,7 @@ def _create_comparison_subplot(
     values: list[Numeric],
     format_func: Callable[[Numeric], str] | None = None,
 ) -> None:
-    """Create a standardized comparison bar chart"""  # noqa: D415
+    """Create a standardized comparison bar chart."""
     colors = [COLORS["individual"], COLORS["batch"]]
     bars = ax.bar(methods, values, color=colors, alpha=PLOT_CONFIG["alpha"])
     ax.set_title(title, fontweight="bold")
@@ -107,7 +167,7 @@ def _create_comparison_subplot(
 
 
 def _validate_results_data(results: dict[str, Any]) -> bool:
-    """Validate that results contain required data structure"""  # noqa: D415
+    """Validate that results contain the required shape."""
     required_keys = ["metrics", "efficiency"]
     if not all(key in results for key in required_keys):
         return False
@@ -116,11 +176,69 @@ def _validate_results_data(results: dict[str, Any]) -> bool:
     return all(key in metrics for key in ["individual", "batch"])
 
 
-def create_efficiency_visualizations(results: dict[str, Any]) -> None:
-    """Create comprehensive visualizations of efficiency gains"""  # noqa: D415
-    if not _validate_results_data(results):
+# ---------------------------
+# Lightweight pure utilities
+# ---------------------------
+
+
+def summarize_efficiency(results: EfficiencyResults) -> dict[str, float]:
+    """Compute a compact summary for display or testing.
+
+    Returns keys: ``token_efficiency``, ``time_efficiency``, ``cost_reduction_pct``,
+    and ``api_call_reduction``.
+    """
+    indiv = results["metrics"]["individual"]
+    batch = results["metrics"]["batch"]
+    eff = results["efficiency"]
+    token_eff = float(eff["token_efficiency_ratio"]) or 1.0
+    time_eff = float(eff["time_efficiency"]) or 1.0
+    api_call_reduction = (indiv["calls"] / batch["calls"]) if batch["calls"] else 1.0
+    # Cost roughly proportional to tokens for most tiers
+    cost_reduction_pct = (1 - 1 / token_eff) * 100 if token_eff else 0.0
+    return {
+        "token_efficiency": token_eff,
+        "time_efficiency": time_eff,
+        "cost_reduction_pct": cost_reduction_pct,
+        "api_call_reduction": api_call_reduction,
+    }
+
+
+def _require_matplotlib() -> Any:
+    """Lazy-import matplotlib for environments without viz extras installed."""
+    try:
+        import matplotlib.pyplot as plt
+    except Exception as exc:  # pragma: no cover - exercised in notebook usage
+        raise RuntimeError(
+            "matplotlib is required for visualization. Install with 'gemini-batch[viz]'."
+        ) from exc
+    return plt
+
+
+def _require_pandas() -> Any:
+    """Lazy-import pandas for environments without viz extras installed."""
+    try:
+        import pandas as pd
+    except Exception as exc:  # pragma: no cover - exercised in notebook usage
+        raise RuntimeError(
+            "pandas is required for visualization. Install with 'gemini-batch[viz]'."
+        ) from exc
+    return pd
+
+
+def create_efficiency_visualizations(
+    results: EfficiencyResults,
+    *,
+    show: bool = True,
+) -> None:
+    """Create comprehensive visualizations of efficiency gains.
+
+    Returns the ``(fig, ((ax1, ax2), (ax3, ax4)))`` tuple for further customization.
+    Set ``show=False`` to suppress ``plt.show()`` in scripts.
+    """
+    plt = _require_matplotlib()
+    if not _validate_results_data(results):  # type: ignore
         print("❌ Invalid results data structure")  # noqa: T201
-        return
+        return None
 
     individual_metrics = results["metrics"]["individual"]
     batch_metrics = results["metrics"]["batch"]
@@ -147,7 +265,7 @@ def create_efficiency_visualizations(results: dict[str, Any]) -> None:
         "API Calls Required",
         "Number of Calls",
         methods,
-        calls,
+        calls,  # type: ignore
     )
 
     # 2. Token Usage Comparison
@@ -157,7 +275,7 @@ def create_efficiency_visualizations(results: dict[str, Any]) -> None:
         "Total Token Usage",
         "Tokens",
         methods,
-        tokens,
+        tokens,  # type: ignore
         format_func=_format_integer_with_commas,
     )
 
@@ -204,10 +322,12 @@ def create_efficiency_visualizations(results: dict[str, Any]) -> None:
     _add_bar_annotations(ax4, bars4, improvements, _format_efficiency_multiplier)
 
     plt.tight_layout()
-    plt.show()
+    if show:
+        plt.show()
 
     # Summary statistics
-    _print_efficiency_summary(individual_metrics, batch_metrics, efficiency)
+    _print_efficiency_summary(individual_metrics, batch_metrics, efficiency)  # type: ignore
+    return fig, ((ax1, ax2), (ax3, ax4))  # type: ignore
 
 
 def _print_efficiency_summary(
@@ -215,7 +335,7 @@ def _print_efficiency_summary(
     batch_metrics: dict[str, Any],
     efficiency: dict[str, Any],
 ) -> None:
-    """Print formatted efficiency summary"""  # noqa: D415
+    """Print a formatted efficiency summary."""
     print("\n📊 EFFICIENCY SUMMARY:")  # noqa: T201
     print(  # noqa: T201
         f"🎯 Token efficiency improvement: "
@@ -233,8 +353,12 @@ def _print_efficiency_summary(
         print(f"🔢 Tokens saved: {tokens_saved:,} ({reduction_pct:.1f}% reduction)")  # noqa: T201
 
 
-def visualize_scaling_results(scaling_data: list[dict[str, Any]]) -> None:
-    """Visualize how efficiency scales with question count"""  # noqa: D415
+def visualize_scaling_results(
+    scaling_data: list[ScalingDataItem], *, show: bool = True
+) -> None:
+    """Visualize how efficiency scales with question count."""
+    plt = _require_matplotlib()
+    pd = _require_pandas()
     if not scaling_data:
         print("❌ No scaling data available for visualization")  # noqa: T201
         return
@@ -315,14 +439,15 @@ def visualize_scaling_results(scaling_data: list[dict[str, Any]]) -> None:
     ax2.grid(True, alpha=0.3)  # noqa: FBT003
 
     plt.tight_layout()
-    plt.show()
+    if show:
+        plt.show()
 
     # Summary insights
     _print_scaling_insights(df)
 
 
 def _print_scaling_insights(df: pd.DataFrame) -> None:
-    """Print formatted scaling insights"""  # noqa: D415
+    """Print formatted scaling insights."""
     print("\n🎯 SCALING INSIGHTS:")  # noqa: T201
     max_efficiency = df["efficiency"].max()
     best_q_count = df.loc[df["efficiency"].idxmax(), "questions"]
@@ -345,7 +470,7 @@ def _print_scaling_insights(df: pd.DataFrame) -> None:
 
 
 def _format_metrics_table(metrics_data: list[tuple[str, Any, Any, str]]) -> None:
-    """Format and print metrics comparison table"""  # noqa: D415
+    """Format and print a metrics comparison table."""
     print("\n📊 EFFICIENCY RESULTS:")  # noqa: T201
     print(f"{'Metric':<25} {'Individual':<12} {'Batch':<12} {'Improvement':<12}")  # noqa: T201
     print("-" * 65)  # noqa: T201
@@ -369,7 +494,8 @@ def run_efficiency_experiment(
     questions: list[str],
     name: str = "Demo",
 ) -> dict[str, Any]:
-    """Run comprehensive efficiency experiment with visualizations"""  # noqa: D415
+    """Run a comprehensive efficiency experiment with visualizations."""
+    # Only import plotting when we actually visualize later
     print(f"🔬 Running Experiment: {name}")  # noqa: T201
     print("=" * 50)  # noqa: T201
 
@@ -419,8 +545,11 @@ def run_efficiency_experiment(
 def create_focused_efficiency_visualization(
     results: dict[str, Any],
     show_summary: bool = False,  # noqa: FBT001, FBT002
+    *,
+    show: bool = True,
 ) -> None:
-    """Create focused 2-chart visualization for notebook demonstrations"""  # noqa: D415
+    """Create focused 2-chart visualization for notebook demonstrations."""
+    plt = _require_matplotlib()
     if not _validate_results_data(results):
         print("❌ Invalid results data structure")  # noqa: T201
         return
@@ -494,7 +623,8 @@ def create_focused_efficiency_visualization(
     )
 
     plt.tight_layout()
-    plt.show()
+    if show:
+        plt.show()
 
     # Optional summary (concise version)
     if show_summary:

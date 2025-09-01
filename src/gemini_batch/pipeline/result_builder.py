@@ -167,6 +167,13 @@ class ResultBuilder(BaseAsyncHandler[FinalizedCommand, ResultEnvelope, Never]):
         # Record pre-padding answer count for validation/diagnostics clarity
         pre_pad_count = len(extraction_result.answers)
 
+        # Pre-compute optional model selection diagnostics (advisory)
+        model_diag: dict[str, object] | None = None
+        try:
+            model_diag = self._compute_model_selection_diag(command)
+        except Exception:
+            model_diag = None
+
         # Build result envelope
         result_envelope = self._build_result_envelope(extraction_result, command, ctx)
 
@@ -220,6 +227,25 @@ class ResultBuilder(BaseAsyncHandler[FinalizedCommand, ResultEnvelope, Never]):
             flags = diag_dict.get("flags")
             if isinstance(flags, set):
                 diag_dict["flags"] = sorted(flags)
+            # Merge any upstream diagnostics (e.g., model selection) recorded in telemetry
+            try:
+                upstream_diag = (
+                    command.telemetry_data.get("diagnostics")
+                    if isinstance(command.telemetry_data, dict)
+                    else None
+                )
+                if isinstance(upstream_diag, dict) and upstream_diag:
+                    # Shallow merge under a stable envelope key
+                    diag_dict.update(
+                        {k: v for k, v in upstream_diag.items() if k not in diag_dict}
+                    )
+            except Exception:
+                # Best-effort merge; ignore telemetry shape issues
+                ...
+            # Merge locally computed model selection diagnostics if available
+            if isinstance(model_diag, dict) and model_diag:
+                for k, v in model_diag.items():
+                    diag_dict.setdefault(k, v)
             result_envelope["diagnostics"] = diag_dict
         elif violations:
             # Include warnings even without full diagnostics
@@ -227,7 +253,79 @@ class ResultBuilder(BaseAsyncHandler[FinalizedCommand, ResultEnvelope, Never]):
                 v.message for v in violations
             )
 
+        # Best-effort pass-through when diagnostics collection is disabled:
+        # surface upstream diagnostics if present in telemetry (e.g., model selection).
+        if not diagnostics:
+            try:
+                upstream_diag = (
+                    command.telemetry_data.get("diagnostics")
+                    if isinstance(command.telemetry_data, dict)
+                    else None
+                )
+                if isinstance(upstream_diag, dict) and upstream_diag:
+                    result_envelope["diagnostics"] = dict(upstream_diag)
+            except Exception:
+                # Best-effort merge; ignore telemetry shape issues
+                ...
+            if isinstance(model_diag, dict) and model_diag:
+                # Merge or create diagnostics with local model selection diag
+                d = result_envelope.setdefault("diagnostics", {})
+                if isinstance(d, dict):
+                    for k, v in model_diag.items():
+                        d.setdefault(k, v)
+
         return Success(result_envelope)
+
+    def _compute_model_selection_diag(
+        self, command: FinalizedCommand
+    ) -> dict[str, object] | None:
+        """Compute advisory model selection diagnostics.
+
+        Never raises; returns None on failure.
+        """
+        try:
+            from gemini_batch.extensions.model_selector import SelectionInputs, decide
+        except Exception:
+            return None
+
+        planned = command.planned
+        cfg = planned.resolved.initial.config
+        model = cfg.model
+        default_model = cfg.model
+
+        total_est = 0
+        if planned.token_estimate is not None:
+            total_est = int(getattr(planned.token_estimate, "expected_tokens", 0) or 0)
+        elif planned.per_call_estimates:
+            total_est = sum(
+                int(getattr(e, "expected_tokens", 0) or 0)
+                for e in planned.per_call_estimates
+            )
+
+        prompt_count = max(1, len(planned.execution_plan.calls))
+        caching_enabled = bool(cfg.enable_caching)
+
+        heavy_mm = False
+        for s in planned.resolved.resolved_sources:
+            try:
+                mt = (s.mime_type or "").lower()
+            except Exception:
+                mt = ""
+            if s.source_type != "text" or mt.startswith(("video/", "audio/", "image/")):
+                heavy_mm = True
+                break
+
+        inputs = SelectionInputs(
+            total_est_tokens=total_est,
+            prompt_count=prompt_count,
+            caching_enabled=caching_enabled,
+            heavy_multimodal=heavy_mm,
+            configured_default=default_model,
+            configured_model=model,
+            explicit_model=True,
+        )
+        decision = decide(inputs)
+        return {"model_selected": decision}
 
     def _build_extraction_context(self, command: FinalizedCommand) -> ExtractionContext:
         """Create an `ExtractionContext` from a `FinalizedCommand`.
