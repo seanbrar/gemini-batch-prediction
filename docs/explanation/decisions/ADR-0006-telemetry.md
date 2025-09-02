@@ -75,4 +75,4 @@ Negative:
 
 - [Concept – Telemetry: Scopes, Reporters, and Minimal Overhead](../concepts/telemetry.md)
 - [Deep Dive – Telemetry Spec](../deep-dives/telemetry-spec.md)
-- [Reference – Telemetry](../../TELEMETRY.md)
+- [Reference – Telemetry](../../telemetry.md)

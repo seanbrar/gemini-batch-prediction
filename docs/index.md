@@ -11,7 +11,18 @@ Note: Some Explanation pages describe a target architecture (Command Pipeline). 
 
 Start here:
 
-- Tutorials → Quickstart
+- Tutorials → Quickstart: install, first run, success checks
+- Tutorials → First Batch: multiple prompts and sources
+- How‑to → Installation: Releases or source, environment setup
+- How‑to → FAQ and Troubleshooting: common first‑run issues
+- Reference → CLI (`gb-config`): check readiness with `doctor`
 - Explanation → Architecture at a Glance
-- How-to → Testing
-- Reference → Caching, Telemetry, Logging, Source Handling
+- Reference → API overview; How‑to → Configuration
+
+## Onboarding checklist
+
+- Install from Releases or source and verify `import gemini_batch`.
+- Run the Quickstart hello example (mock mode) and confirm expected output.
+- When ready, set `GEMINI_API_KEY`, `GEMINI_BATCH_TIER`, and `GEMINI_BATCH_USE_REAL_API=1`.
+- Run `gb-config doctor` until no issues are reported.
+- Proceed to `run_batch` examples in the Cookbook or Tutorials.

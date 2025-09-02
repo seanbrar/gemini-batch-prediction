@@ -109,4 +109,4 @@ with tele("pipeline.plan", batch_size=32):
 
 - [Concept → Telemetry: Scopes, Reporters, and Minimal Overhead](../concepts/telemetry.md)
 - [Decisions → ADR-0006 Telemetry](../decisions/ADR-0006-telemetry.md)
-- [Reference → Telemetry](../../TELEMETRY.md)
+- [Reference → Telemetry](../../telemetry.md)

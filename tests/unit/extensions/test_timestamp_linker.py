@@ -145,7 +145,7 @@ def test_component_style_parsing_variants():
     out = link_timestamps(env, [])
     ts = sorted(
         out.get("structured_data", {}).get("timestamps"), key=lambda e: e["seconds"]
-    )  # type: ignore[index]
+    )
     seconds_list = [e["seconds"] for e in ts]
     assert 62 in seconds_list  # 1m02s
     assert 3723 in seconds_list  # 1h2m3s

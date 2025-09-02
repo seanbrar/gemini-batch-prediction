@@ -6,6 +6,7 @@
 
 ![CI](https://github.com/seanbrar/gemini-batch-prediction/actions/workflows/ci.yml/badge.svg)
 ![Docs](https://img.shields.io/badge/docs-MkDocs-blue)
+[![Site](https://img.shields.io/badge/Docs-Site-2EA44F)](https://seanbrar.github.io/gemini-batch-prediction/)
 ![Python](https://img.shields.io/badge/Python-3.13+-brightgreen)
 ![License](https://img.shields.io/badge/License-MIT-yellow)
 
@@ -74,25 +75,30 @@ asyncio.run(main())
 
 ## 📦 Installation
 
-### Recommended: Stable Release
+### Releases (recommended)
 
-**[📥 Visit Releases Page](https://github.com/seanbrar/gemini-batch-prediction/releases/latest)** to download the latest stable version.
+Install the latest wheel from **[📥 Releases](https://github.com/seanbrar/gemini-batch-prediction/releases/latest)** for a stable build.
 
 ```bash
-# Download either the .whl or .tar.gz file, then:
-pip install gemini_batch-*.whl                    # For wheel files
-# OR
-pip install "gemini_batch-*.tar.gz[viz]"          # For source with visualization support
+pip install ./gemini_batch-*.whl
+
+# Verify
+python -c "import gemini_batch as gb; print('✅', gb.__version__)"
 ```
 
-### Development Version
+Optional (for notebooks/visualization):
 
-For the latest features and improvements (may be less stable):
+```bash
+pip install "matplotlib~=3.10" "pandas~=2.3" "seaborn~=0.13"
+```
+
+### Development install (from source)
 
 ```bash
 git clone https://github.com/seanbrar/gemini-batch-prediction.git
 cd gemini-batch-prediction
-pip install -e ".[viz]"
+pip install -e .
+pip install "matplotlib~=3.10" "pandas~=2.3" "seaborn~=0.13"  # if using notebooks
 ```
 
 <details>
@@ -117,17 +123,26 @@ This project uses modern Python tooling including `ruff`, `mypy`, `pre-commit`, 
 
 ### API Key Setup
 
-Get your API key from [Google AI Studio](https://ai.dev/) and configure:
+Get your API key from [Google AI Studio](https://ai.dev/).
 
 ```bash
-# Create .env (or export)
+# Create a local .env from the template (git‑ignored)
+cp .env.example .env
+# Then edit .env and set values as needed
+```
+
+Example .env contents:
+
+```dotenv
 GEMINI_API_KEY=your_api_key_here                  # Provider key (fallback supported)
 GEMINI_BATCH_MODEL=gemini-2.0-flash               # Library config
 GEMINI_BATCH_TIER=free                            # free | tier_1 | tier_2 | tier_3
 GEMINI_BATCH_ENABLE_CACHING=true                  # Enable context caching
 ```
 
-See the [comprehensive cookbook](cookbook/) for detailed examples and configuration patterns.
+See the [comprehensive cookbook](cookbook/) and [Quickstart](docs/tutorials/quickstart.md) for runnable examples.
+
+Looking for the docs site? Visit <https://seanbrar.github.io/gemini-batch-prediction/> (Start at Tutorials → Quickstart).
 
 ### Rate Limit Configuration
 
@@ -148,6 +163,26 @@ gb-config doctor
 # or inspect resolved config
 gb-config audit
 ```
+
+### First Run Without an API Key
+
+By default, the library runs in a deterministic mock mode (no external calls). This is ideal for validating your environment.
+
+```python
+import asyncio
+from gemini_batch import run_simple, types
+
+async def main():
+    result = await run_simple(
+        "Say hello",
+        source=types.Source.from_text("Hello content"),
+    )
+    print(result["status"], result["answers"][0])
+
+asyncio.run(main())
+```
+
+Expected output (mocked): `ok echo: Say hello`
 
 ## 🔥 Quick Start
 

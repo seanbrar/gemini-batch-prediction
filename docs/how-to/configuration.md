@@ -167,6 +167,13 @@ for field, fo in src.items():
     print(field, fo.origin.value)
 ```
 
+See also: Reference → CLI for command equivalents and quick checks:
+
+- `gb-config show` (effective redacted config)
+- `gb-config audit` (field origins + layer summary)
+- `gb-config doctor` (actionable messages)
+- `gb-config env` (redacted environment snapshot)
+
 For full diagnostics, provider inference rules, precedence, file discovery, and extra‑field validation patterns, see Reference → [Configuration](../reference/configuration.md).
 
 Conventional patterns:
@@ -218,6 +225,10 @@ config1 = resolve_config()
 
 # Subsequent calls don't emit (already done)
 config2 = resolve_config()
+
+# CLI equivalent for quick checks:
+#   gb-config doctor
+#   gb-config audit
 ```
 
 Debug emission is controlled by `GEMINI_BATCH_DEBUG_CONFIG` and uses Python’s warnings; audits are redacted.

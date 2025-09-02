@@ -96,6 +96,13 @@ Warnings are emitted via `warnings.warn` and do not fail resolution.
 - Environment snapshot: `check_environment()` returns current `GEMINI_*` and `GEMINI_BATCH_*` variables with sensitive values redacted.
 - Doctor: `doctor()` returns a list of diagnostic messages and advisories (e.g., missing key when `use_real_api=True`).
 
+CLI equivalents:
+
+- `gb-config show` — effective redacted config (JSON)
+- `gb-config audit` — field origins and layer summary
+- `gb-config doctor` — actionable checks and advisories
+- `gb-config env` — redacted environment snapshot
+
 ---
 
 ## Public API
