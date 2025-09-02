@@ -34,14 +34,41 @@ nav:
         - Home: index.md
         - Tutorials:
                   - Quickstart: tutorials/quickstart.md
+                  - First Batch: tutorials/first-batch.md
+                  - Cookbook: cookbook.md
         - How-to guides:
+                  - Installation: how-to/installation.md
                   - Configuration: how-to/configuration.md
+                  - Verify Real API: how-to/verify-real-api.md
+                  - Troubleshooting: how-to/troubleshooting.md
+                  - FAQ: how-to/faq.md
                   - Testing: how-to/testing.md
                   - Custom Transforms: how-to/custom-transforms.md
                   - Provider Adapters: how-to/provider-adapters.md
                   - Remote File Materialization: how-to/remote-file-materialization.md
                   - Token Counting (Extension): how-to/token-counting.md
                   - (coming soon) Caching with the pipeline: how-to/caching.md
+        - Reference:
+                  - API Reference (Overview): reference/api-reference.md
+                  - CLI: reference/cli.md
+                  - API:
+                            - Executor: reference/api/executor.md
+                            - Frontdoor: reference/api/frontdoor.md
+                            - Research: reference/api/research.md
+                            - Types: reference/api/types.md
+                  - Config: reference/api/config.md
+                  - Telemetry (API): reference/api/telemetry.md
+                  - Core Types: reference/api/core.md
+                  - Internals:
+                            - Pipeline: reference/internals/pipeline.md
+                            - Prompts: reference/internals/prompts.md
+                            - Adapters: reference/internals/adapters.md
+                            - Results: reference/internals/results.md
+                  - Configuration: reference/configuration.md
+                  - Conversation Guide: how-to/conversation-advanced.md
+                  - Caching: how-to/caching.md
+                  - Telemetry Guide: telemetry.md
+                  - Source Handling: source-handling.md
         - Explanation:
                   - Architecture at a Glance: explanation/architecture.md
                   - Error Handling: explanation/error-handling.md
@@ -63,26 +90,5 @@ nav:
                             - ADR-0007 Configuration: explanation/decisions/ADR-0007-configuration.md
                   - Architecture Rubric: explanation/architecture-rubric.md
                   - Glossary: explanation/glossary.md
-                  - Reference:
-                            - Test Suite Reference: tests.md
-                            - API Reference (Overview): reference/api-reference.md
-                            - API:
-                                      - Executor: reference/api/executor.md
-                                      - Frontdoor: reference/api/frontdoor.md
-                                      - Research: reference/api/research.md
-                                      - Types: reference/api/types.md
-                                      - Config: reference/api/config.md
-                                      - Telemetry: reference/api/telemetry.md
-                                      - Core Types: reference/api/core.md
-                            - Internals:
-                                      - Pipeline: reference/internals/pipeline.md
-                                      - Prompts: reference/internals/prompts.md
-                                      - Adapters: reference/internals/adapters.md
-                                      - Results: reference/internals/results.md
-                            - Configuration: reference/configuration.md
-                            - Conversation Guide: how-to/conversation-advanced.md
-                            - Caching: how-to/caching.md
-                            - Telemetry: TELEMETRY.md
-                            - Source Handling: source-handling.md
         - Contributing:
                   - Docstring Style Guide: contributing/docstring_style.md
