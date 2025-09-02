@@ -5,6 +5,7 @@
 **Organization:** Google DeepMind
 
 ![CI](https://github.com/seanbrar/gemini-batch-prediction/actions/workflows/ci.yml/badge.svg)
+[![codecov](https://codecov.io/gh/seanbrar/gemini-batch-prediction/graph/badge.svg)](https://codecov.io/gh/seanbrar/gemini-batch-prediction)
 ![Docs](https://img.shields.io/badge/docs-MkDocs-blue)
 [![Site](https://img.shields.io/badge/Docs-Site-2EA44F)](https://seanbrar.github.io/gemini-batch-prediction/)
 ![Python](https://img.shields.io/badge/Python-3.13+-brightgreen)
