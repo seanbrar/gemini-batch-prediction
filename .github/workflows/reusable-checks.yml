@@ -18,6 +18,10 @@ name: Reusable Python Checks
       test-command:
         required: true
         type: string
+      upload-coverage:
+        required: false
+        type: boolean
+        default: false
 
 jobs:
   quality:
@@ -42,3 +46,12 @@ jobs:
           # The 'true' on the end is needed because github.event.pull_request.draft is a boolean.
           TEST_LOG_LEVEL: ${{ github.event_name == 'pull_request' && github.event.pull_request.draft == true && 'DEBUG' || 'WARNING' }}
         run: ${{ inputs.test-command }}
+
+      - name: Upload coverage to Codecov
+        # Explicitly controlled by caller. Use when coverage XML or HTML is produced.
+        if: inputs.upload-coverage == true
+        uses: codecov/codecov-action@v5
+        with:
+          token: ${{ secrets.CODECOV_TOKEN }}
+          fail_ci_if_error: false  # Don't fail CI if codecov upload fails
+          verbose: true

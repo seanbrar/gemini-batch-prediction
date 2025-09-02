@@ -24,6 +24,7 @@ jobs:
     # Ensures workflow linting passes before running application checks
     needs: lint-workflows
     uses: ./.github/workflows/reusable-checks.yml
+    secrets: inherit
     with:
       python-version: "3.13"  # Explicit version passed to reusable workflow
       # Optimized testing cadence based on event type and PR status:
@@ -31,4 +32,5 @@ jobs:
       # - Draft PRs: Fast tests with DEBUG logging
       # - Ready PRs: Progressive + integration + workflows (< 2 min)
       # - Main branch: Everything + coverage
-      test-command: ${{ github.ref_name == 'main' && 'make test-main' || github.event_name == 'pull_request' && github.event.pull_request.draft == false && 'make test-pr' || github.event_name == 'pull_request' && github.event.pull_request.draft == true && 'make test-fast' || 'make test-fast' }}
+      test-command: ${{ github.ref_name == 'main' && 'make test-main' || github.event_name == 'pull_request' && github.event.pull_request.draft == false && 'make test-coverage' || github.event_name == 'pull_request' && github.event.pull_request.draft == true && 'make test-fast' || 'make test-fast' }}
+      upload-coverage: ${{ github.ref_name == 'main' || (github.event_name == 'pull_request' && github.event.pull_request.draft == false) }}

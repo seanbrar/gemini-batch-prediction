@@ -6,10 +6,18 @@
 PYTEST = pytest
 PYTEST_ARGS = -v
 COVERAGE_FAIL_UNDER ?= 80
-COVERAGE_ARGS = --cov=gemini_batch --cov-report=term-missing --cov-report=html:coverage_html_report --cov-fail-under=$(COVERAGE_FAIL_UNDER)
+COVERAGE_ARGS = --cov=gemini_batch --cov-report=term-missing --cov-report=html:coverage_html_report --cov-report=xml --cov-fail-under=$(COVERAGE_FAIL_UNDER)
+PR_COVERAGE_ARGS = --cov=gemini_batch --cov-report=term-missing --cov-report=xml --cov-fail-under=$(COVERAGE_FAIL_UNDER)
+PR_COVERAGE_ARGS_NO_FAIL = --cov=gemini_batch --cov-report=term-missing --cov-report=xml
 
 # Default log level for pytest's console output. Can be overridden.
 TEST_LOG_LEVEL ?= WARNING
+
+# Shared marker selection for fast, representative suites
+FAST_MARKERS = "(contract or unit or integration or workflows or security) and not slow and not api and not characterization"
+
+# PR coverage suite: include characterization to better reflect overall coverage
+PR_COVERAGE_MARKERS = "(contract or unit or integration or workflows or security or characterization) and not slow and not api"
 
 # ------------------------------------------------------------------------------
 # Main Commands
@@ -56,6 +64,18 @@ test-coverage: ## 📊 Run all tests and generate a coverage report
 	$(PYTEST) $(PYTEST_ARGS) $(COVERAGE_ARGS) --log-cli-level=$(TEST_LOG_LEVEL) tests/
 	@echo "✅ Coverage report generated in coverage_html_report/"
 
+test-pr-coverage: ## 🧮 PR coverage (XML only) on a representative fast suite
+	@echo "🧮 Running PR coverage (XML only) on fast representative test set..."
+	$(PYTEST) $(PYTEST_ARGS) $(PR_COVERAGE_ARGS) --log-cli-level=$(TEST_LOG_LEVEL) \
+		-m $(PR_COVERAGE_MARKERS)
+
+# CI-friendly PR coverage: generate XML without failing on threshold
+.PHONY: test-pr-coverage-ci
+test-pr-coverage-ci: ## 🧮 PR coverage XML for CI (no threshold fail)
+	@echo "🧮 Running PR coverage (no fail-under) for CI..."
+	$(PYTEST) $(PYTEST_ARGS) $(PR_COVERAGE_ARGS_NO_FAIL) --log-cli-level=$(TEST_LOG_LEVEL) \
+		-m $(PR_COVERAGE_MARKERS)
+
 test-all: test test-integration test-workflows ## 🏁 Run all non-API tests
 	@echo "✅ All non-API tests complete."
 
@@ -82,7 +102,7 @@ test-core: ## ⚡ Ultra-fast core tests (~15s): contracts + unit only
 test-fast: ## 🔧 Development suite (~30s): most tests except slow/characterization
 	@echo "🔧 Running development test suite..."
 	$(PYTEST) $(PYTEST_ARGS) --log-cli-level=$(TEST_LOG_LEVEL) \
-		-m "(contract or unit or integration or workflows or security) and not slow and not api and not characterization"
+		-m $(FAST_MARKERS)
 
 test-dev: test-fast ## 🔧 Alias for test-fast (common development command)
 
@@ -110,7 +130,7 @@ test-fast-timed: ## ⏱️ Development tests with timing information
 	@echo "⏱️ Running development tests with timing..."
 	@time $(PYTEST) $(PYTEST_ARGS) --log-cli-level=$(TEST_LOG_LEVEL) \
 		--durations=10 \
-		-m "(contract or unit or integration or workflows or security) and not slow and not api and not characterization"
+		-m $(FAST_MARKERS)
 
 # ------------------------------------------------------------------------------
 # Granular Test Targets
