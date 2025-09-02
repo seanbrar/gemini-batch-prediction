@@ -15,6 +15,9 @@ TEST_LOG_LEVEL ?= WARNING
 # Shared marker selection for fast, representative suites
 FAST_MARKERS = "(contract or unit or integration or workflows or security) and not slow and not api and not characterization"
 
+# PR coverage suite: include characterization to better reflect overall coverage
+PR_COVERAGE_MARKERS = "(contract or unit or integration or workflows or security or characterization) and not slow and not api"
+
 # ------------------------------------------------------------------------------
 # Main Commands
 # ------------------------------------------------------------------------------
@@ -63,7 +66,7 @@ test-coverage: ## 📊 Run all tests and generate a coverage report
 test-pr-coverage: ## 🧮 PR coverage (XML only) on a representative fast suite
 	@echo "🧮 Running PR coverage (XML only) on fast representative test set..."
 	$(PYTEST) $(PYTEST_ARGS) $(PR_COVERAGE_ARGS) --log-cli-level=$(TEST_LOG_LEVEL) \
-		-m $(FAST_MARKERS)
+		-m $(PR_COVERAGE_MARKERS)
 
 test-all: test test-integration test-workflows ## 🏁 Run all non-API tests
 	@echo "✅ All non-API tests complete."
