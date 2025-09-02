@@ -1,13 +1,32 @@
 name: Docs
 
 "on":
-  pull_request:
+  push:
     branches: [ main ]
+    tags: [ 'v*' ]
     paths:
       - 'docs/**'
       - 'mkdocs.yml'
+      - 'README.md'
+      - 'src/**'
       - '.github/workflows/docs.yml'
-      - 'pyproject.toml'
+  pull_request:
+    paths:
+      - 'docs/**'
+      - 'mkdocs.yml'
+      - 'README.md'
+      - 'src/**'
+      - '.github/workflows/docs.yml'
+  workflow_dispatch:
+
+permissions:
+  contents: read
+  pages: write
+  id-token: write
+
+concurrency:
+  group: "pages"
+  cancel-in-progress: true
 
 jobs:
   build:
@@ -19,10 +38,44 @@ jobs:
       - name: Set up Python
         uses: actions/setup-python@v5
         with:
-          python-version: '3.13'
+          python-version: "3.13"
+          cache: "pip"
 
-      - name: Install docs dependencies
-        run: make install-dev
+      - name: Install MkDocs and plugins
+        run: |
+          python -m pip install --upgrade pip
+          pip install \
+            mkdocs \
+            mkdocs-material \
+            mkdocstrings[python] \
+            pymdown-extensions
 
-      - name: Build mkdocs site
-        run: mkdocs build --strict
+      - name: Install project (for mkdocstrings imports)
+        run: pip install -e .
+
+      - name: Build site (strict)
+        run: mkdocs build --strict --clean
+
+      - name: Upload Pages artifact
+        uses: actions/upload-pages-artifact@v3
+        with:
+          path: site
+
+      - name: Upload PR preview artifact
+        if: ${{ github.event_name == 'pull_request' }}
+        uses: actions/upload-artifact@v4
+        with:
+          name: mkdocs-site
+          path: site
+
+  deploy:
+    needs: build
+    runs-on: ubuntu-latest
+    if: ${{ github.event_name != 'pull_request' }}
+    environment:
+      name: github-pages
+      url: ${{ steps.deployment.outputs.page_url }}
+    steps:
+      - name: Deploy to GitHub Pages
+        id: deployment
+        uses: actions/deploy-pages@v4
