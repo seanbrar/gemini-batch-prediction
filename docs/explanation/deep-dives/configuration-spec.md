@@ -385,3 +385,7 @@ Errors abort resolution; callers may catch and surface actionable messages.
 - Optional org‑level policy file (lower than project) and enforcement hooks.
 - Model/tier capability validation once provider capabilities stabilize.
 - CLI: `gemini_batch config --print-effective` (redacted) and `--check` for CI.
+!!! note "Draft – pending revision"
+    This specification will be reworked for clarity and efficacy. Included in nav for discoverability; content to be reviewed before release.
+
+Last reviewed: 2025-09
