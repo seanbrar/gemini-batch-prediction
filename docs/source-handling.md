@@ -1,137 +1,88 @@
-# Source Handling Guide
+# Source Handling — How‑To
 
-> Note: This page describes the current API. For the upcoming architecture, see Explanation → Command Pipeline.
+Audience: developers assembling sources for batch/question answering. Quadrant: How‑To (goal‑oriented).
 
-The `gemini_batch` package can process multiple types of content sources efficiently in a single API call.
+Goal: Build `types.Source` objects from files/URIs/text and run combined or per‑source analysis using the frontdoor helpers.
 
-## Supported Source Types
+Applies to: `gemini_batch.types.Source`, `frontdoor.run_batch`, `frontdoor.run_parallel`, and `types.sources_from_directory`.
+
+Last reviewed: 2025-09
+
+## 1) Create Sources
 
 ```python
-from gemini_batch import BatchProcessor
+from gemini_batch import types
 
-processor = BatchProcessor()
-
-# Text content
-text_source = "Your text content here"
+# Text
+text_src = types.Source.from_text("Your text content here")
 
 # Single file
-file_source = "document.pdf"
+file_src = types.Source.from_file("document.pdf")
 
-# Multiple files
-files_source = ["file1.txt", "file2.pdf", "file3.docx"]
+# YouTube URL (passed as a provider URI)
+yt_src = types.Source.from_youtube("https://youtube.com/watch?v=dQw4w9WgXcQ")
 
-# Directory (processes all files)
-directory_source = "path/to/documents/"
+# arXiv id or URL (normalized to canonical PDF URL)
+arxiv_src = types.Source.from_arxiv("1706.03762")
 
-# YouTube URL
-youtube_source = "https://youtube.com/watch?v=example"
-
-# Mixed content
-mixed_source = ["text content", "file.pdf", "https://youtube.com/watch?v=xyz"]
+# Directory expansion helper (explicit)
+dir_sources = types.sources_from_directory("path/to/documents/")
 ```
 
-## Multi-Source Processing
+## 2) Combined analysis (shared context)
 
-### Single Batch Processing
-
-Process multiple distinct source collections in one call:
+Analyze multiple prompts over multiple sources in one vectorized request with shared context using `run_batch`:
 
 ```python
-# Combined analysis: all sources in one API call
-sources = [
-    "Direct text content",
-    "document.pdf",
-    ["file1.txt", "file2.txt"],
-    "https://youtube.com/watch?v=example"
-]
+import asyncio
+from gemini_batch import types
+from gemini_batch.frontdoor import run_batch
 
-questions = [
-    "What are the main topics?",
-    "Compare approaches across all sources"
-]
+async def main() -> None:
+    sources = [
+        types.Source.from_text("Direct text content"),
+        types.Source.from_file("document.pdf"),
+        types.Source.from_youtube("https://youtu.be/abc123"),
+    ]
+    prompts = [
+        "What are the main topics?",
+        "Compare approaches across all sources.",
+    ]
+    env = await run_batch(prompts, sources=sources)
+    print(env["status"], len(env["answers"]))
 
-# Enables cross-source comparison and synthesis
-result = processor.process_questions_multi_source(sources, questions)
+asyncio.run(main())
 ```
 
-### Consecutive Processing
+Verification
 
-Process multiple sources one at a time:
+- Expect `status == "ok"` in mock mode and two answers in `env["answers"]`.
+- Real API: enable `GEMINI_BATCH_USE_REAL_API=1` and set `GEMINI_API_KEY`; see How‑to → Verify Real API.
+
+## 3) Per‑source analysis (fan‑out)
+
+Ask the same question across many sources and aggregate answers with bounded client‑side fan‑out using `run_parallel`:
 
 ```python
-# Sequential analysis: each source processed individually
-sources = [
-    "document1.pdf",
-    "document2.pdf",
-    "document3.pdf"
-]
+import asyncio
+from gemini_batch import types
+from gemini_batch.frontdoor import run_parallel
 
-questions = [
-    "What is the main argument?",
-    "What evidence is provided?"
-]
+async def main() -> None:
+    srcs = types.sources_from_directory("research_papers/")
+    env = await run_parallel("Summarize each file", sources=srcs, concurrency=4)
+    print(env["status"], len(env["answers"]))
 
-# Returns separate results for each source
-result = processor.process_questions(sources, questions)
+asyncio.run(main())
 ```
 
-## Basic Usage Examples
+Verification
 
-### Single Source Type
+- Expect `status` to be `ok` or `partial` depending on per‑file errors.
+- `env["metrics"]["per_prompt"]` includes per‑source metadata.
 
-```python
-# Single document analysis
-result = processor.process_questions("document.pdf", questions)
-```
+## Troubleshooting
 
-### Multiple Files
-
-```python
-# Multiple files as one dataset
-files = ["report1.pdf", "report2.docx", "data.csv"]
-result = processor.process_questions(files, questions)
-```
-
-### Mixed Content Types
-
-```python
-# Mixed content types in one analysis
-content = [
-    "Background context text",
-    "research_paper.pdf",
-    "https://example.com/article",
-    "data_directory/"
-]
-result = processor.process_questions(content, questions)
-```
-
-### Directory Processing
-
-```python
-# Process entire directory with filtering
-processor = BatchProcessor()
-
-# All files in directory
-result = processor.process_questions("research_papers/", questions)
-
-# With file type filtering (via file operations)
-from gemini_batch.files import scan_directory
-pdf_files = scan_directory("documents/", extensions=[".pdf"])
-result = processor.process_questions(pdf_files, questions)
-```
-
-## Response Structure
-
-All source handling methods return the same structure:
-
-```python
-{
-    "answers": ["Answer 1", "Answer 2", ...],
-    "question_count": 2,
-    "source_count": 4,  # For multi-source processing
-    "efficiency": {...},
-    "usage": {"total_tokens": 1234, ...}
-}
-```
-
-The system automatically optimizes API calls regardless of source complexity.
+- File not found: ensure relative paths are correct and readable.
+- Unsupported URL: use `from_youtube`/`from_arxiv` or `from_uri(uri, mime_type)` if you know the MIME type.
+- Large PDFs or remote files: consider enabling Remote File Materialization (How‑to → Remote File Materialization).

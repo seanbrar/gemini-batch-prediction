@@ -1,8 +1,16 @@
 # Telemetry Integration
 
+Last reviewed: 2025-09
+
 > Note: This page describes the current API. For the upcoming architecture, see Explanation → Command Pipeline.
 
 The library includes a `TelemetryContext` for advanced metrics collection. You can integrate it with your own monitoring systems (e.g., Prometheus, DataDog) by creating a custom reporter.
+
+## Prerequisites
+
+- Python 3.13 and `gemini_batch` installed.
+- Basic logging or a monitoring client available (for examples below, Python `logging`).
+- Optional: set `GEMINI_BATCH_TELEMETRY=1` to enable emission; otherwise the context becomes a no‑op.
 
 This feature is designed for production environments where detailed telemetry is required. For design rationale and implementation details, see [Explanation → Concepts (Telemetry)](./explanation/concepts/telemetry.md), [Deep Dives → Telemetry Spec](./explanation/deep-dives/telemetry-spec.md), and [Decisions → ADR-0006 Telemetry](./explanation/decisions/ADR-0006-telemetry.md).
 
@@ -86,6 +94,11 @@ with tele("my.pipeline.step", batch_size=16):
     tele.gauge("token_efficiency", 0.92)
 ```
 
+Success check:
+
+- Expect INFO log lines containing `telemetry.timing` and `telemetry.metric` with your scopes and metadata.
+- Programmatic check: `assert tele.is_enabled` and wrap a dummy scope to ensure your reporter receives events.
+
 Notes:
 
 - Prefer sending telemetry to a production backend (e.g., Prometheus, OpenTelemetry collector) rather than relying on a custom in-process reporter.
@@ -135,25 +148,75 @@ tele = TelemetryContext(reporter)
 
 ## Integrating the Reporter
 
-Inject your custom reporter into services like `BatchProcessor` by wrapping it in a `TelemetryContext`.
+There are two ways to capture pipeline telemetry.
+
+Option A — Enable built‑in telemetry via environment flags (no custom reporter):
+
+- Set `GEMINI_BATCH_TELEMETRY=1`. The library attaches a tiny, internal reporter and surfaces metrics into the `ResultEnvelope` (under `metrics` and `usage`).
+- Read `env["metrics"]`/`env["usage"]` from the result. See Reference → ResultEnvelope Metrics for shapes.
+
+Option B — Provide your own reporter to the API handler in a custom pipeline:
 
 ```python
-from gemini_batch import BatchProcessor
+from __future__ import annotations
+import logging
+from typing import Any
+
+from gemini_batch.executor import GeminiExecutor
+from gemini_batch.config import resolve_config
+from gemini_batch.pipeline.source_handler import SourceHandler
+from gemini_batch.pipeline.planner import ExecutionPlanner
+from gemini_batch.pipeline.remote_materialization import RemoteMaterializationStage
+from gemini_batch.pipeline.rate_limit_handler import RateLimitHandler
+from gemini_batch.pipeline.cache_stage import CacheStage
+from gemini_batch.pipeline.api_handler import APIHandler
+from gemini_batch.pipeline.result_builder import ResultBuilder
 from gemini_batch.telemetry import TelemetryContext
-# from my_app.telemetry import MyCustomReporter
 
-# 1. Instantiate your reporter and the TelemetryContext factory
-my_reporter = MyCustomReporter()
-tele_context = TelemetryContext(my_reporter)
+class LoggingReporter:
+    def __init__(self, logger: logging.Logger | None = None) -> None:
+        self.log = logger or logging.getLogger("gemini_batch.telemetry")
+    def record_timing(self, scope: str, duration: float, **metadata: Any) -> None:
+        self.log.info("telemetry.timing", extra={"scope": scope, "duration_s": duration, **metadata})
+    def record_metric(self, scope: str, value: Any, **metadata: Any) -> None:
+        self.log.info("telemetry.metric", extra={"scope": scope, "value": value, **metadata})
 
-# 2. Inject the context into the BatchProcessor
-processor = BatchProcessor(telemetry_context=tele_context)
+cfg = resolve_config()
+tele = TelemetryContext(LoggingReporter())  # requires GEMINI_BATCH_TELEMETRY=1
 
-# All operations within the processor will now send metrics to your reporter.
-results = processor.process_questions(...)
+handlers = [
+    SourceHandler(),
+    ExecutionPlanner(),
+    RemoteMaterializationStage(),
+    RateLimitHandler(),
+    CacheStage(registries={}, adapter_factory=None),
+    APIHandler(telemetry=tele, registries={"cache": None, "files": None}, adapter_factory=None),
+    ResultBuilder(),
+]
+
+executor = GeminiExecutor(cfg, pipeline_handlers=handlers)
 ```
 
+Notes
+
+- Option A is simplest and surfaces metrics in the result envelope for immediate use.
+- Option B streams timings/metrics to your backend via a reporter; it requires a custom executor and `GEMINI_BATCH_TELEMETRY=1` to enable emission.
+
+Verification
+
+- Option A: run any `run_simple`/`run_batch` call and inspect `env["metrics"]` and `env["usage"]`.
+- Option B: expect INFO log lines (or your backend events) with `telemetry.timing` and `telemetry.metric`.
+
 -----
+
+## Privacy and Data Handling
+
+!!! warning "Handle data responsibly"
+    - Avoid logging raw inputs, prompts, or secrets. Prefer IDs, short labels, and small scalar metadata in telemetry and logs.
+    - Raw preview is sanitized and truncated by design, but still opt‑in. Enable only when necessary for triage and disable in steady‑state production.
+    - Redaction: API keys and sensitive fields are never printed by `gb-config`; apply the same discipline to your reporters and log processors.
+    - Minimize retention: if exporting telemetry, keep payloads small and set retention appropriate to your compliance requirements.
+    - PII: If processing personal data, align with your org’s policies (e.g., GDPR/CCPA). Do not include user content in telemetry; prefer anonymized counters and bounded metrics.
 
 ## Advanced Integration
 
@@ -189,6 +252,11 @@ Notes:
 - The preview truncates long strings and includes only a few common fields.
 - `usage` is sanitized (scalar-only; truncated strings; nested structures omitted).
 - Prefer production telemetry backends for ongoing analysis; this is a convenience for researchers.
+
+Safety:
+
+- Redaction/truncation prevents large payloads or sensitive content from being emitted.
+- Do not attach raw inputs or secrets to telemetry metadata; prefer IDs and stable labels.
 
 ### Convenience Methods
 

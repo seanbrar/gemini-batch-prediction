@@ -1,5 +1,57 @@
-Remote File Materialization
-===========================
+# Remote File Materialization — How‑To
+
+Audience: developers enabling PDF/remote URL promotion in the pipeline. Quadrant: How‑To (goal‑oriented).
+
+Applies to: `ExecutionOptions.remote_files` and the Remote Materialization stage in the default executor pipeline.
+
+Goal: Convert eligible remote HTTP(S) file references (e.g., arXiv/PDF URLs) into local files before execution, so the API handler can upload provider‑supported files.
+
+## Steps
+
+1. Enable the policy
+
+```python title="enable_remote_files.py"
+from gemini_batch.core.execution_options import ExecutionOptions, RemoteFilePolicy
+
+opts = ExecutionOptions(remote_files=RemoteFilePolicy(enabled=True))
+```
+
+2. Call a minimal run with an arXiv URL
+
+```python title="run_with_remote.py"
+import asyncio
+from gemini_batch import types, run_batch
+from gemini_batch.core.execution_options import ExecutionOptions, RemoteFilePolicy
+
+async def main() -> None:
+    opts = ExecutionOptions(remote_files=RemoteFilePolicy(enabled=True))
+    res = await run_batch(
+        prompts=["Summarize the paper"],
+        sources=[types.Source.from_text("See: https://arxiv.org/abs/1234.56789")],
+        options=opts,
+    )
+    print(res.get("status"))
+
+asyncio.run(main())
+```
+
+3. Verification
+
+- Expect `status` to be `ok`.
+- With logging/telemetry enabled, check metrics for `remote.materialize` counters (see below).
+- In debug runs, the plan should contain a `FilePlaceholder(ephemeral=True)` replacing a detected `FileRefPart`.
+
+4. Troubleshooting
+
+- HTTP rejected: Only HTTPS is allowed by default; set `allow_http=True` to permit plain HTTP.
+- Size limit exceeded: Increase `max_bytes` or set `on_error='skip'` to leave parts unchanged.
+- MIME detection: Use the `.pdf` extension heuristic or rely on Content‑Type when present.
+
+Last reviewed: 2025-09
+
+---
+
+## Details
 
 Overview
 --------
