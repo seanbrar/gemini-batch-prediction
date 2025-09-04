@@ -91,3 +91,5 @@ Python (doctest‑style):
 >>> "api_key is missing" not in out
 True
 ```
+
+Last reviewed: 2025-09
