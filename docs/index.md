@@ -18,6 +18,7 @@ Start here:
 - Reference → CLI (`gb-config`): check readiness with `doctor`
 - Explanation → Architecture at a Glance
 - Reference → API overview; How‑to → Configuration
+- Explanation → Project History & GSoC
 
 ## Onboarding checklist
 

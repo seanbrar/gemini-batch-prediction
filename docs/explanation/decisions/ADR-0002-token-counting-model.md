@@ -85,6 +85,7 @@ Adopt a **hybrid estimation model** that combines:
 - [Concept – Token Counting & Estimation](../concepts/token-counting.md)
 - [Concept – Command Pipeline](../concepts/command-pipeline.md)
 - [Deep Dive – Command Pipeline Spec](../deep-dives/command-pipeline-spec.md)
+- [Deep Dive – Token Counting Calibration](../deep-dives/token-counting-calibration.md)
 - [Architecture at a Glance](../architecture.md)
 
 ---
