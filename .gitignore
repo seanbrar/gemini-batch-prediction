@@ -67,3 +67,13 @@ Thumbs.db
 /*.flac
 /*.wav
 /*.m4a
+
+# Demo Data
+cookbook/data/demo/*
+!cookbook/data/demo/.gitkeep
+!cookbook/data/demo/text-medium/
+!cookbook/data/demo/text-full/
+!cookbook/data/demo/multimodal-basic/
+cookbook/data/demo/text-medium/*
+cookbook/data/demo/text-full/*
+cookbook/data/demo/multimodal-basic/*

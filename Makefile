@@ -14,7 +14,7 @@ PR_COVERAGE_ARGS_NO_FAIL = --cov=gemini_batch --cov-report=term-missing --cov-re
 TEST_LOG_LEVEL ?= WARNING
 
 # Shared marker selection for fast, representative suites
-FAST_MARKERS = "(contract or unit or integration or workflows or security) and not slow and not api and not characterization"
+FAST_MARKERS = "(contract or unit or characterization) and not slow and not api"
 
 # PR coverage suite: include characterization to better reflect overall coverage
 PR_COVERAGE_MARKERS = "(contract or unit or integration or workflows or security or characterization) and not slow and not api"
@@ -22,7 +22,7 @@ PR_COVERAGE_MARKERS = "(contract or unit or integration or workflows or security
 # ------------------------------------------------------------------------------
 # Main Commands
 # ------------------------------------------------------------------------------
-.PHONY: help test test-all test-coverage install-dev clean docs-build docs-serve fetch-cookbook-data
+.PHONY: help test test-all test-coverage install-dev clean docs-build docs-serve demo-data clean-demo-data typecheck lint lint-all test-pr-coverage test-pr-coverage-ci
 
 help: ## ✨ Show this help message
 	@grep -E '^[a-zA-Z_-]+:.*?## .*$$' $(MAKEFILE_LIST) | \
@@ -50,10 +50,23 @@ docs-serve: ## 🚀 Serve docs locally at http://127.0.0.1:8000
 	fi
 	mkdocs serve -a 127.0.0.1:8000
 
-fetch-cookbook-data: ## 📥 Download small public sample files into cookbook/data/public/
-	@echo "📥 Fetching cookbook sample data..."
-	python scripts/fetch_cookbook_data.py
-	@echo "✅ Samples ready under cookbook/data/public/"
+# ------------------------------------------------------------------------------
+# Demo Data (repo-local, on-demand)
+# ------------------------------------------------------------------------------
+
+# TEXT pack: medium (default) or full
+TEXT ?= medium
+MEDIA ?= basic
+
+demo-data: ## 📥 Fetch demo data into cookbook/data/demo/{text-medium|text-full} (+ optional media)
+	@echo "📥 Preparing demo data packs: TEXT=$(TEXT) MEDIA=$(MEDIA)"
+	python scripts/demo_data.py --text "$(TEXT)" --media "$(MEDIA)"
+
+clean-demo-data: ## 🧽 Remove all demo data packs
+	@echo "🧽 Removing demo data under cookbook/data/demo/ ..."
+	rm -rf cookbook/data/demo/text-medium cookbook/data/demo/text-full cookbook/data/demo/multimodal-basic cookbook/data/demo/.cache
+	@if [ -d cookbook/data/demo ] && [ -z "$(shell ls -A cookbook/data/demo 2>/dev/null)" ]; then rmdir cookbook/data/demo; fi || true
+	@echo "✅ Demo data cleaned"
 
 test: ## 🎯 Run unit (+characterization when present) without coverage
 	@echo "🎯 Running default test suite (unit + characterization when present)..."
@@ -81,12 +94,21 @@ test-all: test test-integration test-workflows ## 🏁 Run all non-API tests
 
 lint: ## ✒️ Check formatting and lint code
 	@echo "✒️ Checking formatting and linting with ruff..."
-	ruff format --check src
-	ruff check src
+	ruff format --check .
+	ruff check .
+
+typecheck: ## 🔎 Static type checking with mypy (strict)
+	@echo "🔎 Running mypy type checks (strict)..."
+	mypy .
+
+lint-all: ## 🧹 Run ruff lint + mypy type checks
+	@echo "🧹 Running full lint + typecheck..."
+	$(MAKE) lint
+	$(MAKE) typecheck
 
 clean: ## 🧹 Clean up all test and build artifacts
 	@echo "🧹 Cleaning up..."
-	rm -rf .pytest_cache/ coverage_html_report/ .coverage dist/ build/ *.egg-info
+	rm -rf .pytest_cache/ coverage_html_report/ .coverage coverage.xml dist/ build/ *.egg-info site/
 	find . -type d -name "__pycache__" -exec rm -rf {} +
 	@echo "✅ Cleanup completed"
 
@@ -99,7 +121,7 @@ test-core: ## ⚡ Ultra-fast core tests (~15s): contracts + unit only
 	@echo "⚡ Running core test suite..."
 	$(PYTEST) $(PYTEST_ARGS) --log-cli-level=$(TEST_LOG_LEVEL) -m "contract or unit"
 
-test-fast: ## 🔧 Development suite (~30s): most tests except slow/characterization
+test-fast: ## 🔧 Development suite (~30s): contract/unit/characterization (no slow/api)
 	@echo "🔧 Running development test suite..."
 	$(PYTEST) $(PYTEST_ARGS) --log-cli-level=$(TEST_LOG_LEVEL) \
 		-m $(FAST_MARKERS)
@@ -135,7 +157,7 @@ test-fast-timed: ## ⏱️ Development tests with timing information
 # ------------------------------------------------------------------------------
 # Granular Test Targets
 # ------------------------------------------------------------------------------
-.PHONY: test-unit test-golden-files test-integration test-integration-light test-api test-workflows
+.PHONY: test-unit test-golden-files test-integration test-integration-light test-api test-workflows test-contracts test-slow
 
 test-unit: ## 🧪 Run all unit tests
 	@echo "🧪 Running unit tests..."
@@ -145,7 +167,7 @@ test-golden-files: ## 📸 Run characterization/golden file tests
 	@echo "📸 Running characterization and golden file tests..."
 	$(PYTEST) $(PYTEST_ARGS) --log-cli-level=$(TEST_LOG_LEVEL) -m "characterization or golden_test"
 
-test-integration: .check-semantic-release ## 🔗 Run integration tests (may be slow due to workflows)
+test-integration: .check-semantic-release ## 🔗 Run integration tests (skips if semantic-release missing)
 	@echo "🔗 Running integration tests..."
 	$(PYTEST) $(PYTEST_ARGS) --log-cli-level=$(TEST_LOG_LEVEL) -m "integration"
 
