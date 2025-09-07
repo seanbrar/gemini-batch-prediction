@@ -74,25 +74,24 @@ Notes
   - `export GEMINI_API_KEY=...`
   - `export GEMINI_BATCH_TIER=tier_1` (match your billing)
   - `export GEMINI_BATCH_USE_REAL_API=true`
-- Run from repo root with `PYTHONPATH='.'` to resolve `cookbook.*` imports, e.g.:
-  - `PYTHONPATH='.' python cookbook/production/resume-on-failure.py`
-
-Why `PYTHONPATH='.'`? When executing a file directly (e.g., `python cookbook/...py`),
-`sys.path[0]` is the script directory, not the repo root. Adding the repo root to
-`PYTHONPATH` ensures `from cookbook...` imports work reliably.
+- Run recipes from repo root via module runner (no PYTHONPATH needed):
+  - `python -m cookbook production/resume-on-failure -- --limit 2`
+  - Dotted equivalent: `python -m cookbook production.resume_on_failure -- --limit 2`
+  - List available recipes: `python -m cookbook --list`
+  - Note: pass recipe flags after `--`.
 
 ## ▶️ Example Commands
 
 - Production resume: persists per-item status and manifest
-  - `PYTHONPATH='.' python cookbook/production/resume-on-failure.py`
+  - `python -m cookbook production/resume-on-failure`
   - Outputs: `outputs/manifest.json`, per-item JSON under `outputs/items/`
 
 - Context caching (explicit create → reuse)
-  - `PYTHONPATH='.' python cookbook/optimization/context-caching-explicit.py --limit 2`
+  - `python -m cookbook optimization/context-caching-explicit -- --limit 2`
   - Shows warm vs reuse token totals and effective cache hits for the batch
 
 - Cache warming with TTL and deterministic key
-  - `PYTHONPATH='.' python cookbook/optimization/cache-warming-and-ttl.py --limit 2`
+  - `python -m cookbook optimization/cache-warming-and-ttl -- --limit 2`
   - Prints warm vs reuse tokens and cache hits (warm→reuse)
 
 Tips:
@@ -111,8 +110,8 @@ Tips:
 
 ## 🛠️ Troubleshooting
 
-- ModuleNotFoundError: `cookbook`
-  - Add repo root to Python path: `PYTHONPATH='.' python cookbook/...`
+- Running a recipe fails
+  - Ensure you run from the repo root, and use the runner: `python -m cookbook <spec> [-- recipe_args]`
 - No demo data found
   - Run `make demo-data` (or pass `--input your_dir`)
 - 429 / throttling
