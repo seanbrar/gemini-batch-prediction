@@ -16,6 +16,7 @@ def test_tests_follow_taxonomy_layout() -> None:
         "workflows",
         "characterization",
         "performance",
+        "cookbook",
     }
     root = Path("tests")
     violations: list[str] = []
