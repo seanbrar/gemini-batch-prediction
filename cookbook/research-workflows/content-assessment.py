@@ -13,6 +13,12 @@ What you'll learn:
 - Prefer JSON for structured rubrics
 - Print improvement suggestions
 
+Note:
+- This recipe uses a tiny helper (`cookbook.utils.json_tools.coerce_json`) to
+  parse JSON robustly even when models wrap output in Markdown code fences or
+  include minor formatting. This keeps the narrative simple while being
+  transparent about the parsing step.
+
 Difficulty: ⭐⭐⭐
 Time: ~10-12 minutes
 """
@@ -22,10 +28,13 @@ from __future__ import annotations
 import argparse
 import asyncio
 from dataclasses import dataclass
-import json
 from pathlib import Path
 
-from cookbook.utils.data_paths import resolve_data_dir
+from cookbook.utils.demo_inputs import (
+    DEFAULT_TEXT_DEMO_DIR,
+    pick_files_by_ext,
+)
+from cookbook.utils.json_tools import coerce_json
 from gemini_batch import types
 from gemini_batch.frontdoor import run_batch
 
@@ -47,8 +56,10 @@ class Assessment:
 
 
 def _parse(answer: str) -> Assessment | None:
+    data = coerce_json(answer)
+    if not isinstance(data, dict):
+        return None
     try:
-        data = json.loads(answer)
         return Assessment(
             clarity=int(data.get("clarity", 0)),
             coverage=int(data.get("coverage", 0)),
@@ -61,8 +72,9 @@ def _parse(answer: str) -> Assessment | None:
         return None
 
 
-async def main_async(directory: Path) -> None:
-    srcs = types.sources_from_directory(directory)
+async def main_async(directory: Path, limit: int = 2) -> None:
+    files = pick_files_by_ext(directory, [".pdf", ".txt"], limit=limit)
+    srcs = tuple(types.Source.from_file(p) for p in files)
     if not srcs:
         raise SystemExit(f"No files found under {directory}")
     env = await run_batch([PROMPT], srcs, prefer_json=True)
@@ -84,18 +96,15 @@ async def main_async(directory: Path) -> None:
 def main() -> None:
     parser = argparse.ArgumentParser(description="Assess course/lecture content")
     parser.add_argument(
-        "directory",
-        type=Path,
-        nargs="?",
-        default=None,
-        help="Directory of materials",
+        "--input", type=Path, default=None, help="Directory of materials"
     )
-    parser.add_argument(
-        "--data-dir", type=Path, default=None, help="Optional data directory override"
-    )
+    parser.add_argument("--limit", type=int, default=2, help="Max files to read")
     args = parser.parse_args()
-    directory = args.directory or resolve_data_dir(args.data_dir)
-    asyncio.run(main_async(directory))
+    directory = args.input or DEFAULT_TEXT_DEMO_DIR
+    if not directory.exists():
+        raise SystemExit("No input provided. Run `make demo-data` or pass --input.")
+    print("Note: File size/count affect runtime and tokens.")
+    asyncio.run(main_async(directory, max(1, int(args.limit))))
 
 
 if __name__ == "__main__":

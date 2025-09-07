@@ -22,9 +22,12 @@ from __future__ import annotations
 import argparse
 import asyncio
 from pathlib import Path
-from typing import TYPE_CHECKING
+from typing import TYPE_CHECKING, Literal
 
-from cookbook.utils.data_paths import resolve_data_dir
+from cookbook.utils.demo_inputs import (
+    DEFAULT_TEXT_DEMO_DIR,
+    pick_files_by_ext,
+)
 from gemini_batch import types
 from gemini_batch.config import resolve_config
 from gemini_batch.research import compare_efficiency
@@ -32,8 +35,12 @@ from gemini_batch.research import compare_efficiency
 if TYPE_CHECKING:  # pragma: no cover - typing only
     from collections.abc import Callable
 
+    from gemini_batch.config.core import FrozenConfig
 
-def make_cfg_with_system(*, system: str, sources_policy: str = "append_or_replace"):
+
+def make_cfg_with_system(
+    *, system: str, sources_policy: str = "append_or_replace"
+) -> FrozenConfig:
     """Resolve a FrozenConfig that carries a system instruction.
 
     - prompts.system: inline system guidance
@@ -68,6 +75,7 @@ async def run_with_system(
     trials: int = 1,
     system: str,
     builder: Callable[[list[str]], str] | None = None,
+    limit: int = 2,
 ) -> None:
     """Run an efficiency comparison with explicit system instructions."""
     prompts = [
@@ -75,18 +83,24 @@ async def run_with_system(
         "List 3 key entities.",
         "Provide 2 short quotes.",
     ]
-    sources = types.sources_from_directory(directory)
+    files = pick_files_by_ext(directory, [".pdf", ".txt"], limit=limit)
+    sources = tuple(types.Source.from_file(p) for p in files)
 
     cfg = make_cfg_with_system(
         system=system,
         sources_policy="append_or_replace",  # Preserve system and augment with sources
     )
 
+    def _normalize_mode(m: str) -> Literal["batch", "aggregate", "auto"]:
+        return (
+            "batch" if m == "batch" else ("aggregate" if m == "aggregate" else "auto")
+        )
+
     report = await compare_efficiency(
         prompts,
         sources,
         cfg=cfg,
-        mode=mode if mode in ("batch", "aggregate") else "auto",
+        mode=_normalize_mode(mode),
         trials=max(1, trials),
         warmup=1,
         include_pipeline_durations=True,
@@ -121,13 +135,7 @@ def main() -> None:
     parser = argparse.ArgumentParser(
         description="System instructions with research helper"
     )
-    parser.add_argument(
-        "directory",
-        type=Path,
-        nargs="?",
-        default=None,
-        help="Directory with files to analyze",
-    )
+    parser.add_argument("--input", type=Path, default=None, help="Directory with files")
     parser.add_argument(
         "--mode",
         choices=["batch", "aggregate", "auto"],
@@ -135,16 +143,17 @@ def main() -> None:
         help="Vectorized mode: multi-call batch vs single-call aggregate",
     )
     parser.add_argument("--trials", type=int, default=1)
-    parser.add_argument(
-        "--data-dir", type=Path, default=None, help="Optional data directory override"
-    )
+    parser.add_argument("--data-dir", type=Path, default=None, help=argparse.SUPPRESS)
+    parser.add_argument("--limit", type=int, default=2, help="Max files to read")
     parser.add_argument(
         "--use-default-builder",
         action="store_true",
         help="Use a strict aggregate instruction for JSON reliability",
     )
     args = parser.parse_args()
-    directory = args.directory or resolve_data_dir(args.data_dir)
+    directory = args.input or args.data_dir or DEFAULT_TEXT_DEMO_DIR
+    if not directory.exists():
+        raise SystemExit("No input provided. Run `make demo-data` or pass --input.")
 
     system = (
         "You are a careful research assistant. Be concise and factual."
@@ -159,6 +168,7 @@ def main() -> None:
             builder=default_aggregate_prompt_builder
             if args.use_default_builder
             else None,
+            limit=max(1, int(args.limit)),
         )
     )
 

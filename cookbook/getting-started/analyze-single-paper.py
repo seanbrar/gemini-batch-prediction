@@ -22,7 +22,10 @@ import argparse
 import asyncio
 from pathlib import Path
 
-from cookbook.utils.data_paths import pick_file_by_ext, resolve_data_dir
+from cookbook.utils.demo_inputs import (
+    DEFAULT_TEXT_DEMO_DIR,
+    pick_file_by_ext,
+)
 from gemini_batch import types
 from gemini_batch.frontdoor import run_simple
 
@@ -46,16 +49,7 @@ async def main_async(path: Path, prompt: str) -> None:
 
 def main() -> None:
     parser = argparse.ArgumentParser(description="Analyze a single paper")
-    parser.add_argument(
-        "path",
-        type=Path,
-        nargs="?",
-        default=None,
-        help="Path to a file to analyze",
-    )
-    parser.add_argument(
-        "--data-dir", type=Path, default=None, help="Optional data directory override"
-    )
+    parser.add_argument("--input", type=Path, default=None, help="Path to a file")
     parser.add_argument(
         "--prompt",
         default="Summarize the key ideas and contributions in 5 bullets.",
@@ -64,19 +58,24 @@ def main() -> None:
     args = parser.parse_args()
 
     file_path: Path
-    if args.path is not None:
-        file_path = args.path
+    if args.input is not None:
+        file_path = args.input
     else:
-        data_dir = resolve_data_dir(args.data_dir)
-        pick = (
-            pick_file_by_ext(data_dir, [".pdf", ".txt", ".png", ".jpg", ".mp4"]) or None
-        )
-        if pick is None:
-            raise SystemExit(f"No suitable files found under {data_dir}")
-        file_path = pick
+        demo_dir = DEFAULT_TEXT_DEMO_DIR
+        if demo_dir.exists():
+            pick = pick_file_by_ext(demo_dir, [".pdf", ".txt", ".png", ".jpg", ".mp4"])
+            if pick is None:
+                raise SystemExit(
+                    "No suitable files found in demo dir. "
+                    "Run `make demo-data` or pass --input."
+                )
+            file_path = pick
+        else:
+            raise SystemExit("No input provided. Run `make demo-data` or pass --input.")
 
     if not file_path.exists():
         raise SystemExit(f"File not found: {file_path}")
+    print("Note: Larger files/more files take longer and use more tokens.")
     asyncio.run(main_async(file_path, args.prompt))
 
 

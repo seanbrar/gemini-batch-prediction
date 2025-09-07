@@ -23,13 +23,23 @@ import argparse
 import asyncio
 from pathlib import Path
 
-from cookbook.utils.data_paths import resolve_data_dir
+from cookbook.utils.demo_inputs import (
+    DEFAULT_TEXT_DEMO_DIR,
+    pick_files_by_ext,
+)
 from gemini_batch import types
 from gemini_batch.frontdoor import run_parallel
 
 
-async def main_async(directory: Path, prompt: str, concurrency: int) -> None:
-    sources = types.sources_from_directory(directory)
+async def main_async(
+    directory: Path, prompt: str, concurrency: int, limit: int = 2
+) -> None:
+    files = pick_files_by_ext(
+        directory,
+        [".pdf", ".txt", ".png", ".jpg", ".jpeg", ".mp4", ".mov"],
+        limit=limit,
+    )
+    sources = tuple(types.Source.from_file(p) for p in files)
     if not sources:
         raise SystemExit(f"No files found under {directory}")
 
@@ -48,13 +58,8 @@ def main() -> None:
     parser = argparse.ArgumentParser(
         description="Large-scale batching with concurrency"
     )
-    parser.add_argument(
-        "directory",
-        type=Path,
-        nargs="?",
-        default=None,
-        help="Directory of files",
-    )
+    parser.add_argument("--input", type=Path, default=None, help="Directory of files")
+    parser.add_argument("--limit", type=int, default=2, help="Max files to read")
     parser.add_argument(
         "--prompt",
         default="Extract three key takeaways.",
@@ -66,12 +71,15 @@ def main() -> None:
         default=4,
         help="Max client-side fan-out",
     )
-    parser.add_argument(
-        "--data-dir", type=Path, default=None, help="Optional data directory override"
-    )
+    parser.add_argument("--data-dir", type=Path, default=None, help=argparse.SUPPRESS)
     args = parser.parse_args()
-    directory = args.directory or resolve_data_dir(args.data_dir)
-    asyncio.run(main_async(directory, args.prompt, args.concurrency))
+    directory = args.input or args.data_dir or DEFAULT_TEXT_DEMO_DIR
+    if not directory.exists():
+        raise SystemExit("No input provided. Run `make demo-data` or pass --input.")
+    print("Note: File size/count affect runtime and tokens.")
+    asyncio.run(
+        main_async(directory, args.prompt, args.concurrency, max(1, int(args.limit)))
+    )
 
 
 if __name__ == "__main__":

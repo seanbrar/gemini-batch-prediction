@@ -22,17 +22,16 @@ from __future__ import annotations
 import argparse
 import asyncio
 from dataclasses import dataclass
-import json
 from pathlib import Path
 
-from cookbook.utils.data_paths import resolve_data_dir
+from cookbook.utils.json_tools import coerce_json
 from gemini_batch import types
 from gemini_batch.frontdoor import run_batch
 
 PROMPT = (
-    "Compare the provided sources and return JSON with keys: "
-    "similarities (list), differences (list), strengths (list), weaknesses (list). "
-    "Be specific and concise."
+    "Return application/json ONLY. Compare the sources and output a compact JSON object "
+    "with keys: similarities (list), differences (list), strengths (list), weaknesses (list). "
+    "Do not include markdown or commentary."
 )
 
 
@@ -45,16 +44,15 @@ class Comparison:
 
 
 def _parse(answer: str) -> Comparison | None:
-    try:
-        data = json.loads(answer)
-        return Comparison(
-            similarities=list(map(str, data.get("similarities", []))),
-            differences=list(map(str, data.get("differences", []))),
-            strengths=list(map(str, data.get("strengths", []))),
-            weaknesses=list(map(str, data.get("weaknesses", []))),
-        )
-    except Exception:
+    data = coerce_json(answer)
+    if not isinstance(data, dict):
         return None
+    return Comparison(
+        similarities=[str(x) for x in data.get("similarities", [])],
+        differences=[str(x) for x in data.get("differences", [])],
+        strengths=[str(x) for x in data.get("strengths", [])],
+        weaknesses=[str(x) for x in data.get("weaknesses", [])],
+    )
 
 
 async def main_async(paths: list[Path]) -> None:
@@ -81,32 +79,37 @@ async def main_async(paths: list[Path]) -> None:
 def main() -> None:
     parser = argparse.ArgumentParser(description="Comparative analysis across sources")
     parser.add_argument(
-        "paths",
-        type=Path,
-        nargs="*",
-        default=[],
-        help="Two or more files to compare",
+        "paths", type=Path, nargs="*", default=[], help="Files to compare"
     )
     parser.add_argument(
-        "--data-dir", type=Path, default=None, help="Optional data directory override"
+        "--input",
+        type=Path,
+        default=None,
+        help="Directory to search if fewer than 2 paths provided",
     )
     args = parser.parse_args()
     paths: list[Path] = list(args.paths)
     if len(paths) < 2:
-        data_dir = resolve_data_dir(args.data_dir)
-        # Try to pick two files of common types
-        exts = [".pdf", ".txt", ".jpg", ".png", ".md"]
-        picks: list[Path] = []
-        for p in sorted(data_dir.rglob("*")):
-            if p.is_file() and p.suffix.lower() in exts:
-                picks.append(p)
-                if len(picks) == 2:
-                    break
-        if len(picks) < 2:
+        data_dir = args.input or Path("cookbook/data/demo/text-medium")
+        if not data_dir.exists():
+            raise SystemExit(
+                "Need two files. Run `make demo-data` or pass two paths/--input."
+            )
+        exts = {".pdf", ".txt", ".jpg", ".png", ".md"}
+        candidates: list[tuple[int, Path]] = []
+        for p in data_dir.rglob("*"):
+            try:
+                if p.is_file() and p.suffix.lower() in exts:
+                    candidates.append((p.stat().st_size, p))
+            except OSError:
+                continue
+        candidates.sort(key=lambda x: x[0])
+        if len(candidates) < 2:
             raise SystemExit(
                 f"Need at least two files under {data_dir} or pass explicit paths"
             )
-        paths = picks
+        paths = [candidates[0][1], candidates[1][1]]
+    print("Note: File size/count affect runtime and tokens.")
     asyncio.run(main_async(paths))
 
 

@@ -30,6 +30,7 @@ from pathlib import Path
 import string
 from typing import TYPE_CHECKING
 
+from cookbook.utils.demo_inputs import DEFAULT_TEXT_DEMO_DIR
 from gemini_batch.config import resolve_config
 from gemini_batch.extensions.token_counting import (
     TokenCountFailure,
@@ -168,6 +169,7 @@ def main() -> None:
     parser.add_argument(
         "directory",
         type=Path,
+        nargs="?",
         help="Directory with input files to estimate",
     )
     parser.add_argument(
@@ -190,12 +192,13 @@ def main() -> None:
     )
     args = parser.parse_args()
 
-    if not args.directory.exists():
-        raise SystemExit(f"Directory not found: {args.directory}")
+    directory = args.directory or DEFAULT_TEXT_DEMO_DIR
+    if not directory.exists():
+        raise SystemExit("No input provided. Run `make demo-data` or pass a directory.")
 
     summary = asyncio.run(
         estimate_directory(
-            args.directory,
+            directory,
             prompts=list(args.question),
             budget_tokens=args.budget_tokens,
         )

@@ -24,7 +24,10 @@ import asyncio
 from pathlib import Path
 from typing import Any
 
-from cookbook.utils.data_paths import resolve_data_dir
+from cookbook.utils.demo_inputs import (
+    DEFAULT_TEXT_DEMO_DIR,
+    pick_files_by_ext,
+)
 from gemini_batch import types
 from gemini_batch.frontdoor import run_batch
 from gemini_batch.telemetry import TelemetryContext
@@ -38,9 +41,10 @@ class PrintReporter:
         print(f"METRIC {scope:<35} {value} parent={metadata.get('parent_scope')}")
 
 
-async def main_async(directory: Path) -> None:
+async def main_async(directory: Path, limit: int = 2) -> None:
     prompts = ["List 3 key takeaways."]
-    sources = types.sources_from_directory(directory)
+    files = pick_files_by_ext(directory, [".pdf", ".txt"], limit=limit)
+    sources = tuple(types.Source.from_file(p) for p in files)
     if not sources:
         raise SystemExit(f"No files found under {directory}")
 
@@ -53,19 +57,14 @@ async def main_async(directory: Path) -> None:
 
 def main() -> None:
     parser = argparse.ArgumentParser(description="Custom telemetry integration demo")
-    parser.add_argument(
-        "directory",
-        type=Path,
-        nargs="?",
-        default=None,
-        help="Directory with files",
-    )
-    parser.add_argument(
-        "--data-dir", type=Path, default=None, help="Optional data directory override"
-    )
+    parser.add_argument("--input", type=Path, default=None, help="Directory with files")
+    parser.add_argument("--limit", type=int, default=2, help="Max files to read")
     args = parser.parse_args()
-    directory = args.directory or resolve_data_dir(args.data_dir)
-    asyncio.run(main_async(directory))
+    directory = args.input or DEFAULT_TEXT_DEMO_DIR
+    if not directory.exists():
+        raise SystemExit("No input provided. Run `make demo-data` or pass --input.")
+    print("Note: File size/count affect runtime and tokens.")
+    asyncio.run(main_async(directory, max(1, int(args.limit))))
 
 
 if __name__ == "__main__":

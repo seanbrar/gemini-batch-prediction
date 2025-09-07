@@ -24,6 +24,10 @@ import argparse
 import asyncio
 from pathlib import Path
 
+from cookbook.utils.demo_inputs import (
+    DEFAULT_TEXT_DEMO_DIR,
+    resolve_file_or_exit,
+)
 from gemini_batch import types
 from gemini_batch.extensions.chunking import (
     TranscriptChunk,
@@ -93,7 +97,9 @@ def main() -> None:
     parser = argparse.ArgumentParser(
         description="Chunk long transcripts and stitch answers"
     )
-    parser.add_argument("path", type=Path, help="Path to transcript text file")
+    parser.add_argument(
+        "path", type=Path, nargs="?", help="Path to transcript text file"
+    )
     parser.add_argument("--target-tokens", type=int, default=1200)
     parser.add_argument(
         "--concurrency",
@@ -106,11 +112,15 @@ def main() -> None:
         default="Summarize the key insights and provide 5 bullets of recommendations.",
     )
     args = parser.parse_args()
-    if not args.path.exists():
-        raise SystemExit(f"File not found: {args.path}")
-    asyncio.run(
-        main_async(args.path, args.target_tokens, args.prompt, args.concurrency)
+    path = resolve_file_or_exit(
+        args.path if isinstance(args.path, Path) else None,
+        search_dir=DEFAULT_TEXT_DEMO_DIR,
+        exts=(".txt", ".md"),
+        hint=(
+            "No input provided. Run `make demo-data` or pass a transcript .txt file."
+        ),
     )
+    asyncio.run(main_async(path, args.target_tokens, args.prompt, args.concurrency))
 
 
 if __name__ == "__main__":

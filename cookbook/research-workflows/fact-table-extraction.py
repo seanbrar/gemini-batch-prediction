@@ -29,6 +29,7 @@ from typing import TYPE_CHECKING, Any
 
 from pydantic import BaseModel
 
+from cookbook.utils.demo_inputs import DEFAULT_TEXT_DEMO_DIR
 from gemini_batch import types
 from gemini_batch.frontdoor import run_batch
 
@@ -152,11 +153,14 @@ async def main_async(directory: Path, outdir: Path) -> None:
 
 def main() -> None:
     parser = argparse.ArgumentParser(description="Extract fact table from papers")
-    parser.add_argument("directory", type=Path, help="Directory with papers")
+    parser.add_argument("directory", type=Path, nargs="?", help="Directory with papers")
     parser.add_argument("--outdir", type=Path, default=Path("outputs"))
     args = parser.parse_args()
-
-    asyncio.run(main_async(args.directory, args.outdir))
+    directory = args.directory or DEFAULT_TEXT_DEMO_DIR
+    if not directory.exists():
+        raise SystemExit("No input provided. Run `make demo-data` or pass a directory.")
+    print("Note: File size/count affect runtime and tokens.")
+    asyncio.run(main_async(directory, args.outdir))
 
 
 if __name__ == "__main__":

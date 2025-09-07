@@ -27,6 +27,7 @@ import mimetypes
 from pathlib import Path
 from typing import Any
 
+from cookbook.utils.demo_inputs import DEFAULT_TEXT_DEMO_DIR
 from gemini_batch import types
 from gemini_batch.frontdoor import run_batch
 from gemini_batch.types import make_execution_options
@@ -158,7 +159,9 @@ async def run_resume(
 
 def main() -> None:
     parser = argparse.ArgumentParser(description="Resume and rerun only failures")
-    parser.add_argument("directory", type=Path, help="Directory of files to process")
+    parser.add_argument(
+        "directory", type=Path, nargs="?", help="Directory of files to process"
+    )
     parser.add_argument(
         "--prompt",
         default="Summarize the key contributions in 3 bullets.",
@@ -169,10 +172,11 @@ def main() -> None:
     )
     args = parser.parse_args()
 
-    if not args.directory.exists():
-        raise SystemExit(f"Directory not found: {args.directory}")
+    directory = args.directory or DEFAULT_TEXT_DEMO_DIR
+    if not directory.exists():
+        raise SystemExit("No input provided. Run `make demo-data` or pass a directory.")
 
-    items = _default_items_from_directory(args.directory, args.prompt)
+    items = _default_items_from_directory(directory, args.prompt)
     merged = asyncio.run(run_resume(items=items, failed_only=args.failed_only))
 
     ok = sum(1 for i in merged if i.status == "ok")

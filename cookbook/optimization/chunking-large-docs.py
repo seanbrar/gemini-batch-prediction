@@ -22,10 +22,19 @@ from __future__ import annotations
 import argparse
 import asyncio
 from pathlib import Path
+from typing import TYPE_CHECKING
 
+from cookbook.utils.demo_inputs import (
+    DEFAULT_TEXT_DEMO_DIR,
+    resolve_file_or_exit,
+)
+from cookbook.utils.retry import retry_async
 from gemini_batch import types
 from gemini_batch.extensions.chunking import chunk_text_by_tokens
 from gemini_batch.frontdoor import run_batch, run_parallel
+
+if TYPE_CHECKING:
+    from gemini_batch.core.result_envelope import ResultEnvelope
 
 
 def _read_text(path: Path) -> str:
@@ -46,14 +55,28 @@ async def _analyze_chunks(
         types.Source.from_text(ch, identifier=f"chunk-{idx}")
         for idx, ch in enumerate(chunks)
     )
+    total = len(sources)
     if concurrency and concurrency > 1:
-        env = await run_parallel(prompt, sources, concurrency=concurrency)
+        print(f"Analyzing {total} chunks with concurrency={concurrency}...")
+        env = await retry_async(
+            lambda: run_parallel(prompt, sources, concurrency=concurrency),
+            retries=3,
+            initial_delay=1.0,
+            backoff=2.0,
+        )
         ans = env.get("answers", [])
         return [str(a) for a in ans]
     # Fallback: sequential batch per chunk
     out: list[str] = []
-    for _, src in enumerate(sources):
-        env = await run_batch([prompt], [src])
+    print(f"Analyzing {total} chunks sequentially (concurrency=1)...")
+    for i, src in enumerate(sources, start=1):
+        if i == 1 or i % 5 == 0 or i == total:
+            print(f"  • chunk {i}/{total} ...")
+
+        async def _call(s: types.Source = src) -> ResultEnvelope:
+            return await run_batch([prompt], [s])
+
+        env = await retry_async(_call, retries=3, initial_delay=1.0, backoff=2.0)
         a = env.get("answers", [])
         out.append(str(a[0]) if a else "")
     return out
@@ -79,17 +102,19 @@ async def main_async(
 
 def main() -> None:
     parser = argparse.ArgumentParser(description="Chunk large docs and merge answers")
-    parser.add_argument("path", type=Path, help="Path to a large text file")
+    parser.add_argument("path", type=Path, nargs="?", help="Path to a large text file")
     parser.add_argument(
         "--target-tokens",
         type=int,
-        default=1200,
-        help="Target tokens per chunk",
+        default=9000,
+        help=(
+            "Target tokens per chunk (demo default: 9k). Increase/decrease to balance speed vs granularity."
+        ),
     )
     parser.add_argument(
         "--concurrency",
         type=int,
-        default=1,
+        default=3,
         help="Parallel fan-out across chunks (1 = sequential)",
     )
     parser.add_argument(
@@ -99,12 +124,14 @@ def main() -> None:
     )
     args = parser.parse_args()
 
-    if not args.path.exists():
-        raise SystemExit(f"File not found: {args.path}")
-
-    asyncio.run(
-        main_async(args.path, args.target_tokens, args.prompt, args.concurrency)
+    # Resolve input: prefer provided path, else demo text pack (input.txt)
+    path = resolve_file_or_exit(
+        args.path if isinstance(args.path, Path) else None,
+        search_dir=DEFAULT_TEXT_DEMO_DIR,
+        exts=(".txt", ".md"),
+        hint=("No input provided. Run `make demo-data` or pass a text file path."),
     )
+    asyncio.run(main_async(path, args.target_tokens, args.prompt, args.concurrency))
 
 
 if __name__ == "__main__":
