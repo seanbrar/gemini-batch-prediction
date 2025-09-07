@@ -674,3 +674,7 @@ return fallback.extract(raw, ctx)
 - [ADR-0005 – Two-Tier Result Builder](../decisions/ADR-0005-result-builder.md)
 - [How-to – Custom Transforms](../../how-to/custom-transforms.md)
 - [Architecture Rubric](../architecture-rubric.md)
+!!! note "Draft – pending revision"
+    This specification will be reworked for clarity and efficacy. Included in nav for discoverability; content to be reviewed before release.
+
+Last reviewed: 2025-09

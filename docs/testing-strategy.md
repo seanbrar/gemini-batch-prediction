@@ -1,5 +1,7 @@
 # Testing Strategy
 
+Last reviewed: 2025-09
+
 Audience: contributors and maintainers who want to understand why tests run when they do, what each lane validates, and how CI chooses suites. If you just want to run tests locally, see How‑to → Testing.
 
 ## Cadence at a Glance

@@ -2,18 +2,23 @@
 """🎯 Template: Schema-First Extraction.
 
 When you need to: Ask for structured JSON and parse into a Pydantic model.
+
+Note:
+- This template uses a tiny helper (`cookbook.utils.json_tools.coerce_json`) to
+  extract JSON robustly even when answers are wrapped in Markdown fences or
+  include minor formatting noise, then validates it with Pydantic.
 """
 
 from __future__ import annotations
 
 import argparse
 import asyncio
-import json
 from pathlib import Path
 
 from pydantic import BaseModel
 
-from cookbook.utils.data_paths import pick_file_by_ext, resolve_data_dir
+from cookbook.utils.demo_inputs import DEFAULT_TEXT_DEMO_DIR, pick_file_by_ext
+from cookbook.utils.json_tools import coerce_json
 from gemini_batch import types
 from gemini_batch.frontdoor import run_batch
 
@@ -27,8 +32,11 @@ PROMPT = "Return JSON with keys: title (str), items (list[str])."
 
 
 def _parse(answer: str) -> MySchema | None:
+    data = coerce_json(answer)
+    if data is None:
+        return None
     try:
-        return MySchema.model_validate(json.loads(answer))
+        return MySchema.model_validate(data)
     except Exception:
         return None
 
@@ -48,17 +56,18 @@ async def main_async(path: Path) -> None:
 
 def main() -> None:
     parser = argparse.ArgumentParser(description="Schema-first extraction template")
-    parser.add_argument("path", type=Path, nargs="?", default=None)
-    parser.add_argument(
-        "--data-dir", type=Path, default=None, help="Optional data directory override"
-    )
+    parser.add_argument("--input", type=Path, default=None, help="Path to a file")
     args = parser.parse_args()
-    path = args.path
+    path = args.input
     if path is None:
-        base = resolve_data_dir(args.data_dir)
+        base = DEFAULT_TEXT_DEMO_DIR
+        if not base.exists():
+            raise SystemExit("No input provided. Run `make demo-data` or pass --input.")
         path = pick_file_by_ext(base, [".txt", ".md", ".pdf"]) or None
         if path is None:
-            raise SystemExit(f"No suitable files found under {base}")
+            raise SystemExit(
+                "No suitable files in demo dir. Run `make demo-data` or pass --input."
+            )
     asyncio.run(main_async(path))
 
 

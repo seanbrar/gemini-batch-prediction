@@ -583,3 +583,7 @@ executor = GeminiExecutor(
 - [ADR-0004 — Rate Limiting Pattern](../decisions/ADR-0004-rate-limiting.md)
 - [Command Pipeline Architecture](./command-pipeline-spec.md)
 - [Gemini API Rate Limits](https://ai.google.dev/gemini-api/docs/rate-limits)
+!!! note "Draft – pending revision"
+    This specification will be reworked for clarity and efficacy. Included in nav for discoverability; content to be reviewed before release.
+
+Last reviewed: 2025-09

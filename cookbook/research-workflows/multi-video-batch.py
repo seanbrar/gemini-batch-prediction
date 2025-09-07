@@ -22,10 +22,17 @@ from __future__ import annotations
 import argparse
 import asyncio
 from pathlib import Path
-from typing import Any
+from typing import TYPE_CHECKING
 
 from gemini_batch import types
+from gemini_batch.extensions.provider_uploads import (
+    UploadInactiveError,
+    preupload_and_wait_active,
+)
 from gemini_batch.frontdoor import run_batch
+
+if TYPE_CHECKING:
+    from gemini_batch.core.result_envelope import ResultEnvelope
 
 
 def _coerce_sources(items: list[str | Path]) -> list[types.Source]:
@@ -33,7 +40,19 @@ def _coerce_sources(items: list[str | Path]) -> list[types.Source]:
     for it in items[:10]:  # cap at 10 as a sensible batch demo
         if isinstance(it, Path) or (isinstance(it, str) and Path(it).exists()):
             p = Path(it)
-            srcs.append(types.Source.from_file(p))
+            # Handle video files with best-effort pre-upload for ACTIVE state
+            if p.suffix.lower() in [".mp4", ".mov"]:
+                try:
+                    print(f"Pre-uploading video {p} and waiting for ACTIVE state...")
+                    uri = preupload_and_wait_active(p)
+                    srcs.append(types.Source.from_uri(uri, mime_type="video/mp4"))
+                except (UploadInactiveError, RuntimeError) as e:
+                    print(f"Note: video {p} not ready ({e}). Skipping for now.")
+                except Exception as e:
+                    print(f"Note: pre-upload unavailable ({e}); using direct upload.")
+                    srcs.append(types.Source.from_file(p))
+            else:
+                srcs.append(types.Source.from_file(p))
         elif isinstance(it, str) and it.strip().lower().startswith("http"):
             srcs.append(types.Source.from_youtube(it))
         else:
@@ -41,7 +60,7 @@ def _coerce_sources(items: list[str | Path]) -> list[types.Source]:
     return srcs
 
 
-def _print_summary(env: dict[str, Any]) -> None:
+def _print_summary(env: ResultEnvelope) -> None:
     answers = env.get("answers", [])
     usage = env.get("usage", {})
     metrics = env.get("metrics", {})

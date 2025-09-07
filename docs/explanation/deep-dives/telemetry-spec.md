@@ -110,3 +110,13 @@ with tele("pipeline.plan", batch_size=32):
 - [Concept → Telemetry: Scopes, Reporters, and Minimal Overhead](../concepts/telemetry.md)
 - [Decisions → ADR-0006 Telemetry](../decisions/ADR-0006-telemetry.md)
 - [Reference → Telemetry](../../telemetry.md)
+
+## Performance benchmarks
+
+To validate the “negligible overhead when disabled” and characterize enabled performance:
+
+- Disabled overhead target: <200ns per scope operation
+- Enabled throughput target: >100k scope ops/sec (no-op reporter)
+- Memory growth: ~<100 bytes per nested level
+
+Benchmarks use a no-op reporter to isolate framework cost. Enable telemetry via `GEMINI_BATCH_TELEMETRY=1` (or `DEBUG=1`) when running enabled tests. Internal scripts under `dev/benchmarks/` are provided for contributors; results should be summarized (not raw runs) in PRs that change telemetry internals.

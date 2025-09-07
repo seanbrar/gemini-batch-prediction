@@ -26,7 +26,10 @@ from pathlib import Path
 
 from pydantic import BaseModel
 
-from cookbook.utils.data_paths import resolve_data_dir
+from cookbook.utils.demo_inputs import (
+    DEFAULT_TEXT_DEMO_DIR,
+    pick_files_by_ext,
+)
 from gemini_batch import types
 from gemini_batch.frontdoor import run_batch
 
@@ -66,8 +69,9 @@ def _parse_structured(ans: str) -> LiteratureSynthesis | None:
         return None
 
 
-async def main_async(directory: Path) -> None:
-    sources = types.sources_from_directory(directory)
+async def main_async(directory: Path, limit: int = 2) -> None:
+    files = pick_files_by_ext(directory, [".pdf", ".txt"], limit=limit)
+    sources = tuple(types.Source.from_file(p) for p in files)
     if not sources:
         raise SystemExit(f"No files found under {directory}")
 
@@ -99,15 +103,15 @@ async def main_async(directory: Path) -> None:
 def main() -> None:
     parser = argparse.ArgumentParser(description="Synthesize literature findings")
     parser.add_argument(
-        "directory",
-        type=Path,
-        nargs="?",
-        default=None,
-        help="Directory with papers",
+        "--input", type=Path, default=None, help="Directory with papers"
     )
+    parser.add_argument("--limit", type=int, default=2, help="Max files to read")
     args = parser.parse_args()
-    directory = args.directory or resolve_data_dir(None)
-    asyncio.run(main_async(directory))
+    directory = args.input or DEFAULT_TEXT_DEMO_DIR
+    if not directory.exists():
+        raise SystemExit("No input provided. Run `make demo-data` or pass --input.")
+    print("Note: File size/count affect runtime and tokens.")
+    asyncio.run(main_async(directory, max(1, int(args.limit))))
 
 
 if __name__ == "__main__":

@@ -79,3 +79,8 @@ Hints are applied purely on the result of the base count; they never call provid
 - The extension lives under `gemini_batch.extensions.token_counting` and is exported via `gemini_batch.extensions` for convenience.
 - The API is intentionally small and uses validated construction (`ValidContent.from_text`) to prevent invalid inputs.
 - This extension is independent from the conversation/pipeline flow; it’s a self‑contained utility.
+
+## See also
+
+- Explanation → Deep Dives → Token Counting Calibration: methodology, findings, and validation targets.
+- Decisions → ADR‑0002 Token Counting Model: architecture and policies for estimation vs. validation.

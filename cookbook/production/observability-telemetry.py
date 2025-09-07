@@ -25,7 +25,10 @@ import os
 from pathlib import Path
 from typing import Any
 
-from cookbook.utils.data_paths import resolve_data_dir
+from cookbook.utils.demo_inputs import (
+    DEFAULT_TEXT_DEMO_DIR,
+    pick_files_by_ext,
+)
 from gemini_batch import types
 from gemini_batch.frontdoor import run_batch
 
@@ -43,7 +46,11 @@ def _print_durations(metrics: dict[str, Any]) -> None:
             continue
 
 
-async def main_async(directory: Path) -> None:
+def _pick_files_by_ext(root: Path, exts: list[str], limit: int) -> list[Path]:
+    return pick_files_by_ext(root, exts, limit)
+
+
+async def main_async(directory: Path, limit: int = 2) -> None:
     # Best-effort: set before heavy imports; executor also provides fallback
     os.environ.setdefault("GEMINI_BATCH_TELEMETRY", "1")
 
@@ -51,7 +58,8 @@ async def main_async(directory: Path) -> None:
         "Identify three key takeaways.",
         "List the top entities mentioned.",
     ]
-    sources = types.sources_from_directory(directory)
+    files = _pick_files_by_ext(directory, [".pdf", ".txt"], limit=limit)
+    sources = tuple(types.Source.from_file(p) for p in files)
     if not sources:
         raise SystemExit(f"No files found under {directory}")
 
@@ -79,19 +87,14 @@ async def main_async(directory: Path) -> None:
 
 def main() -> None:
     parser = argparse.ArgumentParser(description="Observability telemetry demo")
-    parser.add_argument(
-        "directory",
-        type=Path,
-        nargs="?",
-        default=None,
-        help="Directory with files to analyze",
-    )
-    parser.add_argument(
-        "--data-dir", type=Path, default=None, help="Optional data directory override"
-    )
+    parser.add_argument("--input", type=Path, default=None, help="Directory with files")
+    parser.add_argument("--limit", type=int, default=2, help="Max files to read")
     args = parser.parse_args()
-    directory = args.directory or resolve_data_dir(args.data_dir)
-    asyncio.run(main_async(directory))
+    directory = args.input or DEFAULT_TEXT_DEMO_DIR
+    if not directory.exists():
+        raise SystemExit("No input provided. Run `make demo-data` or pass --input.")
+    print("Note: File size/count affect runtime and tokens.")
+    asyncio.run(main_async(directory, max(1, int(args.limit))))
 
 
 if __name__ == "__main__":

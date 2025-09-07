@@ -22,24 +22,37 @@ from __future__ import annotations
 import argparse
 import asyncio
 from pathlib import Path
+from typing import Literal
 
-from cookbook.utils.data_paths import resolve_data_dir
+from cookbook.utils.demo_inputs import (
+    DEFAULT_TEXT_DEMO_DIR,
+    pick_files_by_ext,
+)
 from gemini_batch import types
 from gemini_batch.research import compare_efficiency
 
 
-async def main_async(directory: Path, mode: str, trials: int) -> None:
+async def main_async(directory: Path, mode: str, trials: int, limit: int = 2) -> None:
     prompts = [
         "List 3 key takeaways.",
         "Extract top entities.",
         "Summarize in 3 bullets.",
     ]
-    sources = types.sources_from_directory(directory)
+    files = pick_files_by_ext(
+        directory, [".pdf", ".txt", ".png", ".jpg", ".jpeg"], limit=limit
+    )
+    sources = tuple(types.Source.from_file(p) for p in files)
+
+    def _normalize_mode(m: str) -> Literal["batch", "aggregate", "auto"]:
+        return (
+            "batch" if m == "batch" else ("aggregate" if m == "aggregate" else "auto")
+        )
+
     rep = await compare_efficiency(
         prompts,
         sources,
         prefer_json=(mode == "aggregate"),
-        mode=mode if mode in ("batch", "aggregate") else "auto",
+        mode=_normalize_mode(mode),
         trials=max(1, trials),
         warmup=1,
         include_pipeline_durations=True,
@@ -53,13 +66,7 @@ async def main_async(directory: Path, mode: str, trials: int) -> None:
 
 def main() -> None:
     parser = argparse.ArgumentParser(description="Efficiency comparison demo")
-    parser.add_argument(
-        "directory",
-        type=Path,
-        nargs="?",
-        default=None,
-        help="Directory with files to analyze",
-    )
+    parser.add_argument("--input", type=Path, default=None, help="Directory with files")
     parser.add_argument(
         "--mode",
         choices=["batch", "aggregate", "auto"],
@@ -67,12 +74,15 @@ def main() -> None:
         help="Vectorized mode: multi-call batch vs single-call aggregate",
     )
     parser.add_argument("--trials", type=int, default=1)
-    parser.add_argument(
-        "--data-dir", type=Path, default=None, help="Optional data directory override"
-    )
+    parser.add_argument("--limit", type=int, default=2, help="Max files to read")
+    # Deprecated
+    parser.add_argument("--data-dir", type=Path, default=None, help=argparse.SUPPRESS)
     args = parser.parse_args()
-    directory = args.directory or resolve_data_dir(args.data_dir)
-    asyncio.run(main_async(directory, args.mode, args.trials))
+    directory = args.input or args.data_dir or DEFAULT_TEXT_DEMO_DIR
+    if not directory.exists():
+        raise SystemExit("No input provided. Run `make demo-data` or pass --input.")
+    print("Note: File size/count affect runtime and tokens.")
+    asyncio.run(main_async(directory, args.mode, args.trials, max(1, int(args.limit))))
 
 
 if __name__ == "__main__":

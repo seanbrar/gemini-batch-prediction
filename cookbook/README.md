@@ -56,6 +56,73 @@ Reliability and observability
 Notes
 
 - Set `GEMINI_API_KEY` and any model/tier env as needed.
-- Run `make fetch-cookbook-data` to download small public samples into `cookbook/data/public/`.
-- Scripts default to `cookbook/data/public/` (fallback to `examples/test_data` if present).
+- Demo data (on demand):
+  - `make demo-data` seeds text-medium and a minimal multimodal pack by default.
+  - Customize with `TEXT=full` or `MEDIA=none` if needed.
+  - Recipes accept `--input` (file or directory). If omitted, they look for `cookbook/data/demo/text-medium/` and print a friendly hint if missing.
+- BYOF: pass `--input path/to/your/file_or_dir` to use your own files.
+- Heads up: larger files and more files will increase runtime and token usage (cost). Keep inputs small for quick demos.
 - Add `--log-cli-level=INFO` to pytest commands to view more logs.
+
+---
+
+## 🧭 Quick Run Checklist
+
+- Install deps: `make install-dev`
+- Seed demo data: `make demo-data`
+- Export env (example):
+  - `export GEMINI_API_KEY=...`
+  - `export GEMINI_BATCH_TIER=tier_1` (match your billing)
+  - `export GEMINI_BATCH_USE_REAL_API=true`
+- Run recipes from repo root via module runner (no PYTHONPATH needed):
+  - `python -m cookbook production/resume-on-failure -- --limit 2`
+  - Dotted equivalent: `python -m cookbook production.resume_on_failure -- --limit 2`
+  - List available recipes: `python -m cookbook --list`
+  - Note: pass recipe flags after `--`.
+
+## ▶️ Example Commands
+
+- Production resume: persists per-item status and manifest
+  - `python -m cookbook production/resume-on-failure`
+  - Outputs: `outputs/manifest.json`, per-item JSON under `outputs/items/`
+
+- Context caching (explicit create → reuse)
+  - `python -m cookbook optimization/context-caching-explicit -- --limit 2`
+  - Shows warm vs reuse token totals and effective cache hits for the batch
+
+- Cache warming with TTL and deterministic key
+  - `python -m cookbook optimization/cache-warming-and-ttl -- --limit 2`
+  - Prints warm vs reuse tokens and cache hits (warm→reuse)
+
+Tips:
+
+- Use `--input path/to/dir_or_file` to analyze your own content.
+- Use `--limit N` on caching recipes to bound file count and speed up runs.
+
+## 🧠 Caching Recipe Notes
+
+- Token savings vs “hits”: Providers may count tokens differently on warm vs reuse.
+  Always check both the token totals and the reported cache hits in metrics.
+- The caching recipes reuse a single executor under the hood so the in-memory
+  cache registry persists between warm and reuse runs.
+- Effective hit reporting: recipes compute hits from available per-call metadata;
+  some providers may not expose all counters. Treat token deltas as indicative, not absolute.
+
+## 🛠️ Troubleshooting
+
+- Running a recipe fails
+  - Ensure you run from the repo root, and use the runner: `python -m cookbook <spec> [-- recipe_args]`
+- No demo data found
+  - Run `make demo-data` (or pass `--input your_dir`)
+- 429 / throttling
+  - Set `GEMINI_BATCH_TIER` to match your billing tier; reduce `--limit` or input size.
+- Slow runs / high tokens
+  - Keep to small files for demos; use `--limit`, and prefer text over large PDFs/videos.
+
+## 🔐 Secrets & Config
+
+- Store secrets in `.env` (gitignored): `GEMINI_API_KEY=...`
+- Optional envs:
+  - `GEMINI_BATCH_TIER` (e.g., `tier_1`)
+  - `GEMINI_BATCH_USE_REAL_API` (`true` to call the provider)
+  - Model override via `pyproject.toml` or env per docs

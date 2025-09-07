@@ -25,17 +25,19 @@ import asyncio
 import json
 from pathlib import Path
 import re
-from typing import Any
 
 from pydantic import BaseModel
 
-from cookbook.utils.data_paths import pick_file_by_ext, resolve_data_dir
+from cookbook.utils.demo_inputs import DEFAULT_TEXT_DEMO_DIR, pick_file_by_ext
 from gemini_batch import types
 from gemini_batch.core.result_envelope import (
+    ResultEnvelope,
     explain_invalid_result_envelope,
     is_result_envelope,
 )
 from gemini_batch.frontdoor import run_batch
+
+# Note: This recipe handles JSON extraction inline for demonstration purposes.
 
 
 class KeyPoints(BaseModel):
@@ -82,7 +84,7 @@ def _robust_parse(answer: str) -> KeyPoints | None:
         return None
 
 
-def _print_envelope_debug(env: dict[str, Any]) -> None:
+def _print_envelope_debug(env: ResultEnvelope) -> None:
     print(f"Status: {env.get('status', 'ok')} | Method: {env.get('extraction_method')}")
     usage = env.get("usage") or {}
     total = usage.get("total_token_count") or usage.get("total_tokens")
@@ -132,32 +134,35 @@ async def main_async(path: Path) -> None:
         print(raw[:600] + ("..." if len(raw) > 600 else ""))
 
 
+def _pick_file_by_ext(root: Path, exts: list[str]) -> Path | None:
+    # Deprecated local helper (kept for backward compatibility in comments only)
+    return pick_file_by_ext(root, exts)
+
+
 def main() -> None:
     parser = argparse.ArgumentParser(description="Structured JSON with robust parsing")
     parser.add_argument(
-        "path",
-        type=Path,
-        nargs="?",
-        default=None,
-        help="Path to a PDF/TXT file",
-    )
-    parser.add_argument(
-        "--data-dir", type=Path, default=None, help="Optional data directory override"
+        "--input", type=Path, default=None, help="Path to a PDF/TXT file"
     )
     args = parser.parse_args()
 
     file_path: Path
-    if args.path is not None:
-        file_path = args.path
+    if args.input is not None:
+        file_path = args.input
     else:
-        data_dir = resolve_data_dir(args.data_dir)
-        pick = pick_file_by_ext(data_dir, [".pdf", ".txt"]) or None
+        demo_dir = DEFAULT_TEXT_DEMO_DIR
+        if not demo_dir.exists():
+            raise SystemExit("No input provided. Run `make demo-data` or pass --input.")
+        pick = _pick_file_by_ext(demo_dir, [".pdf", ".txt"]) or None
         if pick is None:
-            raise SystemExit(f"No PDF/TXT files found under {data_dir}")
+            raise SystemExit(
+                "No PDF/TXT files found in demo dir. Run `make demo-data` or pass --input."
+            )
         file_path = pick
 
     if not file_path.exists():
         raise SystemExit(f"File not found: {file_path}")
+    print("Note: Larger files/more files take longer and use more tokens.")
     asyncio.run(main_async(file_path))
 
 

@@ -1,5 +1,7 @@
 # Test Suite Reference
 
+Last reviewed: 2025-09
+
 Audience: contributors and maintainers working on tests. If you only need to run tests, see How‑to → Testing. For terminology (lanes, markers, characterization, smoke), see Explanation → Glossary.
 
 > Goal: Make the suite easy to discover, fast to iterate on, and predictable in CI.

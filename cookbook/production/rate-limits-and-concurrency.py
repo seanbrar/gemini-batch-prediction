@@ -22,15 +22,21 @@ from __future__ import annotations
 import argparse
 import asyncio
 from pathlib import Path
-from typing import Any
+from typing import TYPE_CHECKING
 
-from cookbook.utils.data_paths import resolve_data_dir
+from cookbook.utils.demo_inputs import (
+    DEFAULT_TEXT_DEMO_DIR,
+    pick_files_by_ext,
+)
 from gemini_batch import types
 from gemini_batch.frontdoor import run_batch
 from gemini_batch.types import make_execution_options
 
+if TYPE_CHECKING:
+    from gemini_batch.core.result_envelope import ResultEnvelope
 
-def _summ(env: dict[str, Any]) -> None:
+
+def _summ(env: ResultEnvelope) -> None:
     m = env.get("metrics") or {}
     answers = env.get("answers", [])
     print(f"Answers: {len(answers)} | concurrency_used: {m.get('concurrency_used')}")
@@ -44,13 +50,14 @@ def _summ(env: dict[str, Any]) -> None:
             print(f"   - call[{i}]: duration={dur}, api={api}, non_api={non}")
 
 
-async def main_async(directory: Path, concurrency: int) -> None:
+async def main_async(directory: Path, concurrency: int, limit: int = 2) -> None:
     prompts = [
         "Identify 3 key facts.",
         "List main entities.",
         "Summarize in 3 bullets.",
     ]
-    sources = types.sources_from_directory(directory)
+    files = pick_files_by_ext(directory, [".pdf", ".txt"], limit=limit)
+    sources = tuple(types.Source.from_file(p) for p in files)
     if not sources:
         raise SystemExit(f"No files found under {directory}")
 
@@ -68,20 +75,16 @@ async def main_async(directory: Path, concurrency: int) -> None:
 
 def main() -> None:
     parser = argparse.ArgumentParser(description="Rate limits & concurrency demo")
-    parser.add_argument(
-        "directory",
-        type=Path,
-        nargs="?",
-        default=None,
-        help="Directory with files to analyze",
-    )
+    parser.add_argument("--input", type=Path, default=None, help="Directory with files")
     parser.add_argument("--concurrency", type=int, default=4)
-    parser.add_argument(
-        "--data-dir", type=Path, default=None, help="Optional data directory override"
-    )
+    parser.add_argument("--limit", type=int, default=2, help="Max files to read")
+    parser.add_argument("--data-dir", type=Path, default=None, help=argparse.SUPPRESS)
     args = parser.parse_args()
-    directory = args.directory or resolve_data_dir(args.data_dir)
-    asyncio.run(main_async(directory, args.concurrency))
+    directory = args.input or args.data_dir or DEFAULT_TEXT_DEMO_DIR
+    if not directory.exists():
+        raise SystemExit("No input provided. Run `make demo-data` or pass --input.")
+    print("Note: File size/count affect runtime and tokens.")
+    asyncio.run(main_async(directory, args.concurrency, max(1, int(args.limit))))
 
 
 if __name__ == "__main__":
