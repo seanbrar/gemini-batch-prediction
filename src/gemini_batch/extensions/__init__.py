@@ -12,6 +12,8 @@ Extensions overview:
 - Timestamp Linker: Available. Answer timestamp extraction under `gemini_batch.extensions.timestamp_linker`.
 - Dependency Analyzer: Available. Preflight dependency hints under `gemini_batch.extensions.dependency_analyzer`.
 - Model Selector: Available. Advisory model selection under `gemini_batch.extensions.model_selector`.
+- Provider Uploads: Available. Pre-upload local files to providers and wait for ACTIVE state
+    via `gemini_batch.extensions.provider_uploads`.
 
 Architecture principles:
 - Data-centric design with immutable state
@@ -36,10 +38,11 @@ Quick start:
     )
 """
 
-# Expose plugin submodules for convenient imports
+# Expose plugin submodules for convenient imports (alphabetical)
 from . import chunking as chunking
 from . import dependency_analyzer as dependency_analyzer
 from . import model_selector as model_selector
+from . import provider_uploads as provider_uploads
 from . import timestamp_linker as timestamp_linker
 from . import token_counting as token_counting
 from . import visualization as visualization
@@ -74,6 +77,7 @@ __all__ = [  # noqa: RUF022
     # Plugin modules (importable via `from gemini_batch.extensions import X`)
     "chunking",
     "dependency_analyzer",
+    "provider_uploads",
     "model_selector",
     "timestamp_linker",
     "token_counting",
@@ -109,6 +113,14 @@ __all__ = [  # noqa: RUF022
     "create_efficiency_visualizations",
     "create_focused_efficiency_visualization",
     "visualize_scaling_results",
+    # provider uploads
+    "preupload_and_wait_active",
+    "upload_and_wait_active",
+    "UploadResult",
+    "UploadInactiveError",
+    "UploadFailedError",
+    "MissingCredentialsError",
+    "MissingDependencyError",
 ]
 
 # Token Counting and other plugins are exported for convenience as documented.
@@ -128,6 +140,15 @@ from .model_selector import (
     SelectionInputs,
     decide,
     maybe_override_model,
+)
+from .provider_uploads import (
+    MissingCredentialsError,
+    MissingDependencyError,
+    UploadFailedError,
+    UploadInactiveError,
+    UploadResult,
+    preupload_and_wait_active,
+    upload_and_wait_active,
 )
 from .timestamp_linker import link_timestamps
 from .token_counting import (
