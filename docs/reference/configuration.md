@@ -137,6 +137,9 @@ print(src["api_key"].env_key)  # e.g., "GEMINI_API_KEY" (redacted in logs)
 - `GEMINI_API_KEY`: API key (required when `use_real_api=true`).
 - `GEMINI_BATCH_MODEL`: Optional model override; equivalent to setting `model`.
 - `GEMINI_BATCH_USE_REAL_API`: `true`/`false`; toggles real API access.
+- `GEMINI_BATCH_TIER`: Billing tier to tune rate limits; one of `free`, `tier_1`, `tier_2`, `tier_3`.
+- `GEMINI_BATCH_ENABLE_CACHING`: `true`/`false`; enables context caching features.
+- `GEMINI_BATCH_TTL_SECONDS`: Integer TTL for cache entries (seconds; default 3600).
 - `GEMINI_BATCH_PROFILE`: Selects a TOML profile (e.g., `dev`, `prod`).
 - `GEMINI_BATCH_PYPROJECT_PATH`: Override path to project `pyproject.toml`.
 - `GEMINI_BATCH_CONFIG_HOME`: Override path to home TOML (`~/.config/gemini_batch.toml`).

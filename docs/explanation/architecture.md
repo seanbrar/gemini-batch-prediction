@@ -69,11 +69,14 @@ The pipeline separates concerns, enforces state validity, and enables async-firs
 
 ## Diagram
 
+Alt: High-level pipeline flow from user command through handlers (Source Handler → Remote Materialization → Execution Planner → Rate Limit Handler → API Handler → Result Builder) to a final Result.
+
 ```mermaid
 flowchart LR
     User[Developer App] --> Command
     Command --> SH[Source Handler]
-    SH --> EP[Execution Planner]
+    SH --> RM[Remote Materialization]
+    RM --> EP[Execution Planner]
     EP --> RLH[Rate Limit Handler]
     RLH --> AH[API Handler]
     AH --> RB[Result Builder]
@@ -90,10 +93,43 @@ flowchart LR
 
 ---
 
+## Lifecycle (states & retries)
+
+Alt: Detailed state diagram of handler transitions and retry loop: intake → source resolution → optional remote materialization → planning → optional cache stage → rate limiting → API execution with bounded retries → result building → envelope with metrics.
+
+```mermaid
+flowchart TD
+    A[Intake: InitialCommand] --> B[SourceHandler: resolve inputs]
+    B --> C{Remote files?}
+    C -- yes --> D[RemoteMaterialization: HTTPS-only, size/time limits]
+    C -- no --> E
+    D --> E[ExecutionPlanner: calls, api_config, hints]
+    E --> F{Cache policy?}
+    F -- create/override --> G[CacheStage: name/TTL applied]
+    F -- none --> H[RateLimitHandler: tokens/requests pacing]
+    G --> H
+    H --> I[APIHandler: vectorized execution]
+    I --> J{Per-call retry?}
+    J -- transient error --> K[Backoff + retry bounded]
+    J -- success/final failure --> L[Collect responses + per-call meta]
+    K --> I
+    L --> M[ResultBuilder: transforms + minimal fallback]
+    M --> N[ResultEnvelope: status, answers, metrics, usage]
+```
+
+Notes:
+
+- Telemetry: Each stage emits scoped timings and counters when enabled; failures never break the pipeline.
+- Safety: Remote materialization is opt-in and HTTPS-only by default; ephemeral files are cleaned up post-upload.
+- Concurrency: API handler respects client-side semaphore; metrics include per-call `api_time_s` and `non_api_time_s`.
+
+---
+
 ## Related Docs
 
 - [Concept – Command Pipeline](./concepts/command-pipeline.md)
 - [Deep Dive – Command Pipeline Spec](./deep-dives/command-pipeline-spec.md)
+- [Decisions Directory (ADRs & Briefs)](./decisions/index.md)
 - [ADR-0001 – Command Pipeline](./decisions/ADR-0001-command-pipeline.md)
 - [ADR-0011 – Cache Policy & Planner Simplification](./decisions/ADR-0011-cache-policy-and-planner-simplification.md)
 - [Architecture Rubric](./architecture-rubric.md)

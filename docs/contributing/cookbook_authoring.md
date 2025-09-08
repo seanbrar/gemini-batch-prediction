@@ -85,6 +85,16 @@ Checklist:
 - Code examples live under `cookbook/` in the repo, organized by scenario (e.g., `getting-started/`, `research-workflows/`, `production/`).
 - This guide complements `docs/cookbook.md` which indexes public recipes and patterns.
 
+## Running & Testing Recipes
+
+- Use the module runner — no PYTHONPATH needed:
+  - `python -m cookbook --list` to discover available recipes
+  - `python -m cookbook <spec> -- [recipe args]` to run a recipe
+  - Spec can be path (`getting-started/analyze-single-paper.py`) or dotted (`production.resume_on_failure`)
+- The runner defaults to executing from the repository root. Opt out if needed with `--no-cwd-repo-root`.
+- Pass all script flags after `--` so they reach your recipe unchanged.
+- Keep recipes self‑contained: avoid relying on ambient CWD; print clear success checks.
+
 ## See Also
 
 - How‑to → Logging (`docs/how-to/logging.md`) for diagnostics in recipes.

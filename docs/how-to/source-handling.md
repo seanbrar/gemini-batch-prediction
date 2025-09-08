@@ -57,7 +57,7 @@ asyncio.run(main())
 Verification
 
 - Expect `status == "ok"` in mock mode and two answers in `env["answers"]`.
-- Real API: enable `GEMINI_BATCH_USE_REAL_API=1` and set `GEMINI_API_KEY`; see How‑to → Verify Real API.
+- Real API: enable `GEMINI_BATCH_USE_REAL_API=1` and set `GEMINI_API_KEY`; see How‑to → [Verify Real API](verify-real-api.md).
 
 ## 3) Per‑source analysis (fan‑out)
 
@@ -85,4 +85,4 @@ Verification
 
 - File not found: ensure relative paths are correct and readable.
 - Unsupported URL: use `from_youtube`/`from_arxiv` or `from_uri(uri, mime_type)` if you know the MIME type.
-- Large PDFs or remote files: consider enabling Remote File Materialization (How‑to → Remote File Materialization).
+- Large PDFs or remote files: consider enabling Remote File Materialization (How‑to → [Remote File Materialization](remote-file-materialization.md)).

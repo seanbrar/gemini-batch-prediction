@@ -39,3 +39,5 @@ Success checks:
 - unit: small, focused units
 
  See Explanation → Contract-First Testing for methodology and invariants. For terminology like “lanes”, “markers”, and “characterization”, see Explanation → Glossary.
+
+Last reviewed: 2025-09

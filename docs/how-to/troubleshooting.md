@@ -52,4 +52,4 @@ Common issues and quick fixes when getting started.
 ## Still stuck?
 
 - Run: `gb-config show` and `gb-config doctor` and attach output to any issue report.
-- See also: How‑to → FAQ; How‑to → Configuration; How‑to → Logging; Reference → CLI.
+- See also: How‑to → [FAQ](faq.md); How‑to → [Configuration](configuration.md); How‑to → [Logging](logging.md); Reference → [CLI](../reference/cli.md).

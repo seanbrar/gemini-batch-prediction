@@ -2,8 +2,8 @@
 
 Usage examples:
 
-- How‑to → Telemetry Integration: telemetry.md
-- Explanation → Concepts → Telemetry: explanation/concepts/telemetry.md
+- How‑to → [Telemetry Integration](../../how-to/telemetry.md)
+- Explanation → Concepts → [Telemetry](../../explanation/concepts/telemetry.md)
 
 ::: gemini_batch.telemetry.TelemetryContext
 

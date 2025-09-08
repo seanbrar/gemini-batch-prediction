@@ -3,6 +3,8 @@
 **Status:** Accepted (updated: ExecutionOptions preferred)
 **Date:** 2025‑08‑23
 **Scope:** `planner`, `cache_stage`, `api_handler`, `result_builder`; option types in `core/execution_options.py`.
+**Audience:** Extension authors and contributors
+**Impacted Modules/APIs:** `ExecutionOptions` (estimation/cache/result), legacy hints, planner/cache/api/result interpretation
 
 ## Context
 
@@ -90,4 +92,8 @@ Rollback: if options adoption causes issues, handlers can temporarily fall back 
 
 * Command Pipeline & Prompting docs
 * ADR‑0008 Conversation Extension
-* RFP‑0001 Vectorization and Fan‑out
+* DB‑0001 Vectorization and Fan‑out (Historical Design Brief)
+
+## History
+
+This ADR evolved from an earlier focused design brief on vectorization and fan‑out. That brief (now documented as DB‑0001) clarified the need for a neutral, typed seam to communicate planner/result/cache intent from extensions into core without provider coupling. The seam materialized as `ExecutionOptions` replacing ad‑hoc “hint capsules”.

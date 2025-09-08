@@ -6,24 +6,27 @@
 
 ## 1) Enable real calls
 
-```bash
-# bash/zsh
-export GEMINI_API_KEY="<your key>"
-export GEMINI_BATCH_TIER=free      # free | tier_1 | tier_2 | tier_3
-export GEMINI_BATCH_USE_REAL_API=1
+<!-- markdownlint-disable MD046 -->
+=== "Bash/Zsh"
 
-# Sanity check (redacted)
-gb-config doctor
-```
+    ```bash
+    export GEMINI_API_KEY="<your key>"
+    export GEMINI_BATCH_TIER=free      # free | tier_1 | tier_2 | tier_3
+    export GEMINI_BATCH_USE_REAL_API=1
 
-Windows PowerShell:
+    # Sanity check (redacted)
+    gb-config doctor
+    ```
 
-```powershell
-$Env:GEMINI_API_KEY = "<your key>"
-$Env:GEMINI_BATCH_TIER = "free"
-$Env:GEMINI_BATCH_USE_REAL_API = "1"
-gb-config doctor
-```
+=== "PowerShell"
+
+    ```powershell
+    $Env:GEMINI_API_KEY = "<your key>"
+    $Env:GEMINI_BATCH_TIER = "free"
+    $Env:GEMINI_BATCH_USE_REAL_API = "1"
+    gb-config doctor
+    ```
+<!-- markdownlint-enable MD046 -->
 
 ## 2) Programmatic check
 
@@ -80,3 +83,5 @@ handler = APIHandler(include_raw_preview=True)
 - Ensure `GEMINI_BATCH_TIER` matches your billing plan.
 - Reduce concurrency: set `request_concurrency=1` via config or per‑call options.
 - See How‑to → Troubleshooting for details.
+
+Last reviewed: 2025-09

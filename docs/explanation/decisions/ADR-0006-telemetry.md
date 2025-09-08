@@ -3,6 +3,8 @@
 **Date:** 2025-08-18
 **Status:** Accepted
 **Tags:** observability, performance, extensibility
+**Audience:** Contributors and operators
+**Impacted Modules/APIs:** `TelemetryContext`, `TelemetryReporter` protocol, telemetry scope naming
 
 ---
 
@@ -75,4 +77,5 @@ Negative:
 
 - [Concept – Telemetry: Scopes, Reporters, and Minimal Overhead](../concepts/telemetry.md)
 - [Deep Dive – Telemetry Spec](../deep-dives/telemetry-spec.md)
-- [Reference – Telemetry](../../telemetry.md)
+- [Reference – Telemetry API](../../reference/api/telemetry.md)
+- [Project History](../history.md)

@@ -30,4 +30,4 @@ Internals
 Notes
 
 - Pages above are powered by mkdocstrings and reflect current docstrings under `src/`.
-- See `dev/docstring_audit.md` for the audit and conventions used when writing these docstrings.
+- Internal note: docstring audit and conventions are tracked in `dev/internal_only/audits/docstring_audit.md`.

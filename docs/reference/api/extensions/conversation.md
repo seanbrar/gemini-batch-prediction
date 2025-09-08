@@ -1,9 +1,14 @@
 # API: Extension — Conversation
 
-Purpose: Factual API surface for the Conversation extension (types, functions, and configuration points). Auto-generated mkdocstrings may replace this stub.
+Usage examples:
 
-Related:
+- How‑to → Extensions → [Conversation (Advanced)](../../../how-to/conversation-advanced.md)
+- Concepts → Extensions → [Conversation](../../../explanation/concepts/conversation.md)
 
-- How‑to → Extensions → Conversation (Advanced)
-- Concepts → Extensions → Conversation
-- Decisions/Specs where applicable
+::: gemini_batch.extensions.conversation.Conversation
+
+::: gemini_batch.extensions.conversation_planner.compile_conversation
+
+::: gemini_batch.extensions.conversation_types
+
+Last reviewed: 2025-09

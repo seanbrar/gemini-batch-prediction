@@ -2,7 +2,7 @@
 
 > Goal: Run a small batch with two prompts against multiple sources and verify the structure of answers.
 >
-> Prerequisites: Completed Tutorials → Quickstart.
+> Prerequisites: Completed Tutorials → [Quickstart](quickstart.md).
 
 ## Example
 
@@ -43,6 +43,6 @@ Expected (mock mode):
 
 ## Tips
 
-- Real API: See How‑to → Verify Real API to switch off mock mode safely.
+- Real API: See How‑to → [Verify Real API](../how-to/verify-real-api.md) to switch off mock mode safely.
 - Sources: Replace `from_text` with `from_file`, `from_url`, or `from_directory`.
 - Options: Use `types.make_execution_options(request_concurrency=1)` to tune concurrency.

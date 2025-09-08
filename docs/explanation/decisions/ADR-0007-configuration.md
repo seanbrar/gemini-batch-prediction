@@ -3,6 +3,8 @@
 * **Status:** Accepted
 * **Date:** 2025‑08‑17
 * **Owners:** Configuration/Core Platform
+* **Audience:** Contributors and application developers
+* **Impacted Modules/APIs:** `Settings` schema, `FrozenConfig`, resolver/precedence, `InitialCommand` payload
 * **Related:** Concepts — *Configuration System — Explanation*; How‑To & Reference; Deep‑Dive — *configuration-spec.md*
 
 ## Context

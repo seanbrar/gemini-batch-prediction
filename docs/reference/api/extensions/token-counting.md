@@ -1,9 +1,11 @@
 # API: Extension — Token Counting
 
-Purpose: Factual API surface for the Token Counting extension (types, estimators, helpers). Auto-generated mkdocstrings may replace this stub.
+Usage examples:
 
-Related:
+- How‑to → Extensions → [Token Counting](../../../how-to/token-counting.md)
+- Concepts → Extensions → [Token Counting & Estimation](../../../explanation/concepts/token-counting.md)
+- Specifications → [Token Counting Calibration](../../../explanation/deep-dives/token-counting-calibration.md)
 
-- How‑to → Extensions → Token Counting
-- Concepts → Extensions → Token Counting & Estimation
-- Specifications → Token Counting Calibration
+::: gemini_batch.extensions.token_counting
+
+Last reviewed: 2025-09

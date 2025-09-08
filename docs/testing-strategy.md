@@ -2,7 +2,7 @@
 
 Last reviewed: 2025-09
 
-Audience: contributors and maintainers who want to understand why tests run when they do, what each lane validates, and how CI chooses suites. If you just want to run tests locally, see How‑to → Testing.
+Audience: contributors and maintainers who want to understand why tests run when they do, what each lane validates, and how CI chooses suites. If you just want to run tests locally, see How‑to → [Testing](how-to/testing.md).
 
 ## Cadence at a Glance
 
@@ -52,7 +52,7 @@ This catches systemic issues early while still exercising behaviour locks when c
 - `test-pr`: `test-progressive` plus integration and workflow tests.
 - `test-main`: all non‑API tests plus coverage; includes `test-all` and `test-coverage`.
 
-See How‑to → Testing for exact commands and additional granular targets (unit, integration, workflows, etc.). For taxonomy and markers, see Test layout and markers. See Explanation → Glossary for terms like “lanes”, “markers”, and “characterization”.
+See How‑to → [Testing](how-to/testing.md) for exact commands and additional granular targets (unit, integration, workflows, etc.). For taxonomy and markers, see Test layout and markers. See Explanation → [Glossary](explanation/glossary.md) for terms like “lanes”, “markers”, and “characterization”.
 
 ## Customization Levers
 

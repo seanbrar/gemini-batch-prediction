@@ -1,5 +1,7 @@
 # FAQ — Getting Started
 
+Last reviewed: 2025-09
+
 Answers to common first-run and onboarding questions.
 
 ## Do I need an API key to try it?
@@ -10,19 +12,21 @@ No. The library defaults to a deterministic mock mode. You can install and run t
 
 Set your API key and explicitly enable real calls:
 
+=== "Bash/Zsh"
+
 ```bash
 export GEMINI_API_KEY="<your key>"
 export GEMINI_BATCH_USE_REAL_API=1
 ```
 
-On Windows PowerShell:
+=== "PowerShell"
 
 ```powershell
 $Env:GEMINI_API_KEY = "<your key>"
 $Env:GEMINI_BATCH_USE_REAL_API = "1"
 ```
 
-Then run `gb-config doctor` to verify readiness. For runtime checks, see How‑to → Verify Real API.
+Then run `gb-config doctor` to verify readiness. For runtime checks, see How‑to → [Verify Real API](verify-real-api.md).
 
 ## Why am I getting immediate rate limits?
 
@@ -49,9 +53,16 @@ Yes. Use Python 3.13 and prefer WSL for parity with Linux/macOS. PowerShell exam
 
 ## Where can I find runnable examples?
 
-- Tutorials → Quickstart for a copy‑paste first run.
+- Tutorials → [Quickstart](../tutorials/quickstart.md) for a copy‑paste first run.
 - The repository’s `cookbook/` contains 25+ practical recipes.
+
+## How do I run cookbook recipes?
+
+- List recipes: `python -m cookbook --list`
+- Run by path: `python -m cookbook getting-started/analyze-single-paper.py -- --limit 1`
+- Run by dotted spec: `python -m cookbook production.resume_on_failure -- --limit 2`
+- Pass recipe flags after `--`. The runner defaults to the repo root as CWD; opt out with `--no-cwd-repo-root`.
 
 ## I still need help
 
-Run `gb-config show` and `gb-config doctor` and include the output in an issue. See How‑to → Troubleshooting for more.
+Run `gb-config show` and `gb-config doctor` and include the output in an issue. See How‑to → [Troubleshooting](troubleshooting.md) for more.

@@ -53,22 +53,19 @@ Last reviewed: 2025-09
 
 ## Details
 
-Overview
---------
+### Overview
 
 - Purpose: Convert eligible remote HTTP(S) file references (e.g., arXiv/PDF URLs) into local files before execution so they can be uploaded using provider-supported file mechanisms.
 - Scope: Purely client-side, provider-neutral. Runs as a dedicated pipeline stage before the API handler.
 - Outcome: `FileRefPart` → `FilePlaceholder(ephemeral=True)` at the same index in shared and per‑call parts; the API handler uploads placeholders and replaces them with provider file references.
 
-When To Use
------------
+### When To Use
 
 - You pass arXiv or other PDF URLs as sources or direct `FileRefPart`s.
 - Your provider requires file uploads rather than external URLs for file content.
 - You want predictable, explicit behavior with clear limits and telemetry.
 
-Quick Start
------------
+### Quick Start
 
 ```python
 from gemini_batch.core.execution_options import ExecutionOptions, RemoteFilePolicy
@@ -88,8 +85,7 @@ result = await run_batch(
 )
 ```
 
-Behavior
---------
+### Behavior
 
 - Scope: scans `shared_parts` only or both `shared_parts` and each call’s `api_parts` depending on policy (`scope`).
 - Security: HTTPS-only by default; set `allow_http=True` to permit plain HTTP.
@@ -108,8 +104,7 @@ Behavior
   - Failure cleanup: if a later pipeline stage fails before upload, the executor
     performs a best‑effort cleanup of ephemeral placeholders found in the plan.
 
-Customization
--------------
+### Customization
 
 `RemoteFilePolicy` fields and defaults:
 
@@ -124,8 +119,7 @@ Customization
 - `allow_http: bool = False` — allow plain HTTP (HTTPS-only by default).
 - `scope: Literal['shared_only','shared_and_calls'] = 'shared_and_calls'` — control which parts are scanned.
 
-Examples
---------
+### Examples
 
 - Tighten limits and skip on oversize files:
 
@@ -140,8 +134,7 @@ opts = ExecutionOptions(remote_files=policy)
 policy = RemoteFilePolicy(enabled=True, allow_pdf_extension_heuristic=False)
 ```
 
-Telemetry
----------
+### Telemetry
 
 The stage emits gauges under the scope `remote.materialize`:
 
@@ -153,15 +146,13 @@ The stage emits gauges under the scope `remote.materialize`:
 - `uris_total`, `uris_unique`, `dedup_savings`: source URI counts and dedup gains.
 - `download_concurrency`: effective policy concurrency value.
 
-Notes
------
+### Notes
 
 - Ephemeral files: Placeholders produced by this stage are marked `ephemeral=True`; the API handler deletes their local temp files after successful upload.
 - Provider neutrality: No SDK calls are made here; the API handler handles uploads via the configured adapter.
 - Predictability: This is opt‑in and disabled by default. Enabling it does not affect caching behavior or token estimation.
 
-Troubleshooting
----------------
+### Troubleshooting
 
 - HTTP rejected: By default, only HTTPS is allowed. Set `allow_http=True` in `RemoteFilePolicy` to permit plain HTTP.
 - Redirected to non‑HTTP(S): If a server redirects to a non‑web scheme (e.g., `file://`), the stage rejects the URL for safety. Use a different source URI; non‑web schemes are not supported.

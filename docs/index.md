@@ -1,29 +1,55 @@
-# Gemini Batch Documentation
+# Gemini Batch
 
-Welcome. This site follows the Diátaxis framework:
+Ship multimodal analysis fast. Spend less on tokens.
 
-- Tutorials: Step-by-step introductions to get you productive quickly.
-- How-to guides: Task-oriented recipes for common developer workflows.
-- Explanation: Architecture, concepts, decisions, and design rationale.
-- Reference: Factual, API-like documentation and operational details.
+- Get Started → [Quickstart](tutorials/quickstart.md)
+- Explore → [Cookbook (recipes)](cookbook.md)
 
-Note: Some Explanation pages describe a target architecture (Command Pipeline). Tutorials, How-to guides, and Reference reflect the current API.
+## 30‑second quickstart
 
-Start here:
+```python
+import asyncio
+from gemini_batch import run_simple, types
 
-- Tutorials → Quickstart: install, first run, success checks
-- Tutorials → First Batch: multiple prompts and sources
-- How‑to → Installation: Releases or source, environment setup
-- How‑to → FAQ and Troubleshooting: common first‑run issues
-- Reference → CLI (`gb-config`): check readiness with `doctor`
-- Explanation → Architecture at a Glance
-- Reference → API overview; How‑to → Configuration
-- Explanation → Project History & GSoC
+async def main():
+    envelope = await run_simple(
+        "Summarize key insights",
+        source=types.Source.from_text("Hello world"),
+    )
+    print(envelope["answers"][0])
 
-## Onboarding checklist
+asyncio.run(main())
+```
 
-- Install from Releases or source and verify `import gemini_batch`.
-- Run the Quickstart hello example (mock mode) and confirm expected output.
-- When ready, set `GEMINI_API_KEY`, `GEMINI_BATCH_TIER`, and `GEMINI_BATCH_USE_REAL_API=1`.
-- Run `gb-config doctor` until no issues are reported.
-- Proceed to `run_batch` examples in the Cookbook or Tutorials.
+Note: Works without an API key (deterministic mock mode). To use the real API, set `GEMINI_API_KEY` and `GEMINI_BATCH_USE_REAL_API=1` — see [Verify Real API](how-to/verify-real-api.md).
+
+## Highlights
+
+- Command pipeline: async handler chain for prep → plan → extract → build
+- Intelligent batching: group related calls; cut redundant work
+- Context caching: up to 75% cost reduction with safe fallbacks
+- Multimodal: text, PDFs, images, videos, and YouTube
+- Conversation memory: multi‑turn sessions with overflow handling
+- Production‑grade: tests, CI, telemetry, and semantic releases
+
+## Choose your path
+
+- New to Gemini Batch: [Quickstart](tutorials/quickstart.md) → [First Batch](tutorials/first-batch.md) → [Cookbook](cookbook.md)
+- Going to production: [Installation](how-to/installation.md) → [Configuration](how-to/configuration.md) → [Caching](how-to/caching.md) → [CLI doctor](reference/cli.md) → [Logging](how-to/logging.md)
+- Research workflows: [Research](domains/research.md) → [Efficiency workflows](how-to/research/efficiency-workflows.md) → [Extensions catalog](reference/extensions/catalog.md)
+
+## Health check
+
+```bash
+gb-config doctor
+```
+
+See: [CLI Reference](reference/cli.md)
+
+## Deep links
+
+- Tutorials: [Quickstart](tutorials/quickstart.md), [First Batch](tutorials/first-batch.md)
+- How‑to: [Installation](how-to/installation.md), [Configuration](how-to/configuration.md), [Troubleshooting](how-to/troubleshooting.md)
+- Reference: [API overview](reference/api-reference.md), [CLI](reference/cli.md)
+- Explanation: [Architecture at a Glance](explanation/architecture.md)
+- Project: [Roadmap](roadmap.md), [Project History & GSoC](explanation/history.md)

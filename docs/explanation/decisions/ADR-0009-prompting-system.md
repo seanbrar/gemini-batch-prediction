@@ -1,8 +1,10 @@
-# ADR-009 - Prompting System
+# ADR-0009: Prompting System
 
 **Status:** Accepted
 **Date:** 2025-08-23
 **Scope:** `src/gemini_batch/pipeline/prompts/*`, planner integration, configuration keys under `[prompts]`
+**Audience:** Contributors and extension authors
+**Impacted Modules/APIs:** Planner prompt assembly, `PromptBundle`, prompt config keys, adapter `api_config` system instruction pass-through
 
 ---
 

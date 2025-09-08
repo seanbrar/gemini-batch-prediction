@@ -4,8 +4,8 @@ High-level configuration entrypoints and helpers.
 
 See also:
 
-- How‑to → Configuration: how-to/configuration.md
-- ADR‑0007: explanation/decisions/ADR-0007-configuration.md
+- How‑to → [Configuration](../../how-to/configuration.md)
+- ADR‑0007: [Configuration Resolution & Immutability](../../explanation/decisions/ADR-0007-configuration.md)
 
 ::: gemini_batch.config.resolve_config
 

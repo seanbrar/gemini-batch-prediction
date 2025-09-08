@@ -3,6 +3,8 @@
 **Date:** 2025-01-11
 **Status:** Accepted
 **Tags:** result-builder, extraction, transforms, pipeline
+**Audience:** Contributors and extension authors
+**Impacted Modules/APIs:** `ResultBuilder`, transform chain specs, result envelope shape
 
 ---
 

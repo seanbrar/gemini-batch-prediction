@@ -2,7 +2,7 @@
 
 Last reviewed: 2025-09
 
-> Note: This page describes the current API. For the upcoming architecture, see Explanation → Command Pipeline.
+> Note: This page describes the current API. For the upcoming architecture, see Explanation → [Command Pipeline](../explanation/concepts/command-pipeline.md).
 
 The library includes a `TelemetryContext` for advanced metrics collection. You can integrate it with your own monitoring systems (e.g., Prometheus, DataDog) by creating a custom reporter.
 
@@ -12,48 +12,7 @@ The library includes a `TelemetryContext` for advanced metrics collection. You c
 - Basic logging or a monitoring client available (for examples below, Python `logging`).
 - Optional: set `GEMINI_BATCH_TELEMETRY=1` to enable emission; otherwise the context becomes a no‑op.
 
-This feature is designed for production environments where detailed telemetry is required. For design rationale and implementation details, see [Explanation → Concepts (Telemetry)](./explanation/concepts/telemetry.md), [Deep Dives → Telemetry Spec](./explanation/deep-dives/telemetry-spec.md), and [Decisions → ADR-0006 Telemetry](./explanation/decisions/ADR-0006-telemetry.md).
-
-## Raw Preview (Research)
-
-For researcher workflows, you can attach a compact, sanitized preview of the raw provider output to telemetry. This preview is opt-in and designed to be tiny and safe for triage.
-
-- Flag: set `GEMINI_BATCH_TELEMETRY_RAW_PREVIEW=1` to enable globally, or pass `include_raw_preview=True` to `APIHandler(...)` for local control.
-- Location: the preview is attached to the finalized command telemetry and surfaced in the `ResultEnvelope` under `metrics.raw_preview`.
-- Fields: a minimal set such as `model`, `text`, `candidate0_text`, `finish_reason`, and a sanitized `usage` (scalar-only; long strings truncated). Unknown shapes fall back to a truncated `repr`.
-
-Example (enabling via constructor):
-
-```python
-from gemini_batch.pipeline.api_handler import APIHandler
-
-handler = APIHandler(include_raw_preview=True)  # opt-in per handler
-# ... run the pipeline (planner → api handler → result builder)
-envelope = result["value"]  # ResultEnvelope from ResultBuilder
-raw_preview = envelope["metrics"]["raw_preview"]
-print(raw_preview)
-# {
-#   "model": "gemini-2.0-flash",
-#   "batch": (
-#       {"text": "...", "candidate0_text": "...", "finish_reason": "STOP", "usage": {"total_token_count": 123}},
-#       {"text": "...", "candidate0_text": "...", "finish_reason": "STOP", "usage": {"total_token_count": 140}},
-#   )
-# }
-```
-
-Example (enabling via environment):
-
-```bash
-export GEMINI_BATCH_TELEMETRY_RAW_PREVIEW=1
-python your_pipeline_script.py
-```
-
-Notes:
-
-- The preview contains only small fields (e.g., `model`, `text`, `candidate0_text`, `finish_reason`, and a sanitized `usage`) and truncates long strings.
-- `usage` is sanitized to include only simple scalar fields; nested structures are dropped.
-- It is attached best-effort and never fails the pipeline if extraction fails.
-- Vectorized calls expose a tuple of per-call previews under `batch`.
+This feature is designed for production environments where detailed telemetry is required. For design rationale and implementation details, see [Explanation → Concepts (Telemetry)](../explanation/concepts/telemetry.md), [Deep Dives → Telemetry Spec](../explanation/deep-dives/telemetry-spec.md), and [Decisions → ADR-0006 Telemetry](../explanation/decisions/ADR-0006-telemetry.md).
 
 -----
 
@@ -76,7 +35,6 @@ class LoggingReporter:
         self.log = logger or logging.getLogger("gemini_batch.telemetry")
 
     def record_timing(self, scope: str, duration: float, **metadata: Any) -> None:
-        # Keep it compact and structured for downstream log processors
         self.log.info("telemetry.timing", extra={
             "scope": scope, "duration_s": duration, **metadata,
         })
@@ -153,7 +111,7 @@ There are two ways to capture pipeline telemetry.
 Option A — Enable built‑in telemetry via environment flags (no custom reporter):
 
 - Set `GEMINI_BATCH_TELEMETRY=1`. The library attaches a tiny, internal reporter and surfaces metrics into the `ResultEnvelope` (under `metrics` and `usage`).
-- Read `env["metrics"]`/`env["usage"]` from the result. See Reference → ResultEnvelope Metrics for shapes.
+- Read `env["metrics"]`/`env["usage"]` from the result. See Reference → [ResultEnvelope Metrics](../metrics.md) for shapes.
 
 Option B — Provide your own reporter to the API handler in a custom pipeline:
 
@@ -222,76 +180,14 @@ Verification
 
 The `TelemetryReporter` protocol is designed for flexibility:
 
-- **Multiple Reporters**: You can pass several reporters to the `TelemetryContext` factory, and each will receive all telemetry events.
-- **"Good Citizen" Design**: The system doesn't impose external library dependencies, allowing you to use your existing monitoring clients.
-- **Event Metadata**:
+- Multiple reporters: You can pass several reporters to the `TelemetryContext` factory, and each will receive all telemetry events.
+- "Good Citizen" design: The system doesn't impose external library dependencies, allowing you to use your existing monitoring clients.
+- Event metadata:
   - Timing events include: `depth`, `parent_scope`, `call_count`, and timing provenance (`start_monotonic_s`, `end_monotonic_s`, `start_wall_time_s`, `end_wall_time_s`).
-  - Metric events include: `depth`, `parent_scope`. When using `count(...)` or `gauge(...)`, `metric_type` is set accordingly.
+  - Metric events include: `depth`, `parent_scope`, and your provided metadata.
 
-### Optional Raw Preview (Debug)
+Related:
 
-For manual triage, you can opt in to attach a compact, sanitized preview of the raw provider response into the result envelope under `metrics.raw_preview`.
-
-Enable globally via env:
-
-```bash
-export GEMINI_BATCH_TELEMETRY_RAW_PREVIEW=1
-```
-
-Or enable per handler in code:
-
-```python
-from gemini_batch.pipeline.api_handler import APIHandler
-
-handler = APIHandler(include_raw_preview=True)
-```
-
-Notes:
-
-- Disabled by default to keep envelopes lean and avoid leaking large payloads.
-- The preview truncates long strings and includes only a few common fields.
-- `usage` is sanitized (scalar-only; truncated strings; nested structures omitted).
-- Prefer production telemetry backends for ongoing analysis; this is a convenience for researchers.
-
-Safety:
-
-- Redaction/truncation prevents large payloads or sensitive content from being emitted.
-- Do not attach raw inputs or secrets to telemetry metadata; prefer IDs and stable labels.
-
-### Convenience Methods
-
-The context offers convenience helpers in addition to the primary `with tele("scope"):` usage:
-
-```python
-# Timing (alias of calling the context)
-with tele.time("pipeline.plan"):
-    ...
-
-# Counters and gauges (metadata is optional)
-tele.count("api.requests", increment=1, component="planner")
-tele.gauge("batch.token_efficiency", value=0.87)
-```
-
-### Scope Naming and Strict Validation
-
-Scopes are dot-separated lowercase tokens (e.g., `api.request.send`). To optionally enforce a strict naming regex at runtime, set:
-
-```bash
-export GEMINI_BATCH_TELEMETRY_STRICT_SCOPES=1
-```
-
-Valid examples: `pipeline.plan.tokens`, `api.request.send`, `batch.process.step_1`
-
-Invalid examples: `Pipeline.Plan` (uppercase), `api/request` (slash), `step-1` (dash)
-
-### Feature Flags and Developer Experience
-
-- Telemetry is enabled only when BOTH are true:
-  - An environment flag is set: `GEMINI_BATCH_TELEMETRY=1` or `DEBUG=1`.
-  - You pass at least one reporter to `TelemetryContext(...)`.
-- If no reporters are provided, the factory returns a no-op singleton, even if the env flag is set.
-- Check `tele.is_enabled` in hot paths to skip expensive metadata collection.
-
-### Deprecated helper
-
-`tele_scope(ctx, name, **metadata)` remains as a deprecated alias for calling the context directly. Prefer `with tele(name):`.
+- Concept → Telemetry: Scopes, Reporters, and Minimal Overhead: [explanation/concepts/telemetry.md](../explanation/concepts/telemetry.md)
+- Decisions → ADR-0006 Telemetry: [explanation/decisions/ADR-0006-telemetry.md](../explanation/decisions/ADR-0006-telemetry.md)
+- Reference → Telemetry API: [reference/api/telemetry.md](../reference/api/telemetry.md)

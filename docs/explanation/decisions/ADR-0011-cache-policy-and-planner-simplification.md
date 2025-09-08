@@ -3,6 +3,7 @@
 Status: Accepted
 
 Audience: Contributors and extension authors
+Impacted Modules/APIs: Planner cache policy resolution, `CachePolicyHint`, `CacheDecision` metadata, API Handler cache fallback/telemetry
 
 Related:
 
@@ -142,6 +143,10 @@ Phase 5 — Documentation & Fitness Tests
 - User confusion when caching is enabled but skipped: Mitigate with clear telemetry/logs and `CachePolicyHint(respect_floor=False)` override.
 - Threshold drift across models: Use capability‑driven floors; document override via `min_tokens_floor`.
 - Slight increase in policy surface: Contained within a small typed module; defaults keep behavior predictable.
+
+## Operational Notes
+
+- Cache creation on high‑fan‑out, low‑payload workloads can add avoidable cost/latency. Prefer `CachePolicyHint(reuse_only=True)` or `respect_floor=True` with an appropriate `min_tokens_floor` to suppress creation in those scenarios.
 
 ## Acceptance Criteria
 

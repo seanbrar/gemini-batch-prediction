@@ -3,6 +3,8 @@
 **Date:** 2025-08-11
 **Status:** Accepted
 **Tags:** architecture, pipeline, execution, planning, handler-pattern
+**Audience:** Contributors and extension authors
+**Impacted Modules/APIs:** `executor.GeminiExecutor`, pipeline handlers (`source_handler`, `planner`, `api_handler`, `result_builder`), typed Command states
 
 ---
 

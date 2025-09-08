@@ -3,6 +3,8 @@
 **Date:** 2025-08-12
 **Status:** Accepted
 **Tags:** planning, estimation, adapters, telemetry, vendor-neutral
+**Audience:** Contributors and adapter authors
+**Impacted Modules/APIs:** Execution Planner, token estimation adapters, telemetry validation in API Handler
 
 ---
 

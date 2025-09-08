@@ -14,6 +14,6 @@ When to use:
 
 See also:
 
-- How-to guides for task-focused recipes once you’re oriented
-- Reference for exact APIs and CLI options
-- Explanation for architecture and rationale
+- [How‑to Guides](../how-to/index.md) for task‑focused recipes once you’re oriented
+- [Reference](../reference/index.md) for exact APIs and CLI options
+- [Architecture](../explanation/architecture.md) for background and rationale
