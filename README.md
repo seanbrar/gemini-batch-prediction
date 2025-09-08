@@ -2,14 +2,24 @@
 
 > **Google Summer of Code 2025 Project** — Efficient multimodal analysis via batching and context caching on Gemini.
 
-**Organization:** Google DeepMind
+**Mentoring org:** Google DeepMind (GSoC 2025)
 
 ![CI](https://github.com/seanbrar/gemini-batch-prediction/actions/workflows/ci.yml/badge.svg)
 [![codecov](https://codecov.io/gh/seanbrar/gemini-batch-prediction/graph/badge.svg)](https://codecov.io/gh/seanbrar/gemini-batch-prediction)
 ![Docs](https://img.shields.io/badge/docs-MkDocs-blue)
-[![Site](https://img.shields.io/badge/Docs-Site-2EA44F)](https://seanbrar.github.io/gemini-batch-prediction/)
+[![Docs Site](https://img.shields.io/badge/Docs-Site-2EA44F)](https://seanbrar.github.io/gemini-batch-prediction/)
 ![Python](https://img.shields.io/badge/Python-3.13+-brightgreen)
 ![License](https://img.shields.io/badge/License-MIT-yellow)
+
+Quick links:
+
+- [Docs site](https://seanbrar.github.io/gemini-batch-prediction/)
+- [Quickstart](https://seanbrar.github.io/gemini-batch-prediction/tutorials/quickstart/)
+- [Cookbook (recipes)](https://seanbrar.github.io/gemini-batch-prediction/cookbook/)
+- [API reference](https://seanbrar.github.io/gemini-batch-prediction/reference/api-reference/)
+- [CLI (`gb-config`)](https://seanbrar.github.io/gemini-batch-prediction/reference/cli/)
+- [Installation](https://seanbrar.github.io/gemini-batch-prediction/how-to/installation/)
+- [Troubleshooting](https://seanbrar.github.io/gemini-batch-prediction/how-to/troubleshooting/)
 
 ---
 
@@ -42,37 +52,11 @@ async def main():
 asyncio.run(main())
 ```
 
-## 🚀 Current Status
+## ℹ️ Project History
 
-**Foundation & Multimodal Processing (Weeks 1-3)**: ✅ **COMPLETED**
+Originally developed during Google Summer of Code 2025 with Google DeepMind. For the complete narrative and archived milestone roadmap, see [Project History & GSoC](https://seanbrar.github.io/gemini-batch-prediction/explanation/history/).
 
-- Production-ready API client with comprehensive error handling and rate limiting
-- Unified interface for any content type (text, files, URLs, directories, YouTube)
-- Files API integration and multi-source analysis capabilities
-
-**Advanced Features (Weeks 4-6)**: ✅ **COMPLETED**
-
-- Intelligent context caching with up to 75% cost reduction
-- Multi-turn conversation memory with session persistence and context overflow handling
-- Performance monitoring infrastructure and architectural modernization
-
-**Professional Infrastructure (Weeks 7-8)**: ✅ **COMPLETED**
-
-- Comprehensive testing foundation with characterization tests and 95%+ coverage
-- Modern CI/CD pipeline with automated releases and changelog generation
-- Professional Python tooling (ruff, mypy, pre-commit) and semantic versioning
-
-**Pipeline Architecture Implementation (Week 9-11)**: ✅ **COMPLETED**
-
-- Command pipeline architecture with async handler pattern
-- Legacy system removal and API surface refinement
-- Comprehensive documentation and testing infrastructure
-
-**Final Delivery (Week 12)**: ✅ **COMPLETED**
-
-- Production readiness verification and final optimizations
-- Comprehensive cookbook with 25+ practical recipes
-- Official extensions suite with comprehensive testing
+For forward‑looking plans, see the live [Project Roadmap](https://seanbrar.github.io/gemini-batch-prediction/roadmap/).
 
 ## 📦 Installation
 
@@ -110,6 +94,8 @@ If you want to contribute to the project or run tests, install the full developm
 ```bash
 # Install development dependencies (includes testing, linting, etc.)
 pip install -r dev-requirements.txt
+# or
+make install-dev
 
 # Verify setup with tests
 make test
@@ -141,9 +127,9 @@ GEMINI_BATCH_TIER=free                            # free | tier_1 | tier_2 | tie
 GEMINI_BATCH_ENABLE_CACHING=true                  # Enable context caching
 ```
 
-See the [comprehensive cookbook](cookbook/) and [Quickstart](docs/tutorials/quickstart.md) for runnable examples.
+See the [comprehensive cookbook](cookbook/) and the online [Quickstart guide](https://seanbrar.github.io/gemini-batch-prediction/tutorials/quickstart/) for runnable examples.
 
-Looking for the docs site? Visit <https://seanbrar.github.io/gemini-batch-prediction/> (Start at Tutorials → Quickstart).
+Looking for more? Visit the [Docs site](https://seanbrar.github.io/gemini-batch-prediction/) (start at Tutorials → Quickstart).
 
 ### Rate Limit Configuration
 
@@ -265,23 +251,19 @@ result = await executor.execute(types.InitialCommand(
 - **[🔬 Research Notebooks](notebooks/)** - Academic workflow demonstrations
 - **[🧩 Extensions](src/gemini_batch/extensions/)** - Official extension suite
 
+Quickly list and run recipes with the runner:
+
+```bash
+python -m cookbook --list
+python -m cookbook getting-started/analyze-single-paper.py -- --limit 1
+```
+
 ## 🧭 Architecture At A Glance
 
 - **`config/`**: Deterministic resolution across env, files, and overrides; includes `gb-config` CLI.
 - **`pipeline/`**: Async handler chain for source prep, planning, extraction, and result building.
 - **`executor.py`**: Orchestrates the command pipeline, enforcing result invariants.
 - **`telemetry.py`**: Opt‑in, ultra‑low‑overhead telemetry (`GEMINI_BATCH_TELEMETRY=1`).
-
-## 🛠️ Development Roadmap
-
-| Week | Focus | Status |
-|------|-------|--------|
-| 1-3 | Foundation, testing & multimodal processing | ✅ **Completed** |
-| 4-5 | Context caching & conversation memory | ✅ **Completed** |
-| 6 | Performance infrastructure & architecture modernization | ✅ **Completed** |
-| 7-8 | Testing foundation & professional infrastructure | ✅ **Completed** |
-| 9-11 | Command pipeline architecture & legacy removal | ✅ **Completed** |
-| 12 | Final delivery & production readiness | ✅ **Completed** |
 
 ## 🤝 Contributing
 
@@ -292,7 +274,3 @@ For technical implementation details, see the [development documentation](dev/).
 ## 📄 License
 
 [MIT License](LICENSE) - This project is developed as part of Google Summer of Code 2025.
-
----
-
-**GSoC 2025 Complete**: This project successfully delivered a production-ready framework for efficient multimodal analysis with intelligent batching, context caching, and comprehensive tooling. The API is stable and ready for production use.
