@@ -3,6 +3,8 @@
 **Date:** 2025-08-13
 **Status:** Accepted
 **Tags:** rate-limiting, middleware, vendor-neutral, pipeline
+**Audience:** Contributors and operators
+**Impacted Modules/APIs:** `RateLimitHandler`, `RateConstraint` on `ExecutionPlan`, provider capability hooks
 
 ---
 
@@ -130,6 +132,12 @@ class RateLimitHandler(BaseAsyncHandler[PlannedCommand, PlannedCommand, Never]):
 - 429 errors eliminated in integration tests
 - User overrides respected
 - Provider limits correctly applied
+
+---
+
+## Operational Notes
+
+- Align your environment tier settings (e.g., `GEMINI_BATCH_TIER`) with actual billing/limits to avoid throttling or unexpected 429s.
 
 ---
 

@@ -73,24 +73,28 @@ ok echo: Say hello to Quickstart
 
 Enable real calls and configure your billing tier to avoid rate‑limit surprises.
 
-```bash
-# Set your key and enable real API (bash/zsh)
-export GEMINI_API_KEY="<your key>"
-export GEMINI_BATCH_TIER=free      # free | tier_1 | tier_2 | tier_3
-export GEMINI_BATCH_USE_REAL_API=1
+<!-- markdownlint-disable MD046 -->
+=== "Bash/Zsh"
 
-# Sanity check (redacted):
-gb-config doctor
-```
+    ```bash
+    # Set your key and enable real API
+    export GEMINI_API_KEY="<your key>"
+    export GEMINI_BATCH_TIER=free      # free | tier_1 | tier_2 | tier_3
+    export GEMINI_BATCH_USE_REAL_API=1
 
-Windows PowerShell:
+    # Sanity check (redacted):
+    gb-config doctor
+    ```
 
-```powershell
-$Env:GEMINI_API_KEY = "<your key>"
-$Env:GEMINI_BATCH_TIER = "free"      # free | tier_1 | tier_2 | tier_3
-$Env:GEMINI_BATCH_USE_REAL_API = "1"
-gb-config doctor
-```
+=== "PowerShell"
+
+    ```powershell
+    $Env:GEMINI_API_KEY = "<your key>"
+    $Env:GEMINI_BATCH_TIER = "free"      # free | tier_1 | tier_2 | tier_3
+    $Env:GEMINI_BATCH_USE_REAL_API = "1"
+    gb-config doctor
+    ```
+<!-- markdownlint-enable MD046 -->
 
 Re‑run `hello.py`. You should still see `status: ok` with a non‑mock answer.
 
@@ -99,10 +103,10 @@ Re‑run `hello.py`. You should still see `status: ok` with a non‑mock answer.
 
 ## 4) Next steps
 
-- Tutorials → You’ve completed Quickstart; try batching with multiple prompts using `run_batch`.
-- How‑to → Configuration for env/files, profiles, and audits.
-- How‑to → Troubleshooting and How‑to → FAQ for common first‑run issues.
-- Reference → API overview and types (`run_simple`, `run_batch`, `types.Source`).
+- Tutorials → You’ve completed Quickstart; try batching with multiple prompts using `run_batch`. See [First Batch](first-batch.md).
+- How‑to → Configuration for env/files, profiles, and audits. See [Configuration](../how-to/configuration.md).
+- How‑to → Troubleshooting and How‑to → FAQ for common first‑run issues. See [Troubleshooting](../how-to/troubleshooting.md) and [FAQ](../how-to/faq.md).
+- Reference → API overview and types (`run_simple`, `run_batch`, `types.Source`). See [API overview](../reference/api-reference.md).
 
 ## Onboarding checklist
 
@@ -111,3 +115,5 @@ Re‑run `hello.py`. You should still see `status: ok` with a non‑mock answer.
 - Set `GEMINI_API_KEY`, `GEMINI_BATCH_TIER`, `GEMINI_BATCH_USE_REAL_API=1` when ready for real calls.
 - Run `gb-config doctor` until no issues are reported.
 - Re-run the example; iterate with How‑to → Troubleshooting if needed.
+
+Last reviewed: 2025-09

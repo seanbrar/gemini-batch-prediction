@@ -2,7 +2,7 @@
 
 Last reviewed: 2025-09
 
-Audience: contributors and maintainers working on tests. If you only need to run tests, see How‑to → Testing. For terminology (lanes, markers, characterization, smoke), see Explanation → Glossary.
+Audience: contributors and maintainers working on tests. If you only need to run tests, see How‑to → [Testing](how-to/testing.md). For terminology (lanes, markers, characterization, smoke), see Explanation → [Glossary](explanation/glossary.md).
 
 > Goal: Make the suite easy to discover, fast to iterate on, and predictable in CI.
 
@@ -60,7 +60,7 @@ Register or adjust markers in `pyproject.toml` under `[tool.pytest.ini_options].
 - `make test`: Unit + characterization (goldens) when present; local default.
 - `make test-coverage`: Full suite with coverage report in `coverage_html_report/`.
 
-See Explanation → Testing Strategy for CI lanes used on PRs and `main` (`test-pr`, `test-main`).
+See Explanation → [Testing Strategy](testing-strategy.md) for CI lanes used on PRs and `main` (`test-pr`, `test-main`).
 
 <!-- markdownlint-disable MD046 -->
 !!! tip "Tips"

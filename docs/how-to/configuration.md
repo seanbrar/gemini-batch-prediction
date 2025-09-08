@@ -1,5 +1,7 @@
 # Configuration — How‑To
 
+Last reviewed: 2025-09
+
 > Audience: practitioners configuring or testing now. Task‑focused.
 
 !!! info "See also"

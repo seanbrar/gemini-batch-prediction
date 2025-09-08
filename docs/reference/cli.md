@@ -1,14 +1,13 @@
-# CLI — gb-config
+# CLI — gb-config and Cookbook Runner
 
-Minimal CLI for inspecting and validating effective configuration. Useful for local checks, CI logs, and quick diagnostics.
+Minimal CLIs for configuration diagnostics and running repository recipes.
 
 ## Overview
 
-- Command: `gb-config`
-- Availability: installed with the package (console script)
-- Redaction: secrets are never printed; sensitive values appear as `***redacted***`.
+- `gb-config`: Installed console script for inspecting and validating effective configuration. Secrets are never printed; sensitive values appear as `***redacted***`.
+- `python -m cookbook`: Module runner for executing recipes under `cookbook/` without setting `PYTHONPATH`.
 
-## Commands
+## `gb-config` Commands
 
 - `gb-config show`: Prints the effective, redacted config as JSON.
   - Use when you need a machine-readable snapshot for logs or CI artifacts.
@@ -70,7 +69,7 @@ Minimal CLI for inspecting and validating effective configuration. Useful for lo
 
 - CI usage: `gb-config show` and `gb-config doctor` always exit `0`; parse output for warnings or raise in your pipeline if necessary.
 - Redaction: `api_key` and other sensitive fields are always redacted by design.
-- See also: How‑to → Configuration for precedence rules and audit details.
+- See also: [How‑to → Configuration](../how-to/configuration.md) for precedence rules and audit details.
 
 ## CI usage examples
 
@@ -93,3 +92,67 @@ True
 ```
 
 Last reviewed: 2025-09
+
+## Cookbook Runner
+
+- Command: `python -m cookbook [--cwd-repo-root|--no-cwd-repo-root] [--list] <spec> [-- recipe_args]`
+- Spec forms:
+  - Path relative to repo: `cookbook/production/resume-on-failure.py`
+  - Path relative to `cookbook/`: `production/resume-on-failure.py`
+  - Dotted (maps `_` → `-` on disk): `production.resume_on_failure`
+- Default working directory: repository root. Opt out with `--no-cwd-repo-root`.
+- Pass recipe flags after `--` (everything after is forwarded to the recipe).
+
+Examples:
+
+```bash
+# List available recipes
+python -m cookbook --list
+
+# Run via path and pass recipe args
+python -m cookbook optimization/context-caching-explicit -- --limit 2
+
+# Run via dotted spec
+python -m cookbook production.resume_on_failure -- --limit 1
+```
+
+Notes:
+
+- Ensure you run from the repository root when using relative inputs/outputs, or rely on the default `--cwd-repo-root` behavior.
+- Recipes are excluded from helper directories (`utils/`, `templates/`, `data/`).
+
+### Cross-platform usage
+
+=== "Bash/Zsh (macOS/Linux)"
+
+```bash
+python -m cookbook --list
+python -m cookbook optimization/context-caching-explicit -- --limit 2
+python -m cookbook production.resume_on_failure -- --limit 1
+```
+
+=== "PowerShell (Windows)"
+
+```powershell
+# Prefer the dotted form for portability
+py -m cookbook --list
+py -m cookbook optimization.context_caching_explicit -- --limit 2
+py -m cookbook production.resume_on_failure -- --limit 1
+
+# You can also use paths; forward slashes work cross‑platform
+py -m cookbook optimization/context-caching-explicit.py -- --limit 2
+```
+
+=== "CMD (Windows)"
+
+```bat
+py -m cookbook --list
+py -m cookbook optimization\context-caching-explicit.py -- --limit 2
+py -m cookbook production.resume_on_failure -- --limit 1
+```
+
+Tips:
+
+- Use the dotted spec (e.g., `production.resume_on_failure`) for consistency across shells.
+- Pass recipe arguments after `--`; everything after is forwarded to the recipe unchanged.
+- The runner defaults to executing from the repository root; opt out with `--no-cwd-repo-root` when needed.

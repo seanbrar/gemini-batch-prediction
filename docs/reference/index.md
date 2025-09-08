@@ -16,6 +16,6 @@ When to use:
 
 See also:
 
-- How-to guides for step-by-step tasks
-- Explanation for design, rationale, and tradeoffs
-- Tutorials for first-run experiences
+- [How‑to Guides](../how-to/index.md) for step‑by‑step tasks
+- [Architecture](../explanation/architecture.md) for design, rationale, and tradeoffs
+- [Tutorials](../tutorials/index.md) for first‑run experiences

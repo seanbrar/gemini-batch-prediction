@@ -3,6 +3,8 @@
 **Date:** 2025-08-13
 **Status:** Accepted
 **Tags:** api-handler, provider-abstraction, capabilities, execution-state
+**Audience:** Contributors and adapter authors
+**Impacted Modules/APIs:** API Handler, provider adapter capability protocols, execution state shape
 
 ---
 

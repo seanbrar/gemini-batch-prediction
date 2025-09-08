@@ -1,8 +1,10 @@
-# RFP-0001 — Batch Vectorization and Fan-out in Core
+# DB-0001 — Vectorized Batching & Fan-out (Historical Design Brief)
 
-Status: Request for Proposals
+Status: Informational (Historical)
 Date: 2025-08-22
 Scope: Core pipeline (planner, API handler, result builder, rate limiting)
+
+Preface: This focused design brief was written to communicate a specific architectural concern — preserving per‑prompt identity in vectorized requests and orchestrating large fan‑out safely. It was not a solicitation for external proposals. The thinking here informed ADR‑0010, where the neutral `ExecutionOptions` seam superseded ad‑hoc hints for planner/result/cache intent.
 
 ## 1) Current State (Summary)
 
@@ -38,8 +40,8 @@ Scope: Core pipeline (planner, API handler, result builder, rate limiting)
   - Add a branch to detect batch responses and build `answers: list[str]` aligned to prompts with optional `per_prompt_metrics` included in `metrics` under a reserved key.
 - P4: Batch runner (or BatchExecutor)
   - Provide a small orchestrator to execute many `InitialCommand`s concurrently with bounded concurrency and integrated RateLimitHandler checks (global pacing). Return a stable `list[ResultEnvelope]` in input order.
-- P5: Planning hints (optional seam)
-  - Accept a neutral hint bag from the executor (or `InitialCommand.extras`) including a deterministic cache key and known artifacts. Planner uses this to set `ExplicitCachePlan.deterministic_key` and prefer reuse.
+- P5: Planning options (neutral seam)
+  - Accept a neutral, typed options bag (now `ExecutionOptions`) including a deterministic cache key and known artifacts. The planner/cache/result stages read these options without provider coupling.
 
 ## 5) API Sketches (High-level)
 
@@ -69,3 +71,7 @@ Scope: Core pipeline (planner, API handler, result builder, rate limiting)
 
 - Scripts: use examples/test_data/research_papers and test_files to run small batches with one-sentence prompts; confirm answer alignment and batch metrics.
 - Regression: continue to pad/truncate answers to expected counts and record schema/contract violations.
+
+## See also
+
+- ADR‑0010 — Hint Capsules → ExecutionOptions (adopted seam that emerged from this brief)

@@ -53,8 +53,9 @@ make lint
 
 Mock mode (default) requires no API key. To use the real API:
 
+=== "Bash/Zsh"
+
 ```bash
-# bash/zsh
 export GEMINI_API_KEY="<your key>"
 export GEMINI_BATCH_TIER=free      # free | tier_1 | tier_2 | tier_3
 export GEMINI_BATCH_USE_REAL_API=1
@@ -63,7 +64,7 @@ export GEMINI_BATCH_USE_REAL_API=1
 gb-config doctor
 ```
 
-Windows PowerShell:
+=== "PowerShell"
 
 ```powershell
 $Env:GEMINI_API_KEY = "<your key>"
@@ -80,3 +81,5 @@ gb-config doctor
 - Module not found: ensure Python 3.13 and a clean virtual environment.
 - Real API enabled but key missing: `gb-config doctor` will flag it.
 - Rate limit errors on first run: confirm `GEMINI_BATCH_TIER` matches billing.
+
+Last reviewed: 2025-09

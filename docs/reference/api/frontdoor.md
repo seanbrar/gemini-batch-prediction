@@ -4,9 +4,9 @@ Convenience helpers that wrap the executor for common scenarios.
 
 Usage examples:
 
-- Tutorials → Quickstart: tutorials/quickstart.md
-- Tutorials → First Batch: tutorials/first-batch.md
-- How‑to → Verify Real API: how-to/verify-real-api.md
+- Tutorials → [Quickstart](../../tutorials/quickstart.md)
+- Tutorials → [First Batch](../../tutorials/first-batch.md)
+- How‑to → [Verify Real API](../../how-to/verify-real-api.md)
 
 ::: gemini_batch.frontdoor.run_simple
 

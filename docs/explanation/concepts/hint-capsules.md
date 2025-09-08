@@ -118,7 +118,7 @@ InitialCommand(options?) ──► Execution Planner ──► Cache Stage ─�
 
 * **Command Pipeline:** Hints *decorate* the initial command; all handler responsibilities remain intact.
 * **Prompting System:** Unaffected. Prompt assembly precedes hint consumption; cache keys still include system text when present.
-* **Vectorization & Fan‑out (RFP‑0001):** `BatchHint` is explicitly out of scope for the minimal pass; the seam is compatible when added.
+* **Vectorization & Fan‑out (DB‑0001, historical brief):** `BatchHint` is explicitly out of scope for the minimal pass; the seam is compatible when added.
 
 ---
 
@@ -168,7 +168,7 @@ class ExecutionOptions:
 * Prompting System – Conceptual Overview (`docs/explanation/concepts/prompting.md`)
 * ADR‑0001 Command Pipeline (`docs/explanation/decisions/ADR-0001-command-pipeline.md`)
 * ADR‑0008 Conversation Extension (`docs/explanation/decisions/ADR-0008-conversation.md`)
-* RFP‑0001 Batch Vectorization and Fan‑out (`docs/explanation/decisions/RFP-0001-batch-vectorization-and-fanout.md`)
+* DB‑0001 Vectorization and Fan‑out (Historical Design Brief) (`docs/explanation/decisions/DB-0001-vectorization-and-fanout.md`)
 
 ### Using ExecutionOptions (example)
 

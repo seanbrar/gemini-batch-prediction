@@ -23,6 +23,12 @@ plugins:
                                           separate_signature: true
                                           members_order: source
                                           filters: ["!^_", "!^__"]
+        - htmlproofer:
+                  raise_error: true
+                  validate_external_urls: false
+                  ignore_urls:
+                          # Ignore mkdocstrings-generated anchors (dynamic per build); limited to gemini_batch anchors
+                          - "*#gemini_batch.*"
 markdown_extensions:
         - admonition
         - toc:
@@ -30,6 +36,7 @@ markdown_extensions:
         - tables
         - pymdownx.details
         - pymdownx.superfences
+        - pymdownx.tabbed
 nav:
         - Home: index.md
         - Tutorials:
@@ -45,17 +52,19 @@ nav:
                   - Configuration: how-to/configuration.md
                   - Configuration Migration: how-to/configuration-migration.md
                   - Verify Real API: how-to/verify-real-api.md
-                  - Caching (coming soon): how-to/caching.md
-                  - Telemetry Integration: telemetry.md
+                  - Caching: how-to/caching.md
+                  - Telemetry Integration: how-to/telemetry.md
                   - Extensions:
                             - Conversation (Advanced): how-to/conversation-advanced.md
+                            - Chunking (Extension): how-to/chunking.md
+                            - Provider Uploads (Extension): how-to/provider-uploads.md
                             - Provider Adapters: how-to/provider-adapters.md
                             - Token Counting (Extension): how-to/token-counting.md
                             - Custom Transforms: how-to/custom-transforms.md
                   - Research:
                             - Efficiency Workflows: how-to/research/efficiency-workflows.md
                   - Remote File Materialization: how-to/remote-file-materialization.md
-                  - Source Handling: source-handling.md
+                  - Source Handling: how-to/source-handling.md
                   - Logging: how-to/logging.md
                   - Testing: how-to/testing.md
                   - Troubleshooting: how-to/troubleshooting.md
@@ -64,6 +73,7 @@ nav:
         - Reference:
                   - Overview: reference/index.md
                   - ResultEnvelope Metrics: metrics.md
+                  - Caching: reference/caching.md
                   - Extensions Catalog: reference/extensions/catalog.md
                   - Research Catalog: reference/research/catalog.md
                   - API Reference (Overview): reference/api-reference.md
@@ -72,7 +82,8 @@ nav:
                             - Extensions:
                                       - Conversation: reference/api/extensions/conversation.md
                                       - Token Counting: reference/api/extensions/token-counting.md
-                                      - Provider Adapters: reference/api/extensions/provider-adapters.md
+                                      - Chunking: reference/api/extensions/chunking.md
+                                      - Provider Uploads: reference/api/extensions/provider-uploads.md
                             - Executor: reference/api/executor.md
                             - Frontdoor: reference/api/frontdoor.md
                             - Research: reference/api/research.md
@@ -84,6 +95,7 @@ nav:
                             - Pipeline: reference/internals/pipeline.md
                             - Prompts: reference/internals/prompts.md
                             - Adapters: reference/internals/adapters.md
+                            - Provider Adapters: reference/internals/provider-adapters.md
                             - Results: reference/internals/results.md
                   - Configuration: reference/configuration.md
         - Explanation:
@@ -116,7 +128,7 @@ nav:
                             - Token Counting Calibration: explanation/deep-dives/token-counting-calibration.md
                             - Contract-First Testing Patterns: explanation/deep-dives/contract-first-testing-patterns.md
                   - Advanced Extensibility: advanced-extensibility.md
-                  - Decisions (ADRs & RFPs):
+                  - Decisions (ADRs & Briefs):
                             - About ADRs & History: explanation/decisions/index.md
                             - ADR-0001 Command Pipeline: explanation/decisions/ADR-0001-command-pipeline.md
                             - ADR-0002 Token Counting Model: explanation/decisions/ADR-0002-token-counting-model.md
@@ -129,14 +141,14 @@ nav:
                             - ADR-0009 Prompting System: explanation/decisions/ADR-0009-prompting-system.md
                             - ADR-0010 Hint Capsules: explanation/decisions/ADR-0010-hint-capsules.md
                             - ADR-0011 Cache Policy: explanation/decisions/ADR-0011-cache-policy-and-planner-simplification.md
-                            - RFP-0001 Batch Vectorization & Fanout: explanation/decisions/RFP-0001-batch-vectorization-and-fanout.md
+                            - DB-0001 Vectorization & Fan‑out (Design Brief): explanation/decisions/DB-0001-vectorization-and-fanout.md
                   - Error Handling: explanation/error-handling.md
                   - Glossary: explanation/glossary.md
-                  - Project History & GSoC: explanation/history.md
         - Contributing:
                   - Contributing Guide: contributing/contributing.md
                   - Documentation Style Guide: contributing/docs_style_guide.md
                   - Docstring Style Guide: contributing/docstring_style.md
+                  - Authoring Templates: contributing/authoring_templates.md
                   - Cookbook Authoring: contributing/cookbook_authoring.md
                   - Docs Quality Checklist: contributing/docs_quality_checklist.md
                   - Testing Strategy: testing-strategy.md
@@ -146,3 +158,4 @@ nav:
                   - Research: domains/research.md
         - Project:
                   - Roadmap: roadmap.md
+                  - Project History & GSoC: explanation/history.md

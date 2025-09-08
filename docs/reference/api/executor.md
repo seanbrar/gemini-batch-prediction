@@ -2,9 +2,9 @@
 
 Usage examples:
 
-- Tutorials → Quickstart: tutorials/quickstart.md
-- Tutorials → First Batch: tutorials/first-batch.md
-- How‑to → Configuration: how-to/configuration.md
+- Tutorials → [Quickstart](../../tutorials/quickstart.md)
+- Tutorials → [First Batch](../../tutorials/first-batch.md)
+- How‑to → [Configuration](../../how-to/configuration.md)
 
 ::: gemini_batch.executor.GeminiExecutor
 

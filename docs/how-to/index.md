@@ -16,6 +16,6 @@ When to use:
 
 See also:
 
-- Tutorials for first-time onboarding
-- Reference for exact API/CLI details and defaults
-- Explanation for background on concepts, tradeoffs, and design
+- [Tutorials](../tutorials/index.md) for first‑time onboarding
+- [Reference](../reference/index.md) for exact API/CLI details and defaults
+- [Architecture](../explanation/architecture.md) for background on concepts, tradeoffs, and design
