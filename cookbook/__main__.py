@@ -130,8 +130,8 @@ def resolve_spec(spec: str) -> RecipeSpec:
     if accepted is not None:
         return accepted
 
-    # If it starts with 'cookbook/', strip and try relative to cookbook
-    if spec.startswith(COOKBOOK_DIRNAME + "/"):
+    # If it starts with 'cookbook/' (or Windows 'cookbook\'), strip and try relative to cookbook
+    if spec.startswith((COOKBOOK_DIRNAME + "/", COOKBOOK_DIRNAME + "\\")):
         rel = spec[len(COOKBOOK_DIRNAME) + 1 :]
         p2 = (croot / rel).resolve()
         accepted2 = _accept(p2)
