@@ -50,7 +50,7 @@ dev = [
     "mkdocs>=1.6.0",
     "mkdocs-material>=9.6.0",
     "mkdocstrings[python]>=0.25.0",
-    "mkdocstrings-python>=1.10.0",
+    "mkdocs-htmlproofer-plugin",
     "types-PyYAML>=6.0.12",
 ]
 viz = ["matplotlib~=3.10", "pandas~=2.3", "seaborn~=0.13"]
